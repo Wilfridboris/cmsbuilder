@@ -132,6 +132,14 @@ context:
 - **[false → reject] Migration comment "not re-evaluated per row" is plan-dependent (EC7)** — the comment is accurate: `IN (SELECT stable_srf())` plans as a once-evaluated InitPlan. No defect.
 - **[reject — fix edits frozen spec] Intent prose says "a real (local) Supabase instance" but the resolved Decision + code use a hosted test project (EC8)** — the frozen Intent's parenthetical is stale relative to the later-resolved Open Question. A finding whose fix edits this build's spec is rejected here; flagged to the human, who alone can amend the frozen wording.
 
+### Post-deploy advisor pass (2026-09-24)
+
+Migration applied to the hosted ca-central-1 test project (`rtzfehmkkmjqpuehllur`) via the Supabase MCP; ran the security advisors — which the local `db reset` verification did not.
+
+- **[high → patch] `org_active_record_counts` was a `SECURITY DEFINER` view (advisor ERROR `0010`)** — VERIFIED real cross-tenant leak: Postgres views default to `SECURITY DEFINER`, so the metering view bypassed RLS on `records` and would expose active-record counts for *every* org via `/rest/v1`. The review layers read the SQL but missed this Postgres default; the hosted advisor caught it. Fixed by a follow-up migration recreating the view `with (security_invoker = on)` — direct API reads now honor RLS; service-role metering is unaffected. Advisor ERROR cleared.
+- **[info → accept] `rls_enabled_no_policy` on `organizations`/`org_members`** — intentional deny-default (see Design Notes); reached only via `auth_org_ids()` (definer) and service-role. No policy by design.
+- **[warn → accept] `auth_org_ids()` executable by anon/authenticated** — benign: the function returns only the caller's own memberships (`where user_id = auth.uid()`); anon gets nothing, a member gets what it already knows. Revoking `EXECUTE` from `authenticated` would break the RLS policy that calls it (proven working 5/5). Accepted.
+
 ## Design Notes
 
 **RLS on the auxiliary tables.** `records` and `org_schemas` (both tenant data) get the membership policy. `organizations`/`org_members` get RLS enabled with no permissive policy → deny-all to `anon`/`authenticated`, reached only via the `SECURITY DEFINER` `auth_org_ids()` (definer rights bypass RLS, so no policy recursion) and the `service_role` admin client (bypasses RLS). Per-user read policies on those two are deferred to Epic 2 when auth lands. This satisfies "strict isolation" without introducing recursive policies in the walking skeleton.
