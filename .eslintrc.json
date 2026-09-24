@@ -1,0 +1,103 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": "latest",
+    "sourceType": "module",
+    "ecmaFeatures": {
+      "jsx": true
+    }
+  },
+  "env": {
+    "browser": true,
+    "node": true,
+    "es2022": true
+  },
+  "extends": [
+    "plugin:@next/next/core-web-vitals-legacy",
+    "plugin:react/recommended",
+    "plugin:react-hooks/recommended",
+    "plugin:jsx-a11y/recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "plugins": ["@next/next", "@typescript-eslint", "react", "react-hooks", "jsx-a11y", "i18next"],
+  "settings": {
+    "react": {
+      "version": "detect"
+    },
+    "next": {
+      "rootDir": "."
+    }
+  },
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "react/prop-types": "off",
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }
+    ],
+    "no-restricted-syntax": [
+      "error",
+      {
+        "selector": "MemberExpression[object.object.name='process'][object.property.name='env'][property.name='SUPABASE_SERVICE_ROLE_KEY']",
+        "message": "SUPABASE_SERVICE_ROLE_KEY must never be referenced in client-bundled code. Use it only in server-only files under src/app/api/**, src/lib/supabase/server.ts, or files suffixed *.server.ts."
+      },
+      {
+        "selector": "Literal[value='SUPABASE_SERVICE_ROLE_KEY']",
+        "message": "SUPABASE_SERVICE_ROLE_KEY must never be referenced in client-bundled code. Use it only in server-only files under src/app/api/**, src/lib/supabase/server.ts, or files suffixed *.server.ts."
+      },
+      {
+        "selector": "Identifier[name='SUPABASE_SERVICE_ROLE_KEY']",
+        "message": "SUPABASE_SERVICE_ROLE_KEY must never be referenced in client-bundled code. Use it only in server-only files under src/app/api/**, src/lib/supabase/server.ts, or files suffixed *.server.ts."
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/components/**/*.{ts,tsx}", "src/app/**/*.{ts,tsx}"],
+      "excludedFiles": [
+        "src/app/api/**",
+        "**/*.test.{ts,tsx}",
+        "**/*.spec.{ts,tsx}",
+        "**/*.server.ts"
+      ],
+      "rules": {
+        "i18next/no-literal-string": [
+          "error",
+          {
+            "mode": "jsx-text-only",
+            "message": "User-facing strings must resolve through next-intl useTranslations(); do not hardcode text in src/ components.",
+            "jsx-attributes": {
+              "exclude": [".*"]
+            },
+            "callees": {
+              "exclude": [".*"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "files": [
+        "src/app/api/**",
+        "src/lib/supabase/server.ts",
+        "**/*.server.ts",
+        "src/lib/billing/**",
+        "src/lib/stripe/**",
+        "src/lib/resend/**",
+        "src/lib/data/mutate.ts",
+        "src/middleware.ts"
+      ],
+      "rules": {
+        "no-restricted-syntax": "off"
+      }
+    },
+    {
+      "files": ["**/*.test.{ts,tsx}", "**/*.spec.{ts,tsx}", "tests/**"],
+      "rules": {
+        "i18next/no-literal-string": "off",
+        "no-restricted-syntax": "off"
+      }
+    }
+  ]
+}

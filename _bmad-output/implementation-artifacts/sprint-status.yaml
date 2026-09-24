@@ -1,0 +1,134 @@
+# generated: 2026-09-23
+# last_updated: 2026-09-24
+# project: SnapBusy
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+#
+# SPRINT SEQUENCE NOTE:
+# =====================
+# Epic numbering already encodes dependency/priority order — implement 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8.
+# Epic 2 (Claim/Accounts/Auth) precedes Epic 3 (Core Data) by design.
+# Epic 1 uses a WALKING-SKELETON order: Story 1.1 (scaffold) → 1.2 (data model + live-table proof)
+#   must land first; LLM/fallback/dashboard/explainability layer on that proven spine.
+# Epic 4 (Data Import) is ACTIVATION-CRITICAL — do NOT defer it past Epic 3 (claim clears
+#   synthetic data, so import must be ready or users hit empty tables).
+# Epics 9 (Growth) & 10 (Phase 3) are DEFERRED and intentionally unstoried (out of MVP scope).
+
+generated: 2026-09-23
+last_updated: 2026-09-24
+project: SnapBusy
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # ── Epic 1: Foundation & the Generative "Aha" Moment ─────────────────────
+  epic-1: in-progress
+  1-1-project-scaffold-toolchain: review
+  1-2-platform-data-model-tenant-isolation: backlog
+  1-3-guided-mad-libs-prompt-intake: backlog
+  1-4-ai-schema-synthetic-data-generation: backlog
+  1-5-hard-fallback-template: backlog
+  1-6-interactive-demo-dashboard: backlog
+  1-7-schema-explainability-one-tap-override: backlog
+  epic-1-retrospective: optional
+
+  # ── Epic 2: Claim, Accounts & Team Access ────────────────────────────────
+  epic-2: backlog
+  2-1-claim-app-via-magic-link: backlog
+  2-2-passwordless-login-for-returning-users: backlog
+  2-3-invite-team-members-with-roles: backlog
+  2-4-role-based-access-enforcement: backlog
+  epic-2-retrospective: optional
+
+  # ── Epic 3: Core Data Management (Daily Driver) ──────────────────────────
+  epic-3: backlog
+  3-1-responsive-table-card-views: backlog
+  3-2-add-delete-records: backlog
+  3-3-inline-edit-with-optimistic-ui: backlog
+  3-4-filter-sort-records: backlog
+  3-5-admin-column-hide: backlog
+  3-6-real-time-multi-user-sync: backlog
+  epic-3-retrospective: optional
+
+  # ── Epic 4: Data Import — CSV/Excel with AI Column Mapping (ACTIVATION-CRITICAL) ──
+  epic-4: backlog
+  4-1-upload-parse-a-spreadsheet: backlog
+  4-2-ai-proposed-column-mapping: backlog
+  4-3-edit-mapping-resolve-flagged-columns: backlog
+  4-4-confirm-import: backlog
+  epic-4-retrospective: optional
+
+  # ── Epic 5: Conversational Schema Editor (Append-Only, Guarded) ──────────
+  epic-5: backlog
+  5-1-add-a-column-via-chat: backlog
+  5-2-add-a-table-via-chat: backlog
+  5-3-create-a-view-via-chat: backlog
+  5-4-schema-validator-guardrails-rejection-handling: backlog
+  5-5-safe-handling-of-unsupported-operations: backlog
+  epic-5-retrospective: optional
+
+  # ── Epic 6: Public Intake Forms ──────────────────────────────────────────
+  epic-6: backlog
+  6-1-auto-generated-public-intake-form: backlog
+  6-2-no-auth-external-submission: backlog
+  6-3-real-time-push-to-owners-dashboard: backlog
+  6-4-email-notification-on-new-submission: backlog
+  epic-6-retrospective: optional
+
+  # ── Epic 7: Billing, Trials & Usage Metering ─────────────────────────────
+  epic-7: backlog
+  7-1-14-day-free-trial: backlog
+  7-2-start-usage-based-subscription-via-stripe-checkout: backlog
+  7-3-manage-subscription-via-stripe-customer-portal: backlog
+  7-4-read-only-gating-trial-reminders: backlog
+  7-5-active-record-usage-metering-reporting: backlog
+  7-6-live-usage-meter-optional-spend-cap: backlog
+  epic-7-retrospective: optional
+
+  # ── Epic 8: Localization, PWA & Compliance/Offboarding ───────────────────
+  epic-8: backlog
+  8-1-instant-en-fr-ui-toggle: backlog
+  8-2-pwa-install: backlog
+  8-3-field-level-sensitivity-indicator: backlog
+  8-4-download-my-data: backlog
+  8-5-self-service-offboarding: backlog
+  epic-8-retrospective: optional
+
+  # ── Epic 9: Growth Substrate (DEFERRED — post-$1K MRR, unstoried) ────────
+  epic-9: backlog
+  epic-9-retrospective: optional
+
+  # ── Epic 10: Autonomous Operations (DEFERRED — Phase 3, gated, unstoried) ─
+  epic-10: backlog
+  epic-10-retrospective: optional

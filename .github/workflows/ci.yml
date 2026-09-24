@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  quality:
+    name: Lint, type-check & test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (includes service-role-key + hardcoded-string gates)
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run type-check
+
+      - name: Unit / integration tests
+        run: npm run test
+
+      # ---------------------------------------------------------------------
+      # RLS isolation test — added in Story 1.2. It is a HARD CI gate that must
+      # run against a real Supabase instance (member of Org A can read Org A's
+      # records; a stranger cannot). Intentionally NOT wired here yet, and this
+      # job must NOT fail on its absence during Story 1.1.
+      #
+      #   - name: RLS isolation (integration)
+      #     run: npm run test:rls
+      # ---------------------------------------------------------------------
