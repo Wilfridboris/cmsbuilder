@@ -58,3 +58,6 @@ next-env.d.ts
 /.claude/
 /.agents/
 /.opencode/
+
+# Playwright MCP test artifacts (screenshots, snapshots, console logs)
+.playwright-mcp/
