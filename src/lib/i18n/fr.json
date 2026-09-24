@@ -42,6 +42,7 @@
     "loadingLabel": "Création de votre tableau de bord",
     "readyTitle": "Votre tableau de bord est prêt",
     "readySubtitle": "Voici un premier aperçu de votre entreprise, prérempli avec des données d'exemple adaptées à l'Ontario. Vous pourrez le personnaliser après avoir créé un compte.",
+    "fallbackBanner": "Nous avons utilisé un modèle de départ — vous pourrez le personnaliser à l'aide du clavardage.",
     "tableCaption": "Enregistrements générés pour {table}, lus depuis votre session.",
     "emptyTable": "Aucune ligne d'exemple n'a été générée pour ce tableau.",
     "failedTitle": "Réessayons",

@@ -42,6 +42,7 @@
     "loadingLabel": "Building your dashboard",
     "readyTitle": "Your dashboard is ready",
     "readySubtitle": "Here's a first look at your business, pre-filled with Ontario-ready sample data. You can make it your own after you create an account.",
+    "fallbackBanner": "We used a starter template — you can customize it using the chat.",
     "tableCaption": "Generated records for {table}, read from your session.",
     "emptyTable": "No sample rows were generated for this table.",
     "failedTitle": "Let's try that again",

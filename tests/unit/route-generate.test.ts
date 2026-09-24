@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 
 /**
- * Unit coverage for the `POST /api/generate` orchestration (Story 1.4) WITHOUT a
- * live LLM or DB. The pipeline collaborators (Gemini client, validator, provision,
- * records read-back, admin client) are mocked; `session.ts` is REAL so the signed
- * cookie round-trip is exercised end-to-end. Asserts: 502 + `data:null` on two
- * consecutive failures (with no provisioning), 200 + a signed `Set-Cookie` on
- * success, org reuse from a valid incoming cookie, and 422 on a malformed body
- * with no LLM call.
+ * Unit coverage for the `POST /api/generate` orchestration (Stories 1.4 + 1.5)
+ * WITHOUT a live LLM or DB. The pipeline collaborators (Gemini client, validator,
+ * provision, records read-back, admin client) are mocked; `session.ts` is REAL so
+ * the signed cookie round-trip is exercised end-to-end. Asserts: 200 + a signed
+ * `Set-Cookie` on success, org reuse from a valid incoming cookie, 422 on a
+ * malformed body with no LLM call, and — the Story 1.5 seam — that two consecutive
+ * generation failures provision the hardcoded fallback template (200 + `isFallback`
+ * + cookie, NOT a 502), degrading to a last-resort 502 ONLY if the fallback
+ * provisioning itself throws.
  */
 
 const callGeminiWithTimeout = vi.fn();
@@ -90,6 +92,8 @@ describe("POST /api/generate", () => {
     expect(body.error).toBeNull();
     expect(body.data.schema).toEqual(SCHEMA);
     expect(body.data.records.clients).toHaveLength(1);
+    // A real generation is not a fallback.
+    expect(body.data.isFallback).toBe(false);
 
     // A fresh org was minted (no incoming cookie).
     expect(provisionGeneration).toHaveBeenCalledWith(
@@ -115,9 +119,56 @@ describe("POST /api/generate", () => {
     );
   });
 
-  it("degrades to 502 with data:null after two consecutive failures, without provisioning", async () => {
+  it("provisions the fallback template (200 + isFallback + cookie) after two consecutive failures", async () => {
+    const { POST } = await import("@/app/api/generate/route");
+    const { UNIVERSAL_FIELD_SERVICE_TEMPLATE } = await import(
+      "@/lib/generation/fallback"
+    );
+    const { SESSION_COOKIE_NAME, decodeSessionValue } = await import(
+      "@/lib/generation/session"
+    );
+    callGeminiWithTimeout.mockRejectedValue(new Error("boom"));
+    // Read-back returns whatever was provisioned; make it the fallback schema so
+    // the 200 reveal reflects the template.
+    const fallbackDefinition = {
+      ...UNIVERSAL_FIELD_SERVICE_TEMPLATE,
+      isFallback: true,
+    };
+    provisionGeneration.mockResolvedValue({
+      orgId: "org-fallback",
+      schema: fallbackDefinition,
+    });
+    getSchema.mockResolvedValue({ data: fallbackDefinition, error: null });
+    listRecords.mockResolvedValue({ data: [], error: null });
+
+    const res = await POST(makeReq(VALID_INTENT));
+
+    // No error screen: the fallback path returns 200, not a 502.
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data.isFallback).toBe(true);
+    // Exactly one retry (two attempts) before the fallback fires.
+    expect(callGeminiWithTimeout).toHaveBeenCalledTimes(2);
+    // The fallback template + seed rows were handed to provisioning with the flag
+    // and a distinct idempotency-key prefix (so its rows can't collide with a
+    // prior real generation's `gen-seed-*` keys in a reused org).
+    expect(provisionGeneration).toHaveBeenCalledWith(
+      expect.objectContaining({
+        schema: expect.objectContaining({ isFallback: true }),
+        idempotencyPrefix: "fallback",
+      }),
+    );
+    // A session cookie is still set on the fallback reveal.
+    const cookie = res.cookies.get(SESSION_COOKIE_NAME);
+    expect(decodeSessionValue(cookie!.value)).toBe("org-fallback");
+  });
+
+  it("degrades to a last-resort 502 only if the fallback provisioning itself throws", async () => {
     const { POST } = await import("@/app/api/generate/route");
     callGeminiWithTimeout.mockRejectedValue(new Error("boom"));
+    // Fallback provisioning fails too (e.g. total DB outage).
+    provisionGeneration.mockRejectedValue(new Error("db down"));
 
     const res = await POST(makeReq(VALID_INTENT));
 
@@ -125,9 +176,9 @@ describe("POST /api/generate", () => {
     const body = await res.json();
     expect(body.data).toBeNull();
     expect(body.error).toBeTruthy();
-    // Exactly one retry (two attempts), and nothing was provisioned.
+    // Two generation attempts, then exactly one fallback provisioning attempt.
     expect(callGeminiWithTimeout).toHaveBeenCalledTimes(2);
-    expect(provisionGeneration).not.toHaveBeenCalled();
+    expect(provisionGeneration).toHaveBeenCalledTimes(1);
   });
 
   it("returns 422 for a malformed body and never calls the LLM", async () => {

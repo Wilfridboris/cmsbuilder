@@ -34,6 +34,14 @@ export type ProvisionInput = {
   schema: SchemaDefinition;
   /** Raw `seedRows` map from the LLM (table_key → rows); filtered per table. */
   seedRows: unknown;
+  /**
+   * Prefix for the per-row idempotency keys (`<prefix>-<table_key>-<i>`).
+   * Defaults to `gen-seed` (the real-generation path). The Story 1.5 fallback
+   * passes `fallback` so its rows can never collide with a prior real
+   * generation's `gen-seed-*` keys when both provision into the SAME reused
+   * session org and share a normalized `table_key` (e.g. `clients`).
+   */
+  idempotencyPrefix?: string;
 };
 
 export type ProvisionResult = {
@@ -109,6 +117,7 @@ export async function provisionGeneration(
   admin: SupabaseClient = createAdminClient(),
 ): Promise<ProvisionResult> {
   const orgId = await resolveOrg(admin, input.orgId);
+  const keyPrefix = input.idempotencyPrefix ?? "gen-seed";
 
   // Persist the schema BEFORE any rows — a bad seed batch must never prevent the
   // visitor from landing on a populated (or at least structured) view.
@@ -124,7 +133,7 @@ export async function provisionGeneration(
     const rows = filterSeedRows(table, seedRowsForTable(input.seedRows, table.key));
     for (let i = 0; i < rows.length; i += 1) {
       const result = await mutate(identity, "insert", table.key, rows[i], {
-        idempotencyKey: `gen-seed-${table.key}-${i}`,
+        idempotencyKey: `${keyPrefix}-${table.key}-${i}`,
       });
       // A single bad row must not abort provisioning — skip and continue.
       if (result.error) {

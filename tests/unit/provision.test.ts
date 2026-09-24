@@ -179,6 +179,26 @@ describe("provisionGeneration — happy path", () => {
     ]);
   });
 
+  it("uses a custom idempotency-key prefix when provided (Story 1.5 fallback)", async () => {
+    const admin = new FakeAdmin();
+
+    await provisionGeneration(
+      {
+        schema: SCHEMA,
+        seedRows: { clients: [{ name: "A" }, { name: "B" }] },
+        idempotencyPrefix: "fallback",
+      },
+      asClient(admin),
+    );
+
+    // Fallback rows key on `fallback-*`, never `gen-seed-*` — so they can't
+    // collide with a prior real generation's rows in a reused session org.
+    expect(admin.records.map((r) => r.idempotency_key)).toEqual([
+      "fallback-clients-0",
+      "fallback-clients-1",
+    ]);
+  });
+
   it("reuses the provided session org id (idempotent per session)", async () => {
     const admin = new FakeAdmin();
     const existing = "11111111-1111-1111-1111-111111111111";

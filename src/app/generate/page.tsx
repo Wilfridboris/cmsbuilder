@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
+import { Sparkles } from "lucide-react";
 
 import { readIntent } from "@/lib/generation/intent";
 import type { FieldDefinition } from "@/types/db";
@@ -19,12 +20,14 @@ import type { GenerateResponse } from "@/app/api/generate/route";
  * edit, explainability UI, and the grow-into-dashboard Framer Motion transition
  * are deferred to Stories 1.6/1.7.
  *
- * It NEVER shows a raw error screen: no valid intent, or a double-failure from
- * the endpoint, both degrade to a gentle "start over" path (the Story 1.5
- * fallback-template seam). Accessibility: `aria-busy`/`aria-live` on the live
- * region, a semantic `<table>` with a caption and column scopes; the only motion
- * is a CSS pulse on the loading skeleton (respects `prefers-reduced-motion` at
- * the app level).
+ * It NEVER shows a raw error screen. A double-failure at the endpoint now lands
+ * on a populated fallback dashboard (Story 1.5): the response carries
+ * `isFallback: true` and a subtle "starter template" banner renders above the
+ * tables. The "start over" (`failed`) path fires only when there is no valid
+ * intent, or on the endpoint's last-resort 502 (the fallback provisioning itself
+ * failing). Accessibility: `aria-busy`/`aria-live` on the live region, a semantic
+ * `<table>` with a caption and column scopes; the only motion is a CSS pulse on
+ * the loading skeleton (respects `prefers-reduced-motion` at the app level).
  */
 
 type Phase = "initializing" | "generating" | "ready" | "missing" | "failed";
@@ -105,6 +108,23 @@ export default function GeneratePage() {
           </h1>
           <p className="text-base text-muted-foreground">{t("readySubtitle")}</p>
         </header>
+
+        {/* Fallback banner (Story 1.5): a subtle, non-alarming, dismiss-free
+            note shown only when the hardcoded starter template was provisioned.
+            `role="status"` announces it to assistive tech without stealing
+            focus; it is informational only (customization is Epic 5's chat). */}
+        {result.isFallback ? (
+          <div
+            role="status"
+            className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground/80"
+          >
+            <Sparkles
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-primary"
+            />
+            <p className="text-pretty">{t("fallbackBanner")}</p>
+          </div>
+        ) : null}
 
         <div aria-live="polite" className="flex flex-col gap-10">
           {result.schema.tables.map((table) => {

@@ -51,7 +51,9 @@ export async function listRecords(
  * A missing row — or a present-but-empty definition (the DB default is
  * `'{}'::jsonb`, which has no `tables` key) — is normalized to `{ tables: [] }`
  * so a freshly-provisioned org degrades gracefully and callers can always rely
- * on `.tables` being an array.
+ * on `.tables` being an array. Other top-level definition fields (e.g. the
+ * Story 1.5 `isFallback` flag) are preserved verbatim, so the flag stored at
+ * provisioning survives read-back and claim.
  */
 export async function getSchema(
   client: SupabaseClient,
@@ -68,7 +70,12 @@ export async function getSchema(
   }
 
   const raw = data?.definition as Partial<SchemaDefinition> | undefined;
-  const definition: SchemaDefinition = { tables: raw?.tables ?? [] };
+  // Preserve every top-level definition field (e.g. `isFallback`) and only
+  // normalize `tables` to an array — reconstructing `{ tables }` alone would
+  // silently drop the persisted fallback flag on read-back.
+  const definition: SchemaDefinition = raw
+    ? { ...raw, tables: raw.tables ?? [] }
+    : { tables: [] };
 
   return { data: definition, error: null };
 }
