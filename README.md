@@ -70,7 +70,7 @@ produced" acceptance criterion and to run the app against live services.
 ### 1. GitHub repository
 
 The app lives at the repository root, pushed to `origin`
-(`github.com/legrowtech/cmsbuilder`) on the `main` branch. CI runs on every push
+(`github.com/Wilfridboris/cmsbuilder`) on the `main` branch. CI runs on every push
 and pull request.
 
 ### 2. Link the Vercel project and set environment variables
