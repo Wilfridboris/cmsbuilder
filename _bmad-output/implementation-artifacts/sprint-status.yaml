@@ -56,7 +56,7 @@ development_status:
   epic-1: in-progress
   1-1-project-scaffold-toolchain: done
   1-2-platform-data-model-tenant-isolation: done
-  1-3-guided-mad-libs-prompt-intake: backlog
+  1-3-guided-mad-libs-prompt-intake: review
   1-4-ai-schema-synthetic-data-generation: backlog
   1-5-hard-fallback-template: backlog
   1-6-interactive-demo-dashboard: backlog

@@ -6,6 +6,41 @@
     "cta": "Build my dashboard",
     "localeLabel": "Language"
   },
+  "PromptBuilder": {
+    "legend": "Describe your business",
+    "tradeLabel": "What's your trade?",
+    "tradePlaceholder": "Select your trade",
+    "trade": {
+      "hvac": "HVAC",
+      "plumbing": "Plumbing",
+      "roofing": "Roofing",
+      "snow_removal": "Snow Removal",
+      "landscaping": "Landscaping",
+      "electrical": "Electrical",
+      "general_contracting": "General Contracting",
+      "other": "Other"
+    },
+    "cityLabel": "Which city or town do you serve?",
+    "cityPlaceholder": "e.g. Ottawa",
+    "trackLabel": "What do you need to keep track of?",
+    "trackPlaceholder": "e.g. jobs, quotes, customers, and which invoices are still unpaid",
+    "cta": "Build my dashboard",
+    "validation": {
+      "tradeRequired": "Please choose your trade.",
+      "cityRequired": "Please enter the city or town you serve.",
+      "cityTooLong": "Please keep the city or town under 80 characters.",
+      "trackRequired": "Tell us a little more about what you track (at least 3 characters).",
+      "trackTooLong": "Please keep this under 280 characters."
+    }
+  },
+  "Generate": {
+    "title": "Building your dashboard…",
+    "subtitle": "We're turning your description into a working, Ontario-ready dashboard. This only takes a few seconds.",
+    "missingTitle": "Let's start with your business",
+    "missingBody": "We couldn't find a business description to build from. Head back and tell us about your trade.",
+    "restart": "Start over",
+    "loadingLabel": "Building your dashboard"
+  },
   "Demo": {
     "title": "Live demo dashboard",
     "subtitle": "A seeded, read-only view proving the tenant data pipeline end-to-end.",

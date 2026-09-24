@@ -6,6 +6,41 @@
     "cta": "Créer mon tableau de bord",
     "localeLabel": "Langue"
   },
+  "PromptBuilder": {
+    "legend": "Décrivez votre entreprise",
+    "tradeLabel": "Quel est votre métier?",
+    "tradePlaceholder": "Sélectionnez votre métier",
+    "trade": {
+      "hvac": "CVC (chauffage et climatisation)",
+      "plumbing": "Plomberie",
+      "roofing": "Toiture",
+      "snow_removal": "Déneigement",
+      "landscaping": "Aménagement paysager",
+      "electrical": "Électricité",
+      "general_contracting": "Entrepreneur général",
+      "other": "Autre"
+    },
+    "cityLabel": "Quelle ville desservez-vous?",
+    "cityPlaceholder": "p. ex. Ottawa",
+    "trackLabel": "Que devez-vous suivre?",
+    "trackPlaceholder": "p. ex. les travaux, les devis, les clients et les factures impayées",
+    "cta": "Créer mon tableau de bord",
+    "validation": {
+      "tradeRequired": "Veuillez choisir votre métier.",
+      "cityRequired": "Veuillez indiquer la ville que vous desservez.",
+      "cityTooLong": "Veuillez limiter la ville à moins de 80 caractères.",
+      "trackRequired": "Précisez un peu ce que vous suivez (au moins 3 caractères).",
+      "trackTooLong": "Veuillez limiter ce champ à 280 caractères."
+    }
+  },
+  "Generate": {
+    "title": "Création de votre tableau de bord…",
+    "subtitle": "Nous transformons votre description en un tableau de bord fonctionnel et adapté à l'Ontario. Cela ne prend que quelques secondes.",
+    "missingTitle": "Commençons par votre entreprise",
+    "missingBody": "Nous n'avons trouvé aucune description d'entreprise à partir de laquelle démarrer. Revenez en arrière et parlez-nous de votre métier.",
+    "restart": "Recommencer",
+    "loadingLabel": "Création de votre tableau de bord"
+  },
   "Demo": {
     "title": "Tableau de bord de démonstration en direct",
     "subtitle": "Une vue en lecture seule, préremplie, qui valide le pipeline de données locataire de bout en bout.",
