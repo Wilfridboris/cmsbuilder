@@ -85,7 +85,18 @@ async function attemptGeneration(
     throw new AppError(422, validation.error, "schema validation rejected");
   }
 
-  return { schema: validation.sanitized, seedRows: output.seedRows };
+  // `seedRows` comes back as a JSON string (see GENERATION_RESPONSE_SCHEMA). Parse
+  // it tolerantly — a malformed blob degrades to no rows, never a failed schema.
+  let seedRows: unknown = output.seedRows;
+  if (typeof seedRows === "string") {
+    try {
+      seedRows = JSON.parse(seedRows);
+    } catch {
+      seedRows = undefined;
+    }
+  }
+
+  return { schema: validation.sanitized, seedRows };
 }
 
 export async function POST(

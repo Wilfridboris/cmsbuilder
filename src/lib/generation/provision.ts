@@ -6,6 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mutate, type MutateIdentity } from "@/lib/data/mutate";
 import { filterSeedRows } from "@/lib/schema/validator";
+import { normalizeTableName } from "@/lib/utils";
 import type { SchemaDefinition } from "@/types/db";
 
 /**
@@ -44,7 +45,19 @@ function seedRowsForTable(seedRows: unknown, tableKey: string): unknown {
   if (!seedRows || typeof seedRows !== "object") {
     return undefined;
   }
-  return (seedRows as Record<string, unknown>)[tableKey];
+  const map = seedRows as Record<string, unknown>;
+  // Prefer an exact match; fall back to a normalized-key match so a model that
+  // keyed seedRows with the raw (un-normalized) table name still lines up with
+  // the sanitized `table.key` the schema was persisted under.
+  if (tableKey in map) {
+    return map[tableKey];
+  }
+  for (const rawKey of Object.keys(map)) {
+    if (normalizeTableName(rawKey) === tableKey) {
+      return map[rawKey];
+    }
+  }
+  return undefined;
 }
 
 /** Mint a fresh anonymous org, or verify/reuse the one the session already has. */

@@ -38,7 +38,9 @@ function getClient(): GoogleGenAI {
   return sharedClient;
 }
 
-export const GEMINI_MODEL = "gemini-2.0-flash";
+// `gemini-2.0-flash` (pinned by the original spec) was retired by Google; the
+// live API now returns 404 and recommends this model. See spec ratification note.
+export const GEMINI_MODEL = "gemini-3.8-flash";
 
 export async function callGeminiWithTimeout<T>(
   userPrompt: string,

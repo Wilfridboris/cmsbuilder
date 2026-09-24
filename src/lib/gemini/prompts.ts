@@ -90,17 +90,19 @@ Requirements:
 - For each table, generate 5 to 8 realistic seed rows. Seed data must be specific to this trade and localized to Ontario (real ${intent.city} / Greater-Toronto-Area / Ottawa-region street names, standard Ontario pricing in Canadian dollars, and real trade terminology).
 - LANGUAGE: detect the language the owner used in the description above and generate ALL output — every table label, field label, reason, and seed value — in that same language. This is independent of any interface language. If the description is in French, everything you output must be in French.
 
-Return only JSON matching the provided response schema: a "schema" object with the table/field definitions, and a "seedRows" object mapping each table's key to its array of row objects (each row keyed by the table's field keys).`;
+Return only JSON matching the provided response schema: a "schema" object with the table/field definitions, and "seedRows" as a JSON STRING (stringified JSON) that parses to an object mapping each table's key to its array of row objects (each row keyed by that table's field keys). Use the EXACT same key for a table in seedRows as in schema.tables[].key.`;
 }
 
 /**
  * The structured `responseSchema` for the single `{ schema, seedRows }` call.
  *
- * `seedRows` is intentionally an untyped object (a map of table_key → rows):
- * Gemini's `responseSchema` cannot express dynamic per-table row shapes, and a
- * malformed `seedRows` section must never invalidate an otherwise-valid schema
- * (rows are shape-checked and filtered downstream). The `schema` half IS fully
- * constrained so structure/type/reason are reliably present.
+ * `seedRows` is a JSON STRING, not an object: Gemini's structured-output mode
+ * returns `{}` for a property-less OBJECT (it only emits declared properties), so
+ * a free-form per-table row map cannot be expressed as an object here. Encoding it
+ * as a string lets the model fill it; the caller `JSON.parse`s it, and a malformed
+ * blob is tolerated downstream (`filterSeedRows`) so it never invalidates an
+ * otherwise-valid schema. The `schema` half IS fully constrained so
+ * structure/type/reason are reliably present.
  */
 export const GENERATION_RESPONSE_SCHEMA = {
   type: Type.OBJECT,
@@ -143,9 +145,9 @@ export const GENERATION_RESPONSE_SCHEMA = {
       required: ["tables"],
     },
     seedRows: {
-      type: Type.OBJECT,
+      type: Type.STRING,
       description:
-        "Map of each table's key to an array of 5-8 seed row objects, each keyed by that table's field keys.",
+        'A JSON STRING (stringified) that parses to an object mapping each table\'s key (exactly the key used in schema.tables[].key) to an array of 5-8 row objects, each keyed by that table\'s field keys with realistic localized values. Example: {"clients":[{"name":"Acme","city":"Barrie"}]}',
     },
   },
   required: ["schema", "seedRows"],

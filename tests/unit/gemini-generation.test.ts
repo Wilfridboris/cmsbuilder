@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 describe("callGeminiWithTimeout — single-call contract", () => {
-  it("issues ONE gemini-2.0-flash call with the hardened system prompt + JSON schema", async () => {
+  it("issues ONE gemini-3.8-flash call with the hardened system prompt + JSON schema", async () => {
     const { callGeminiWithTimeout } = await import("@/lib/gemini/client");
     const { HARDENED_SYSTEM_PROMPT } = await import("@/lib/gemini/prompts");
 
@@ -60,7 +60,7 @@ describe("callGeminiWithTimeout — single-call contract", () => {
         abortSignal: unknown;
       };
     };
-    expect(arg.model).toBe("gemini-2.0-flash");
+    expect(arg.model).toBe("gemini-3.8-flash");
     expect(arg.contents).toBe("hello");
     expect(arg.config.systemInstruction).toBe(HARDENED_SYSTEM_PROMPT);
     expect(arg.config.responseMimeType).toBe("application/json");
