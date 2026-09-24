@@ -1,59 +1,176 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 
 import { readIntent } from "@/lib/generation/intent";
+import type { FieldDefinition } from "@/types/db";
+import type { ApiResponse } from "@/types/api";
+import type { GenerateResponse } from "@/app/api/generate/route";
 
 /**
- * Minimal hand-off route (Story 1.3, OQ1 → Option A).
+ * Generation surface (Story 1.4) — the visible "aha moment".
  *
- * Reads the captured `GenerationIntent` from the anonymous session and renders
- * a "Building…" skeleton stub — NO LLM, no generation, no database. Story 1.4
- * replaces this stub body with the real `/api/generate` pipeline; Story 1.3
- * owns only the navigable route + skeleton so the submit hand-off has a
- * destination. When no valid intent is present (direct navigation, corrupt
- * storage), it degrades to a gentle prompt to start over — never an error.
+ * On mount it reads the captured `GenerationIntent` from the anonymous session
+ * and POSTs it to `/api/generate`, showing the skeleton while awaiting, then
+ * revealing a minimal read-only table of the generated, Ontario-localized data
+ * (reusing the `/demo` `formatCell` render pattern). Interactivity, in-place
+ * edit, explainability UI, and the grow-into-dashboard Framer Motion transition
+ * are deferred to Stories 1.6/1.7.
  *
- * sessionStorage is an external store, so it is read via `useSyncExternalStore`
- * — the server snapshot is `false` (no window), giving a stable SSR/first-paint
- * skeleton, then the client resolves the real presence on hydration.
+ * It NEVER shows a raw error screen: no valid intent, or a double-failure from
+ * the endpoint, both degrade to a gentle "start over" path (the Story 1.5
+ * fallback-template seam). Accessibility: `aria-busy`/`aria-live` on the live
+ * region, a semantic `<table>` with a caption and column scopes; the only motion
+ * is a CSS pulse on the loading skeleton (respects `prefers-reduced-motion` at
+ * the app level).
  */
 
-/** sessionStorage never changes under this stub, so there is nothing to subscribe to. */
-const noopSubscribe = () => () => {};
-const hasIntentClient = () => readIntent() !== null;
-const hasIntentServer = () => false;
+type Phase = "initializing" | "generating" | "ready" | "missing" | "failed";
 
 export default function GeneratePage() {
   const t = useTranslations("Generate");
-  const hasIntent = useSyncExternalStore(
-    noopSubscribe,
-    hasIntentClient,
-    hasIntentServer,
-  );
+  const [phase, setPhase] = useState<Phase>("initializing");
+  const [result, setResult] = useState<GenerateResponse | null>(null);
+  // Guard against duplicate POSTs (React 18/19 StrictMode double-invokes effects).
+  const startedRef = useRef(false);
 
-  if (!hasIntent) {
+  useEffect(() => {
+    // StrictMode double-invokes this effect on the same instance; the ref makes
+    // exactly one POST run. We deliberately do NOT abort on cleanup: aborting the
+    // sole request and then short-circuiting the re-invocation on the ref would
+    // leave the page stuck on the skeleton in dev, and a cookie-less POST aborted
+    // mid-flight can still mint a session org server-side. Letting the one request
+    // finish keeps a single org + a single reveal; a stray setState after a real
+    // unmount is a no-op in React 18+.
+    if (startedRef.current) {
+      return;
+    }
+    startedRef.current = true;
+
+    (async () => {
+      const intent = readIntent();
+      if (!intent) {
+        setPhase("missing");
+        return;
+      }
+
+      setPhase("generating");
+      try {
+        const res = await fetch("/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(intent),
+        });
+        const body: ApiResponse<GenerateResponse> = await res.json();
+        if (!res.ok || !body.data) {
+          setPhase("failed");
+          return;
+        }
+        setResult(body.data);
+        setPhase("ready");
+      } catch {
+        setPhase("failed");
+      }
+    })();
+  }, []);
+
+  if (phase === "missing") {
     return (
-      <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-4 px-6 py-16 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {t("missingTitle")}
-        </h1>
-        <p className="text-base text-muted-foreground">{t("missingBody")}</p>
-        <Link
-          href="/"
-          className="mx-auto inline-flex min-h-12 items-center justify-center rounded-md bg-primary px-6 text-base font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-        >
-          {t("restart")}
-        </Link>
+      <StartOver
+        title={t("missingTitle")}
+        body={t("missingBody")}
+        cta={t("restart")}
+      />
+    );
+  }
+
+  if (phase === "failed") {
+    return (
+      <StartOver
+        title={t("failedTitle")}
+        body={t("failedBody")}
+        cta={t("restart")}
+      />
+    );
+  }
+
+  if (phase === "ready" && result) {
+    return (
+      <main className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-8 px-6 py-16">
+        <header className="flex flex-col gap-2">
+          <h1 className="text-3xl font-semibold tracking-tight">
+            {t("readyTitle")}
+          </h1>
+          <p className="text-base text-muted-foreground">{t("readySubtitle")}</p>
+        </header>
+
+        <div aria-live="polite" className="flex flex-col gap-10">
+          {result.schema.tables.map((table) => {
+            const fields = table.fields.filter((field) => !field.hidden);
+            const rows = result.records[table.key] ?? [];
+            return (
+              <section key={table.key} className="flex flex-col gap-3">
+                <h2 className="text-xl font-medium tracking-tight">
+                  {table.label}
+                </h2>
+                {fields.length > 0 && rows.length > 0 ? (
+                  <div className="overflow-x-auto rounded-lg border border-foreground/10">
+                    <table className="w-full border-collapse text-left text-sm">
+                      <caption className="sr-only">
+                        {t("tableCaption", { table: table.label })}
+                      </caption>
+                      <thead>
+                        <tr className="border-b border-foreground/10 bg-foreground/5">
+                          {fields.map((field) => (
+                            <th
+                              key={field.key}
+                              scope="col"
+                              className="px-4 py-3 font-medium text-foreground/80"
+                            >
+                              {field.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rows.map((row) => (
+                          <tr
+                            key={row.id}
+                            className="border-b border-foreground/5 last:border-b-0"
+                          >
+                            {fields.map((field) => (
+                              <td
+                                key={field.key}
+                                className="px-4 py-3 text-foreground/90"
+                              >
+                                {formatCell(row.data[field.key], field.type, t)}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="text-base text-muted-foreground">
+                    {t("emptyTable")}
+                  </p>
+                )}
+              </section>
+            );
+          })}
+        </div>
       </main>
     );
   }
 
+  // initializing | generating → skeleton.
   return (
     <main
       aria-busy="true"
+      aria-live="polite"
       aria-label={t("loadingLabel")}
       className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-8 px-6 py-16"
     >
@@ -77,4 +194,49 @@ export default function GeneratePage() {
       </div>
     </main>
   );
+}
+
+/** Shared graceful degradation screen — never an error screen. */
+function StartOver({
+  title,
+  body,
+  cta,
+}: {
+  title: string;
+  body: string;
+  cta: string;
+}) {
+  return (
+    <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-4 px-6 py-16 text-center">
+      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+      <p className="text-base text-muted-foreground">{body}</p>
+      <Link
+        href="/"
+        className="mx-auto inline-flex min-h-12 items-center justify-center rounded-md bg-primary px-6 text-base font-medium text-primary-foreground transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+      >
+        {cta}
+      </Link>
+    </main>
+  );
+}
+
+/** Render a JSONB cell value per its field type. Non-load-bearing formatting. */
+function formatCell(
+  value: unknown,
+  type: FieldDefinition["type"],
+  t: ReturnType<typeof useTranslations>,
+): string {
+  if (value === null || value === undefined) {
+    return t("cellEmpty");
+  }
+  if (type === "currency" && typeof value === "number") {
+    return new Intl.NumberFormat("en-CA", {
+      style: "currency",
+      currency: "CAD",
+    }).format(value);
+  }
+  if (type === "boolean") {
+    return value ? t("cellYes") : t("cellNo");
+  }
+  return String(value);
 }

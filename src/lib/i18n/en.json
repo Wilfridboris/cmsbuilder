@@ -39,7 +39,16 @@
     "missingTitle": "Let's start with your business",
     "missingBody": "We couldn't find a business description to build from. Head back and tell us about your trade.",
     "restart": "Start over",
-    "loadingLabel": "Building your dashboard"
+    "loadingLabel": "Building your dashboard",
+    "readyTitle": "Your dashboard is ready",
+    "readySubtitle": "Here's a first look at your business, pre-filled with Ontario-ready sample data. You can make it your own after you create an account.",
+    "tableCaption": "Generated records for {table}, read from your session.",
+    "emptyTable": "No sample rows were generated for this table.",
+    "failedTitle": "Let's try that again",
+    "failedBody": "We couldn't finish building your dashboard just now. Head back and give it another try.",
+    "cellEmpty": "—",
+    "cellYes": "Yes",
+    "cellNo": "No"
   },
   "Demo": {
     "title": "Live demo dashboard",

@@ -39,7 +39,16 @@
     "missingTitle": "Commençons par votre entreprise",
     "missingBody": "Nous n'avons trouvé aucune description d'entreprise à partir de laquelle démarrer. Revenez en arrière et parlez-nous de votre métier.",
     "restart": "Recommencer",
-    "loadingLabel": "Création de votre tableau de bord"
+    "loadingLabel": "Création de votre tableau de bord",
+    "readyTitle": "Votre tableau de bord est prêt",
+    "readySubtitle": "Voici un premier aperçu de votre entreprise, prérempli avec des données d'exemple adaptées à l'Ontario. Vous pourrez le personnaliser après avoir créé un compte.",
+    "tableCaption": "Enregistrements générés pour {table}, lus depuis votre session.",
+    "emptyTable": "Aucune ligne d'exemple n'a été générée pour ce tableau.",
+    "failedTitle": "Réessayons",
+    "failedBody": "Nous n'avons pas pu terminer la création de votre tableau de bord pour le moment. Revenez en arrière et réessayez.",
+    "cellEmpty": "—",
+    "cellYes": "Oui",
+    "cellNo": "Non"
   },
   "Demo": {
     "title": "Tableau de bord de démonstration en direct",

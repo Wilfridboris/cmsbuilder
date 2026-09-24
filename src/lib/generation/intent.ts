@@ -110,6 +110,16 @@ const storedIntentSchema = z.object({
 });
 
 /**
+ * Server-safe body schema for `POST /api/generate` (Story 1.4). It is the exact
+ * locale-agnostic mirror of `storedIntentSchema` (the shape the client persists
+ * and POSTs) — reused rather than redefined so the capture and the route can
+ * never drift. Locale-specific error messages are irrelevant server-side: the
+ * route only cares whether the posted shape is valid, and returns a single
+ * translated message on failure.
+ */
+export const generationIntentBodySchema = storedIntentSchema;
+
+/**
  * Persist a captured intent to the anonymous session. No-op (returns silently)
  * when no storage is available. Serialization failures are swallowed — capture
  * must never throw into the submit handler.

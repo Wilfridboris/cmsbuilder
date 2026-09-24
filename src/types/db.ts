@@ -13,8 +13,20 @@ export type FieldDefinition = {
   key: string;
   /** Human-facing column label (rename edits this, not `key`). */
   label: string;
-  /** Rendering/validation hint. `relation` is excluded from MVP. */
-  type: "text" | "number" | "date" | "boolean" | "currency";
+  /**
+   * Rendering/validation hint. `relation` is excluded from MVP (never generated
+   * or accepted by the Schema Validator). Story 1.4 widens the union to the full
+   * generation contract: the base scalar set plus `datetime`, `email`, `phone`.
+   */
+  type:
+    | "text"
+    | "number"
+    | "date"
+    | "datetime"
+    | "boolean"
+    | "currency"
+    | "email"
+    | "phone";
   /** Plain-language reason this field exists (FR46 explainability). */
   reason?: string;
   /** Append-only hide flag — a display concern, never a data delete. */

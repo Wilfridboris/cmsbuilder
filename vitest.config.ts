@@ -27,6 +27,12 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // `server-only` is a build-time guard with no runtime export; stub it so
+      // server-only modules (gemini client/prompts, validator) can be unit-tested
+      // in the node env without pulling in the Next.js bundler boundary.
+      "server-only": fileURLToPath(
+        new URL("./tests/stubs/server-only.ts", import.meta.url),
+      ),
     },
   },
 });
