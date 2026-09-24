@@ -1,5 +1,5 @@
 # generated: 2026-09-23
-# last_updated: 2026-09-24 (1.5 review)
+# last_updated: 2026-09-24 (1.6 review)
 # project: SnapBusy
 # project_key: NOKEY
 # tracking_system: file-system
@@ -45,7 +45,7 @@
 # Epics 9 (Growth) & 10 (Phase 3) are DEFERRED and intentionally unstoried (out of MVP scope).
 
 generated: 2026-09-23
-last_updated: 2026-09-24 (1.5 review)
+last_updated: 2026-09-24 (1.6 review)
 project: SnapBusy
 project_key: NOKEY
 tracking_system: file-system
@@ -59,7 +59,7 @@ development_status:
   1-3-guided-mad-libs-prompt-intake: done
   1-4-ai-schema-synthetic-data-generation: done
   1-5-hard-fallback-template: review
-  1-6-interactive-demo-dashboard: backlog
+  1-6-interactive-demo-dashboard: review
   1-7-schema-explainability-one-tap-override: backlog
   epic-1-retrospective: optional
 
