@@ -40,6 +40,10 @@ Open <http://localhost:3000>.
 | `npm run type-check` | `tsc --noEmit` — zero type errors                             |
 | `npm run lint`       | ESLint (legacy config) — includes the two CI safety gates     |
 | `npm run test`       | Vitest unit/integration suite                                 |
+| `npm run test:rls`   | RLS isolation gate — runs against the hosted Supabase test project |
+| `npm run db:reset`   | `supabase db reset` — apply migrations to the local DB         |
+| `npm run db:push`    | `supabase db push` — apply migrations to the linked project    |
+| `npm run db:diff`    | `supabase db diff` — inspect pending schema changes            |
 
 ## Environment variables
 
@@ -97,8 +101,39 @@ and pull request.
 2. Copy the project URL and anon key into `NEXT_PUBLIC_SUPABASE_URL` /
    `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and the service-role key into
    `SUPABASE_SERVICE_ROLE_KEY` (server-only).
-3. The database schema, RLS policy, and the RLS isolation CI gate are added in
-   **Story 1.2** — nothing to migrate yet.
+3. Apply the platform schema (Story 1.2). The migration lives in
+   `supabase/migrations/`. Link the project (`supabase link --project-ref <ref>`)
+   then `npm run db:push`, or apply the SQL through the Supabase SQL editor. It
+   creates `organizations`, `org_members`, `records`, `org_schemas`, the
+   `auth_org_ids()` resolver, the membership RLS policy, and the
+   `org_active_record_counts` billable-unit view.
+4. Seed the walking-skeleton demo data so `/demo` renders. `src/lib/data/seed.ts`
+   exports `seedDemo()` (upserts a fixed demo org + schema and seeds rows through
+   the guarded write layer under the admin client). Invoke it from a one-off
+   server script or a Node REPL with the service-role env set; it is idempotent
+   and safe to re-run.
+
+### 4. Create the Supabase RLS **test** project (ca-central-1) and set CI secrets
+
+The RLS isolation test (`tests/integration/rls-isolation.test.ts`) is a **hard CI
+gate** that runs against a real, dedicated Supabase **test** project — never
+production. The agent authored the migration, the `test:rls` script, and the CI
+step; you must provision the project and set the secrets:
+
+1. Create a **separate** Supabase project in **ca-central-1** for testing only.
+2. Apply the same platform migration (`supabase/migrations/`) to it.
+3. Add these three GitHub **repository secrets** (Settings → Secrets and
+   variables → Actions) so the CI RLS step enforces isolation on every push/PR:
+   - `SUPABASE_TEST_URL`
+   - `SUPABASE_TEST_ANON_KEY`
+   - `SUPABASE_TEST_SERVICE_ROLE_KEY`
+4. For local runs, put the same three values in a git-ignored `.env.test.local`
+   at the repo root, then `npm run test:rls`.
+
+> The test seeds unique orgs/users per run and cleans up afterward, so it is safe
+> to re-run against the shared test project. The test service-role key is used
+> only inside the test to seed data and never reaches a client bundle. Until the
+> secrets are set, the CI step self-skips rather than failing the build.
 
 ## Project structure
 

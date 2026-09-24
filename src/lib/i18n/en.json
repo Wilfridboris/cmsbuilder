@@ -5,5 +5,11 @@
     "description": "Tell us your trade, your town, and what you track. We build a fully populated, Ontario-ready dashboard before you ever create an account.",
     "cta": "Build my dashboard",
     "localeLabel": "Language"
+  },
+  "Demo": {
+    "title": "Live demo dashboard",
+    "subtitle": "A seeded, read-only view proving the tenant data pipeline end-to-end.",
+    "tableCaption": "Seeded demo records, read live from the shared record store.",
+    "empty": "No records to show yet."
   }
 }

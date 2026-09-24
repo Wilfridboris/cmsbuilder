@@ -81,6 +81,8 @@
       "files": [
         "src/app/api/**",
         "src/lib/supabase/server.ts",
+        "src/lib/supabase/admin.ts",
+        "src/lib/data/seed.ts",
         "**/*.server.ts",
         "src/lib/billing/**",
         "src/lib/stripe/**",

@@ -29,15 +29,21 @@ jobs:
       - name: Type-check
         run: npm run type-check
 
-      - name: Unit / integration tests
+      - name: Unit tests
         run: npm run test
 
       # ---------------------------------------------------------------------
-      # RLS isolation test — added in Story 1.2. It is a HARD CI gate that must
-      # run against a real Supabase instance (member of Org A can read Org A's
-      # records; a stranger cannot). Intentionally NOT wired here yet, and this
-      # job must NOT fail on its absence during Story 1.1.
+      # RLS isolation test (Story 1.2) — HARD CI gate. Runs against a real
+      # (hosted) Supabase test project: a member of Org A can read Org A's
+      # records; a stranger cannot read them and cannot insert into Org A.
       #
-      #   - name: RLS isolation (integration)
-      #     run: npm run test:rls
+      # Credentials come from GitHub repository secrets (see README §Supabase
+      # test project). Until the human sets them, the test self-skips; once set,
+      # it is enforced. This step fails the build on any isolation regression.
       # ---------------------------------------------------------------------
+      - name: RLS isolation (integration, real Supabase)
+        run: npm run test:rls
+        env:
+          SUPABASE_TEST_URL: ${{ secrets.SUPABASE_TEST_URL }}
+          SUPABASE_TEST_ANON_KEY: ${{ secrets.SUPABASE_TEST_ANON_KEY }}
+          SUPABASE_TEST_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_TEST_SERVICE_ROLE_KEY }}
