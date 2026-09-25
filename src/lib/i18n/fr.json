@@ -78,6 +78,19 @@
       "phone": "Téléphone"
     }
   },
+  "Explainability": {
+    "infoFor": "Pourquoi {item} a été ajouté",
+    "reasonHeading": "Pourquoi c'est ici",
+    "rename": "Renommer",
+    "remove": "Retirer",
+    "renameField": "Renommer le champ {field}",
+    "removeField": "Retirer le champ {field}",
+    "renameTable": "Renommer le tableau {table}",
+    "removeTable": "Retirer le tableau {table}",
+    "renamePlaceholder": "Nouveau nom",
+    "renameEmpty": "Veuillez saisir un nom.",
+    "lastTable": "C'est votre dernier tableau — renommez-le plutôt que de le retirer afin que votre tableau de bord reste rempli."
+  },
   "Demo": {
     "title": "Tableau de bord de démonstration en direct",
     "subtitle": "Une vue en lecture seule, préremplie, qui valide le pipeline de données locataire de bout en bout.",

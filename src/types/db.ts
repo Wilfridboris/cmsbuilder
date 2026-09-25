@@ -43,6 +43,13 @@ export type TableDefinition = {
   label: string;
   /** Plain-language reason this table exists (FR46 explainability). */
   reason?: string;
+  /**
+   * Append-only hide flag — a display concern, never a data delete. Mirrors
+   * `FieldDefinition.hidden`: a removed table drops out of `visibleTables`
+   * (and the tablist) while its definition and any `records` stay intact.
+   * Backward-compatible optional JSONB field — no migration.
+   */
+  hidden?: boolean;
   /** Ordered field definitions rendered as columns. */
   fields: FieldDefinition[];
 };

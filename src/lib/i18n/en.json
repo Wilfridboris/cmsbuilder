@@ -78,6 +78,19 @@
       "phone": "Phone"
     }
   },
+  "Explainability": {
+    "infoFor": "Why {item} was added",
+    "reasonHeading": "Why this is here",
+    "rename": "Rename",
+    "remove": "Remove",
+    "renameField": "Rename the {field} field",
+    "removeField": "Remove the {field} field",
+    "renameTable": "Rename the {table} table",
+    "removeTable": "Remove the {table} table",
+    "renamePlaceholder": "New name",
+    "renameEmpty": "Please enter a name.",
+    "lastTable": "This is your last table — rename it instead of removing it so your dashboard stays populated."
+  },
   "Demo": {
     "title": "Live demo dashboard",
     "subtitle": "A seeded, read-only view proving the tenant data pipeline end-to-end.",

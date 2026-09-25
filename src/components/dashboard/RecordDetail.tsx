@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { OverrideControl } from "@/components/dashboard/OverrideControl";
 
 /**
  * RecordDetail (Story 1.6) — the accessible open-a-record surface.
@@ -30,8 +31,15 @@ import { cn } from "@/lib/utils";
  * (optimistic, no DB write, no API). Invalid/empty input shows an inline
  * translated message and does NOT commit.
  *
- * All strings resolve through next-intl (`Dashboard` + reused `Generate.cell*`);
- * every ARIA label is derived from the schema `label`s.
+ * Story 1.7 adds the field explainability + override surface to each `FieldRow`
+ * (the field-override surface for mobile, whose cards have no headers, and for
+ * the detail view): an `OverrideControl` per field with a `reason` reveals that
+ * reason and offers one-tap Rename (label only) / Remove (append-only hide).
+ * The existing value-edit affordance is untouched.
+ *
+ * All strings resolve through next-intl (`Dashboard` + `Explainability` +
+ * reused `Generate.cell*`); every ARIA label is derived from the schema
+ * `label`s.
  */
 
 export type EditableFieldTypes = FieldDefinition["type"];
@@ -48,6 +56,10 @@ type RecordDetailProps = {
    * the optimistic update reflects in the list immediately as well.
    */
   onEdit: (fieldKey: string, value: unknown) => void;
+  /** Rename a field's label in the session schema (Story 1.7, label only). */
+  onRenameField: (fieldKey: string, label: string) => void;
+  /** Hide a field in the session schema (Story 1.7, append-only). */
+  onRemoveField: (fieldKey: string) => void;
 };
 
 export function RecordDetail({
@@ -55,6 +67,8 @@ export function RecordDetail({
   record,
   onClose,
   onEdit,
+  onRenameField,
+  onRemoveField,
 }: RecordDetailProps) {
   const t = useTranslations("Dashboard");
   const tGenerate = useTranslations("Generate");
@@ -98,6 +112,8 @@ export function RecordDetail({
                 value={record.data[field.key]}
                 cellStrings={cellStrings}
                 onCommit={(value) => onEdit(field.key, value)}
+                onRename={(label) => onRenameField(field.key, label)}
+                onRemove={() => onRemoveField(field.key)}
               />
             ))}
           </dl>
@@ -113,22 +129,39 @@ function FieldRow({
   value,
   cellStrings,
   onCommit,
+  onRename,
+  onRemove,
 }: {
   field: FieldDefinition;
   value: unknown;
   cellStrings: CellStrings;
   onCommit: (value: unknown) => void;
+  onRename: (label: string) => void;
+  onRemove: () => void;
 }) {
   const t = useTranslations("Dashboard");
+  const tExplain = useTranslations("Explainability");
   const [editing, setEditing] = useState(false);
 
   return (
     <div className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
       <dt className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium text-muted-foreground">
-          {field.label}
+        <span className="flex min-w-0 items-center gap-1 text-sm font-medium text-muted-foreground">
+          <span className="truncate">{field.label}</span>
+          {/* Field explainability + override (1.7): only when it has a reason. */}
+          {field.reason ? (
+            <OverrideControl
+              label={field.label}
+              reason={field.reason}
+              infoLabel={tExplain("infoFor", { item: field.label })}
+              renameLabel={tExplain("renameField", { field: field.label })}
+              removeLabel={tExplain("removeField", { field: field.label })}
+              onRename={onRename}
+              onRemove={onRemove}
+            />
+          ) : null}
         </span>
-        <Badge variant="outline" className="font-normal">
+        <Badge variant="outline" className="shrink-0 font-normal">
           {t(`type.${field.type}`)}
         </Badge>
       </dt>

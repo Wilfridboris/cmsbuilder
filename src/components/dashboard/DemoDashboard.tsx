@@ -1,12 +1,24 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { motion, useReducedMotion } from "framer-motion";
 
-import type { RecordData, TableDefinition } from "@/types/db";
+import type {
+  RecordData,
+  SchemaDefinition,
+  TableDefinition,
+} from "@/types/db";
 import type { GenerateResponse } from "@/app/api/generate/route";
 import { formatCell, type CellStrings } from "@/lib/format";
+import {
+  canHideTable,
+  hideField,
+  hideTable,
+  renameField,
+  renameTable,
+  visibleTables,
+} from "@/lib/schema/overrides";
 import {
   Table,
   TableBody,
@@ -19,23 +31,28 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { RecordDetail } from "@/components/dashboard/RecordDetail";
+import { OverrideControl } from "@/components/dashboard/OverrideControl";
 
 /**
- * DemoDashboard (Story 1.6) — the interactive, anonymous demo dashboard.
+ * DemoDashboard (Story 1.6 + 1.7) — the interactive, anonymous demo dashboard.
  *
  * A PURE CONSUMER of the `POST /api/generate` response (`{ schema, records,
  * isFallback }`) — it makes no new fetch. It delivers the frozen "grow into
- * dashboard" moment and the pre-account browse/edit experience:
+ * dashboard" moment, the pre-account browse/edit experience (1.6), and schema
+ * explainability + one-tap overrides (1.7):
  *
  * - Skeleton placeholders "grow" into the populated layout via Framer Motion
  *   (opacity + slight rise), gated by `useReducedMotion` → an instant/opacity
  *   reveal when the visitor prefers reduced motion. No spinner, no loading bar.
- * - Tab browse across `schema.tables` (ARIA `tablist`), first table active.
+ * - Tab browse across the schema's VISIBLE tables (ARIA `tablist`).
  * - Responsive: a semantic `<Table>` on desktop, a `Card` list on mobile.
  * - Row / card → opens the accessible `RecordDetail` dialog (focus-trapped).
- * - A basic in-place edit updates client-side session state ONLY (optimistic):
- *   it reflects immediately in both the list and the open detail, creates no
- *   account, writes to no DB/API, and is lost on a hard reload.
+ * - A basic in-place edit updates client-side session state ONLY (optimistic).
+ * - Every table (tablist) and field (column header + detail) with a `reason`
+ *   exposes an `OverrideControl`: it reveals the reason and offers one-tap
+ *   Rename (label only) + Remove (append-only `hidden`). Overrides mutate a
+ *   session-only copy of the schema (lifted here, mirroring the records copy),
+ *   never the DB — lost on hard reload. The last visible table can't be removed.
  *
  * The Story 1.5 fallback banner is rendered by the parent (`/generate`) above
  * this component, unchanged. All strings resolve through next-intl.
@@ -50,28 +67,46 @@ type RecordsState = Record<string, RecordData[]>;
 
 export function DemoDashboard({ response }: DemoDashboardProps) {
   const t = useTranslations("Dashboard");
+  const tExplain = useTranslations("Explainability");
   const tGenerate = useTranslations("Generate");
   const prefersReducedMotion = useReducedMotion();
 
-  const tables = response.schema.tables;
-
-  // Session-only, optimistic copy of the seeded records. Edits mutate THIS,
-  // never the DB — lost on hard reload (which re-POSTs /generate). The parent
-  // (`/generate`) mounts this component fresh per generation, so the initial
-  // seed is the single source; no effect-driven resync is needed.
+  // Session-only, optimistic copies of the seeded schema + records. Edits and
+  // overrides mutate THESE, never the DB — lost on hard reload (which re-POSTs
+  // /generate and regenerates). The parent (`/generate`) mounts this component
+  // fresh per generation, so the initial response is the single source.
+  const [schema, setSchema] = useState<SchemaDefinition>(
+    () => response.schema,
+  );
   const [records, setRecords] = useState<RecordsState>(() => response.records);
 
+  // The tables the tablist renders — hidden ones drop out (1.7).
+  const tables = useMemo(() => visibleTables(schema), [schema]);
+
   const [activeTableKey, setActiveTableKey] = useState<string>(
-    () => tables[0]?.key ?? "",
+    () => visibleTables(response.schema)[0]?.key ?? "",
   );
+
   const activeTable = useMemo(
     () => tables.find((table) => table.key === activeTableKey) ?? tables[0],
     [tables, activeTableKey],
   );
 
-  // The open record for the detail dialog, tracked by table + id so an edit
-  // reflects live in the dialog after session state updates.
+  // The open record for the detail dialog, tracked by id so an edit reflects
+  // live in the dialog after session state updates.
   const [openRecordId, setOpenRecordId] = useState<string | null>(null);
+
+  // Set when a table is removed: the removed tab owns the popover trigger Radix
+  // would restore focus to, but that tab unmounts on the same update — so focus
+  // would fall to <body>. After the removal render lands we move focus to the
+  // active tab instead (WCAG 2.4.3). Ordinary tab switches manage their own
+  // focus, so this fires only on a removal.
+  const pendingTabFocusRef = useRef(false);
+  useEffect(() => {
+    if (!pendingTabFocusRef.current) return;
+    pendingTabFocusRef.current = false;
+    document.getElementById(`tab-${activeTableKey}`)?.focus();
+  }, [tables, activeTableKey]);
 
   const cellStrings: CellStrings = {
     empty: tGenerate("cellEmpty"),
@@ -79,20 +114,41 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
     no: tGenerate("cellNo"),
   };
 
-  if (!activeTable) {
-    // Defensive: a schema with zero tables should never occur (1.4/1.5 seed it).
-    return (
-      <p className="text-base text-muted-foreground">{t("emptyDashboard")}</p>
-    );
-  }
+  // Remove is blocked while only one table is visible (dashboard never empties).
+  const canRemoveTable = canHideTable(schema);
 
-  const activeRows = records[activeTable.key] ?? [];
-  const openRecord =
-    openRecordId === null
-      ? null
-      : (activeRows.find((row) => row.id === openRecordId) ?? null);
+  const handleRenameTable = (tableKey: string, label: string) => {
+    setSchema((prev) => renameTable(prev, tableKey, label));
+  };
+
+  const handleRemoveTable = (tableKey: string) => {
+    // Move focus to the active tab after the removal render (see the effect).
+    pendingTabFocusRef.current = true;
+    setSchema((prev) => {
+      const next = hideTable(prev, tableKey);
+      // If the active table was the one removed, fall back to the first table
+      // still visible and close any open detail (its record may have vanished).
+      if (tableKey === activeTableKey) {
+        const remaining = visibleTables(next);
+        setActiveTableKey(remaining[0]?.key ?? "");
+        setOpenRecordId(null);
+      }
+      return next;
+    });
+  };
+
+  const handleRenameField = (fieldKey: string, label: string) => {
+    if (!activeTable) return;
+    setSchema((prev) => renameField(prev, activeTable.key, fieldKey, label));
+  };
+
+  const handleRemoveField = (fieldKey: string) => {
+    if (!activeTable) return;
+    setSchema((prev) => hideField(prev, activeTable.key, fieldKey));
+  };
 
   const handleEdit = (fieldKey: string, value: unknown) => {
+    if (!activeTable) return;
     setRecords((prev) => {
       const rows = prev[activeTable.key] ?? [];
       return {
@@ -106,6 +162,20 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
     });
   };
 
+  if (!activeTable) {
+    // Defensive: a schema with zero visible tables should never occur (the
+    // last-table guard blocks it; 1.4/1.5 always seed at least one).
+    return (
+      <p className="text-base text-muted-foreground">{t("emptyDashboard")}</p>
+    );
+  }
+
+  const activeRows = records[activeTable.key] ?? [];
+  const openRecord =
+    openRecordId === null
+      ? null
+      : (activeRows.find((row) => row.id === openRecordId) ?? null);
+
   // Reduced motion → instant/opacity reveal; otherwise a gentle grow.
   const reveal = prefersReducedMotion
     ? { initial: { opacity: 0 }, animate: { opacity: 1 } }
@@ -116,12 +186,12 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Tab browse across generated tables. */}
+      {/* Tab browse across generated (visible) tables. */}
       <div
         role="tablist"
         aria-label={t("tablistLabel")}
         aria-orientation="horizontal"
-        className="flex flex-wrap gap-2 border-b border-border pb-px"
+        className="flex flex-wrap items-center gap-2 border-b border-border pb-px"
       >
         {tables.map((table, index) => {
           const selected = table.key === activeTable.key;
@@ -132,48 +202,62 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
             setOpenRecordId(null);
           };
           return (
-            <button
-              key={table.key}
-              type="button"
-              role="tab"
-              id={`tab-${table.key}`}
-              aria-selected={selected}
-              aria-controls={`panel-${table.key}`}
-              tabIndex={selected ? 0 : -1}
-              onClick={() => activate(table.key)}
-              onKeyDown={(event) => {
-                // ARIA tablist keyboard contract (WAI-ARIA APG, horizontal):
-                // Arrow keys roving-navigate + activate; Home/End jump to ends.
-                // Without this, non-selected tabs (tabIndex -1) are unreachable
-                // by keyboard, so a keyboard/AT user could never switch tables.
-                const count = tables.length;
-                let next: number | null = null;
-                if (event.key === "ArrowRight") next = (index + 1) % count;
-                else if (event.key === "ArrowLeft")
-                  next = (index - 1 + count) % count;
-                else if (event.key === "Home") next = 0;
-                else if (event.key === "End") next = count - 1;
-                if (next === null) return;
-                event.preventDefault();
-                const nextKey = tables[next].key;
-                activate(nextKey);
-                document.getElementById(`tab-${nextKey}`)?.focus();
-              }}
-              className={cn(
-                "relative min-h-12 rounded-t-md px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                selected
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {table.label}
-              {selected ? (
-                <motion.span
-                  layoutId={prefersReducedMotion ? undefined : "active-tab"}
-                  className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary"
+            <div key={table.key} className="flex items-center">
+              <button
+                type="button"
+                role="tab"
+                id={`tab-${table.key}`}
+                aria-selected={selected}
+                aria-controls={`panel-${table.key}`}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => activate(table.key)}
+                onKeyDown={(event) => {
+                  // ARIA tablist keyboard contract (WAI-ARIA APG, horizontal):
+                  // Arrow keys roving-navigate + activate; Home/End jump to ends.
+                  const count = tables.length;
+                  let next: number | null = null;
+                  if (event.key === "ArrowRight") next = (index + 1) % count;
+                  else if (event.key === "ArrowLeft")
+                    next = (index - 1 + count) % count;
+                  else if (event.key === "Home") next = 0;
+                  else if (event.key === "End") next = count - 1;
+                  if (next === null) return;
+                  event.preventDefault();
+                  const nextKey = tables[next].key;
+                  activate(nextKey);
+                  document.getElementById(`tab-${nextKey}`)?.focus();
+                }}
+                className={cn(
+                  "relative min-h-12 rounded-t-md px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                  selected
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {table.label}
+                {selected ? (
+                  <motion.span
+                    layoutId={prefersReducedMotion ? undefined : "active-tab"}
+                    className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary"
+                  />
+                ) : null}
+              </button>
+              {/* Table explainability + override (1.7): only when it has a reason. */}
+              {table.reason ? (
+                <OverrideControl
+                  label={table.label}
+                  reason={table.reason}
+                  infoLabel={tExplain("infoFor", { item: table.label })}
+                  renameLabel={tExplain("renameTable", { table: table.label })}
+                  removeLabel={tExplain("removeTable", { table: table.label })}
+                  onRename={(label) => handleRenameTable(table.key, label)}
+                  onRemove={() => handleRemoveTable(table.key)}
+                  removeDisabledReason={
+                    canRemoveTable ? undefined : tExplain("lastTable")
+                  }
                 />
               ) : null}
-            </button>
+            </div>
           );
         })}
       </div>
@@ -206,10 +290,12 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
                 cellStrings={cellStrings}
                 onOpen={setOpenRecordId}
                 openLabel={t("openRecord")}
+                onRenameField={handleRenameField}
+                onRemoveField={handleRemoveField}
               />
             </div>
 
-            {/* Mobile: card list. */}
+            {/* Mobile: card list. Field overrides live in the record detail. */}
             <div className="flex flex-col gap-3 md:hidden">
               <CardList
                 table={activeTable}
@@ -229,6 +315,8 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
         record={openRecord}
         onClose={() => setOpenRecordId(null)}
         onEdit={handleEdit}
+        onRenameField={handleRenameField}
+        onRemoveField={handleRemoveField}
       />
     </div>
   );
@@ -241,14 +329,19 @@ function TableView({
   cellStrings,
   onOpen,
   openLabel,
+  onRenameField,
+  onRemoveField,
 }: {
   table: TableDefinition;
   rows: RecordData[];
   cellStrings: CellStrings;
   onOpen: (id: string) => void;
   openLabel: string;
+  onRenameField: (fieldKey: string, label: string) => void;
+  onRemoveField: (fieldKey: string) => void;
 }) {
   const t = useTranslations("Dashboard");
+  const tExplain = useTranslations("Explainability");
   const fields = table.fields.filter((field) => !field.hidden);
 
   return (
@@ -261,7 +354,25 @@ function TableView({
           <TableRow>
             {fields.map((field) => (
               <TableHead key={field.key} scope="col">
-                {field.label}
+                <span className="inline-flex items-center gap-1">
+                  <span>{field.label}</span>
+                  {/* Field explainability + override (1.7): only with a reason. */}
+                  {field.reason ? (
+                    <OverrideControl
+                      label={field.label}
+                      reason={field.reason}
+                      infoLabel={tExplain("infoFor", { item: field.label })}
+                      renameLabel={tExplain("renameField", {
+                        field: field.label,
+                      })}
+                      removeLabel={tExplain("removeField", {
+                        field: field.label,
+                      })}
+                      onRename={(label) => onRenameField(field.key, label)}
+                      onRemove={() => onRemoveField(field.key)}
+                    />
+                  ) : null}
+                </span>
               </TableHead>
             ))}
           </TableRow>
