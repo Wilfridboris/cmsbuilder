@@ -61,3 +61,6 @@ next-env.d.ts
 
 # Playwright MCP test artifacts (screenshots, snapshots, console logs)
 .playwright-mcp/
+
+# Manual review artifacts (screenshots, snapshots) — local only, not published
+/review-*/
