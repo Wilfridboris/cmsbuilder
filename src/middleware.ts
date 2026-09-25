@@ -9,9 +9,9 @@ import { createServerClient } from "@supabase/ssr";
  * cookies, calls `getUser()` (which refreshes an expiring access token and, via
  * the cookie bridge below, writes the rotated cookies onto the response), and
  * protects the tenant dashboard at `/{slug}`:
- *   - unauthenticated requests to a protected `/{slug}` redirect to the claim /
- *     login entry point (`/`), never an error screen;
- *   - `/`, `/generate`, `/demo`, `/api/*`, `/auth/*` stay public.
+ *   - unauthenticated requests to a protected `/{slug}` redirect to the login
+ *     entry point (`/login?auth=required`, Story 2.2), never an error screen;
+ *   - `/`, `/login`, `/generate`, `/demo`, `/api/*`, `/auth/*` stay public.
  *
  * RLS is still the hard isolation gate on the data itself — this only refreshes
  * the cookie session and gates the page shell. Membership/role are enforced on
@@ -23,7 +23,16 @@ import { createServerClient } from "@supabase/ssr";
  */
 
 /** Top-level paths that are public and must never be treated as a tenant slug. */
-const PUBLIC_TOP_LEVEL = new Set(["", "generate", "demo", "privacy", "terms"]);
+const PUBLIC_TOP_LEVEL = new Set([
+  "",
+  "generate",
+  "demo",
+  "privacy",
+  "terms",
+  // Story 2.2: the returning-user login entry point is public and is NOT a
+  // tenant slug (so an unauthenticated visit is not bounced back to itself).
+  "login",
+]);
 
 export async function middleware(request: NextRequest): Promise<NextResponse> {
   // Build a response we can attach refreshed cookies to.
@@ -69,7 +78,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     firstSegment !== "" && !PUBLIC_TOP_LEVEL.has(firstSegment);
 
   if (isProtectedSlug && !user) {
-    const loginUrl = new URL("/", request.nextUrl.origin);
+    // Story 2.2: bounce unauthenticated tenant-route visits to the login entry
+    // point (was `/` in 2.1) so a returning user has a way back in.
+    const loginUrl = new URL("/login", request.nextUrl.origin);
     loginUrl.searchParams.set("auth", "required");
     return NextResponse.redirect(loginUrl);
   }

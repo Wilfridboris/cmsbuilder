@@ -6,21 +6,28 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { finalizeClaim, ClaimError } from "@/lib/claim/claim";
+import { resolveUserPrimaryOrgSlug } from "@/lib/auth/org";
 import { CURRENT_POLICY_VERSION } from "@/app/api/claim/route";
 import { reportError } from "@/lib/observability/report";
 
 /**
- * `GET /auth/callback` (Story 2.1) — the magic-link landing.
+ * `GET /auth/callback` (Story 2.1 + 2.2) — the magic-link landing for BOTH the
+ * claim flow and returning-user login.
  *
  * Same-browser PKCE: `exchangeCodeForSession` reads the verifier cookie set by
- * the claim POST in this browser, establishes the `@supabase/ssr` cookie session
- * (written onto the redirect response), then finalizes the claim by the
- * `claim_token` embedded in the link:
- *   - insert the `org_members` admin row, provision a unique slug, clear the
- *     synthetic records (`finalizeClaim`, service-role bootstrap);
- *   - store the consent timestamp + `role:'admin'` on the user's metadata
- *     (`auth.updateUser`), under the just-established session;
- *   - redirect → `/{slug}`.
+ * the claim/login POST in this browser and establishes the `@supabase/ssr`
+ * cookie session (written onto the redirect response). The link then branches on
+ * the presence of a `claim_token`:
+ *
+ *   - WITH a `claim_token` (Story 2.1 claim) — finalize the claim: insert the
+ *     `org_members` admin row, provision a unique slug, clear the synthetic
+ *     records (`finalizeClaim`, service-role bootstrap); store the consent
+ *     timestamp + `role:'admin'` on the user's metadata; redirect → `/{slug}`.
+ *
+ *   - WITHOUT a `claim_token` (Story 2.2 login) — resolve the authenticated
+ *     user's primary org slug and redirect → `/{slug}`. No org is created, no
+ *     role changed, no claim finalized. A user with no membership lands on the
+ *     translated no-org status (`/login?login=no-org`), never a crash.
  *
  * Any exchange/finalize failure redirects to a translated status state with a
  * re-request path (`/?claim=<reason>`) — never a raw error screen, never a
@@ -65,11 +72,30 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const user = exchangeData.user;
 
-  // Without a claim token there is nothing to finalize (e.g. a returning-user
-  // login, Story 2.2). This story only handles the claim; treat a missing token
-  // as an error re-request rather than a raw screen.
+  // Returning-user login (Story 2.2): a link with NO claim_token is a login, not
+  // a claim. Resolve the authenticated user's primary org slug and land them on
+  // their dashboard. Nothing is created, no role is changed, no claim finalized.
   if (!claimToken) {
-    return statusRedirect(req, "error");
+    try {
+      const resolved = await resolveUserPrimaryOrgSlug(
+        user.id,
+        createAdminClient(),
+      );
+      if (!resolved) {
+        // A valid session with no membership → translated no-org status, never
+        // a crash or a raw screen. (Not reachable via the normal login flow,
+        // where a claim always created a membership first.)
+        const url = new URL("/login", req.nextUrl.origin);
+        url.searchParams.set("login", "no-org");
+        return NextResponse.redirect(url);
+      }
+      return NextResponse.redirect(
+        new URL(`/${resolved.slug}`, req.nextUrl.origin),
+      );
+    } catch (err) {
+      reportError(err, { route: "/auth/callback", stage: "resolveLoginOrg" });
+      return statusRedirect(req, "error");
+    }
   }
 
   let slug: string;

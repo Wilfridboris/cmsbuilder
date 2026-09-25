@@ -9,16 +9,19 @@ import type { NextRequest } from "next/server";
  * frozen matrix rows the logic-layer `claim.test.ts` cannot see:
  *   - missing code (opened without the PKCE handshake) → ?claim=expired;
  *   - exchange failure (expired/invalid link, cross-device)  → ?claim=expired;
- *   - valid exchange but no claim_token                      → ?claim=error;
  *   - finalize ClaimError kind=expired                       → ?claim=expired;
  *   - finalize ClaimError kind=not-found/failed             → ?claim=error;
  *   - success → redirect to /{slug} and consent timestamp (the TRUE submit-time
  *     value returned by finalizeClaim) written to the user metadata.
+ *
+ * Note: the no-`claim_token` (returning-user login, Story 2.2) branch is covered
+ * by `route-callback-login.test.ts`, which mocks the org resolver.
  */
 
 const exchangeCodeForSession = vi.fn();
 const updateUser = vi.fn();
 const finalizeClaim = vi.fn();
+const resolveUserPrimaryOrgSlug = vi.fn();
 
 class ClaimError extends Error {
   constructor(
@@ -37,6 +40,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) }));
 vi.mock("@/lib/claim/claim", () => ({ finalizeClaim, ClaimError }));
+vi.mock("@/lib/auth/org", () => ({ resolveUserPrimaryOrgSlug }));
 vi.mock("@/lib/observability/report", () => ({ reportError: vi.fn() }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({ getAll: () => [], set: () => {} }),
@@ -79,13 +83,6 @@ describe("GET /auth/callback", () => {
     });
     const res = await GET(makeReq({ code: "c", claim_token: "tok" }));
     expect(res.headers.get("location")).toContain("claim=expired");
-    expect(finalizeClaim).not.toHaveBeenCalled();
-  });
-
-  it("redirects to ?claim=error on a valid exchange with no claim_token", async () => {
-    const { GET } = await import("@/app/auth/callback/route");
-    const res = await GET(makeReq({ code: "c" }));
-    expect(res.headers.get("location")).toContain("claim=error");
     expect(finalizeClaim).not.toHaveBeenCalled();
   });
 

@@ -122,6 +122,24 @@
       "genericError": "Something went wrong. Please try again."
     }
   },
+  "Login": {
+    "title": "Log in",
+    "subtitle": "Enter your email and we'll send you a secure link to sign back in. No password needed.",
+    "emailLabel": "Email address",
+    "emailPlaceholder": "you@yourbusiness.ca",
+    "submit": "Send my secure link",
+    "sentTitle": "Check your email",
+    "sentBody": "If an account exists for {email}, we've sent a secure sign-in link. Open it in this browser to sign in.",
+    "authRequired": "Please log in to reach your dashboard.",
+    "noOrg": "You're signed in, but you don't have a dashboard yet. Claim one to get started.",
+    "linkPrompt": "Already have an account?",
+    "linkCta": "Log in",
+    "error": {
+      "invalidEmail": "Please enter a valid email address.",
+      "sendFailed": "We couldn't send your link just now. Please try again in a moment.",
+      "genericError": "Something went wrong. Please try again."
+    }
+  },
   "Legal": {
     "privacyTitle": "Privacy Policy",
     "termsTitle": "Terms of Service",

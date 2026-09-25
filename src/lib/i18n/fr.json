@@ -122,6 +122,24 @@
       "genericError": "Une erreur est survenue. Veuillez réessayer."
     }
   },
+  "Login": {
+    "title": "Connexion",
+    "subtitle": "Saisissez votre courriel et nous vous enverrons un lien sécurisé pour vous reconnecter. Aucun mot de passe requis.",
+    "emailLabel": "Adresse courriel",
+    "emailPlaceholder": "vous@votreentreprise.ca",
+    "submit": "Envoyer mon lien sécurisé",
+    "sentTitle": "Vérifiez votre courriel",
+    "sentBody": "Si un compte existe pour {email}, nous avons envoyé un lien de connexion sécurisé. Ouvrez-le dans ce navigateur pour vous connecter.",
+    "authRequired": "Veuillez vous connecter pour accéder à votre tableau de bord.",
+    "noOrg": "Vous êtes connecté, mais vous n'avez pas encore de tableau de bord. Réclamez-en un pour commencer.",
+    "linkPrompt": "Vous avez déjà un compte?",
+    "linkCta": "Se connecter",
+    "error": {
+      "invalidEmail": "Veuillez saisir une adresse courriel valide.",
+      "sendFailed": "Nous n'avons pas pu envoyer votre lien pour le moment. Veuillez réessayer dans un instant.",
+      "genericError": "Une erreur est survenue. Veuillez réessayer."
+    }
+  },
   "Legal": {
     "privacyTitle": "Politique de confidentialité",
     "termsTitle": "Conditions d'utilisation",

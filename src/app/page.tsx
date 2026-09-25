@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Info } from "lucide-react";
@@ -22,6 +23,7 @@ import { PromptBuilder } from "@/components/generation/PromptBuilder";
  */
 export default function Home() {
   const t = useTranslations("Home");
+  const tLogin = useTranslations("Login");
 
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-8 px-6 py-16">
@@ -33,6 +35,16 @@ export default function Home() {
         <p className="text-base text-muted-foreground">{t("description")}</p>
       </header>
       <PromptBuilder />
+      {/* Story 2.2: discoverable returning-user login path. */}
+      <p className="text-center text-sm text-muted-foreground">
+        {tLogin("linkPrompt")}{" "}
+        <Link
+          href="/login"
+          className="font-medium text-primary underline underline-offset-4"
+        >
+          {tLogin("linkCta")}
+        </Link>
+      </p>
     </main>
   );
 }
