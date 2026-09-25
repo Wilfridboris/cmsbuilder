@@ -64,7 +64,7 @@ context:
 - `.github/workflows/ci.yml` -- lines 35–43 hold the commented RLS-step placeholder to activate.
 - `.env.example` -- already lists `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (placeholders). `@supabase/ssr@0.10.3` + `@supabase/supabase-js@2.105.4` already installed.
 - `src/lib/i18n/en.json` / `fr.json` -- add any static demo-route strings under a new `Demo` key (both catalogs).
-- NOTE: scaffold is at the **repo root** (`C:/code/cmsbuilder/`), not a `snapbusy/` subfolder — Story 1.1's note is stale; CI and all paths are root-relative.
+- NOTE: scaffold is at the **repo root** (`C:/code/cmsbuilder/`), not a `scheza/` subfolder — Story 1.1's note is stale; CI and all paths are root-relative.
 
 ## Tasks & Acceptance
 
@@ -90,7 +90,7 @@ context:
 
 ## Implementation Notes
 
-**Scaffold is at the repo root.** Story 1.1's note about a `snapbusy/` subfolder is stale — `package.json`, `src/`, `tests/`, and CI all live at `C:/code/cmsbuilder/`. All new paths are root-relative.
+**Scaffold is at the repo root.** Story 1.1's note about a `scheza/` subfolder is stale — `package.json`, `src/`, `tests/`, and CI all live at `C:/code/cmsbuilder/`. All new paths are root-relative.
 
 **Migration (`supabase/migrations/20260924055022_platform_schema.sql`).** Four tables + `auth_org_ids()` (`SECURITY DEFINER STABLE`, `search_path=public`) + membership `for all` policy (`USING`+`WITH CHECK`) on `records` and `org_schemas`; `organizations`/`org_members` get RLS enabled with **no** permissive policy (deny-all to anon/authenticated; reached only via the definer function and the service-role client — avoids policy recursion). Added a `records.idempotency_key` column + partial-unique index `(organization_id, table_key, idempotency_key)` to back the guarded layer's idempotency (a spec-required capability; not in AC1's column list but consistent with it). `pgcrypto` extension enabled for `gen_random_uuid()`. `org_active_record_counts` view defines the billable unit (non-deleted rows per org); per-cycle windowing is Epic 7's concern.
 

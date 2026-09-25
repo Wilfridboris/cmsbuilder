@@ -1,7 +1,7 @@
 -- ===========================================================================
 -- Story 1.2 — Platform Data Model & Tenant Isolation (Walking Skeleton)
 --
--- Fixed platform schema for SnapBusy's shared-JSONB multi-tenant record store.
+-- Fixed platform schema for Scheza's shared-JSONB multi-tenant record store.
 -- There is NO per-tenant physical table and NO runtime DDL: provisioning a
 -- tenant "app" is a metadata insert (org_schemas) plus row inserts (records).
 --

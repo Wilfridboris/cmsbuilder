@@ -16,7 +16,7 @@ inputDocuments:
   - docs/prd.md
   - docs/design.md
 workflowType: 'architecture'
-project_name: 'SnapBusy'
+project_name: 'Scheza'
 user_name: 'Boris'
 date: '2026-05-17'
 lastStep: 8
@@ -34,7 +34,7 @@ revisionHistory:
     changes: 'Re-aligned to PRD 2026-09-22 edits (Hermes/autonomous-agent thesis + digital-crew/external-tools capture). MVP scope unchanged; changes are about HOW the MVP is built. Added a new "Forward-Compatibility Seams (Phase 3 readiness)" decision subsection implementing NFR-FC1–FC4: a single guarded tenant-mutation layer under a per-actor org-scoped RLS identity (service-role key never writes tenant rows — only DDL/provisioning/platform ops); activity log as authoritative append-only event stream via replayable cursor; documented out-of-band worker seam; action-allowlist generalization of the Schema Validator. Split the Supabase client decision (user-scoped RLS client vs service-role). Added the security forward-note. Traced Phase 3 FR62–69 (autonomous operator, per-type trust threshold, digital-crew roles, connected external tools via MCP) as neither-MVP-nor-Growth. Added the Phase 3 runtime decision (serverless-cron+durable-queue vs managed agent runner vs persistent worker; Hermes-style harness named as candidate, not committed) to Deferred Decisions and Areas for Future Enhancement. Updated FR/NFR coverage.'
 ---
 
-# Architecture Decision Document — SnapBusy
+# Architecture Decision Document — Scheza
 
 **Author:** Boris
 **Date:** 2026-05-17
@@ -167,7 +167,7 @@ Full-stack web application with PWA requirements, serverless API routes, and rea
 **Initialization Command:**
 
 ```bash
-npx create-next-app@latest snapbusy \
+npx create-next-app@latest scheza \
   --typescript \
   --tailwind \
   --eslint \
@@ -1016,7 +1016,7 @@ All AI agents MUST:
 ### Complete Project Directory Structure
 
 ```
-snapbusy/
+scheza/
 ├── README.md
 ├── package.json
 ├── next.config.ts
@@ -1504,7 +1504,7 @@ nor Growth scope:
 
 ```bash
 # Story 1: Project initialization
-npx create-next-app@latest snapbusy \
+npx create-next-app@latest scheza \
   --typescript --tailwind --eslint --app --src-dir --import-alias "@/*" --no-turbopack
 
 npx shadcn@latest init --style new-york --base-color zinc --css-variables

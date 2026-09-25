@@ -10,7 +10,7 @@ documentsIncluded:
 # Implementation Readiness Assessment Report
 
 **Date:** 2026-05-18
-**Project:** cmsbuilder (SnapBusy)
+**Project:** cmsbuilder (Scheza)
 
 ---
 
@@ -364,7 +364,7 @@ Story 3.5's Acceptance Criteria creates a Supabase Realtime channel named `org-{
 
 **NEEDS WORK**
 
-The SnapBusy planning artifacts demonstrate exceptional thoroughness — 45 FRs with 100% traceability, a complete architecture, a detailed UX specification, and 35+ stories with BDD acceptance criteria. However, two blocking issues prevent a clean "READY" verdict: one makes the sprint sequence technically unexecutable as written, and the other requires an architectural decision before a feature can be correctly scoped.
+The Scheza planning artifacts demonstrate exceptional thoroughness — 45 FRs with 100% traceability, a complete architecture, a detailed UX specification, and 35+ stories with BDD acceptance criteria. However, two blocking issues prevent a clean "READY" verdict: one makes the sprint sequence technically unexecutable as written, and the other requires an architectural decision before a feature can be correctly scoped.
 
 Both issues have clear remediation paths that do not require reworking the core product vision. They can be resolved in a focused half-day planning correction.
 

@@ -39,20 +39,20 @@ editHistory:
     changes: 'Integrated the Hermes/autonomous-agent thesis as a first-class narrative: reframed Executive Summary and Product Principle 1 around the build → suggest → run arc; added Innovation Pattern 6 (Autonomous Per-Tenant Operator); added Project Scoping Phase 3 (Autonomous Operations, gated on proven week-4 retention + records-under-management growth) and reframed the Growth substrate as its nervous system; added a Security forward-note and NFR Forward-Compatibility seams (single guarded action layer, durable append-only event stream consumed via replayable cursor, persistent-worker seam, action allowlist); added action-safety risk (Critical, reputational-contagion impact) and Phase 3 FRs 62-67. MVP scope and Success Criteria deliberately unchanged.'
 ---
 
-# Product Requirements Document - SnapBusy
+# Product Requirements Document - Scheza
 
 **Author:** Boris
 **Date:** 2026-05-17
 
 ## Executive Summary
 
-SnapBusy is a Generative Business Operating System targeting Ontario small-to-medium enterprises in the skilled trades and local services sectors (HVAC, plumbing, roofing, snow removal, landscaping). Users describe their business in a single natural language prompt; within 30 seconds, SnapBusy generates a relational database schema, provisions a live PostgreSQL backend, injects hyper-contextual synthetic data, and renders a fully interactive dashboard — all before the user creates an account.
+Scheza is a Generative Business Operating System targeting Ontario small-to-medium enterprises in the skilled trades and local services sectors (HVAC, plumbing, roofing, snow removal, landscaping). Users describe their business in a single natural language prompt; within 30 seconds, Scheza generates a relational database schema, provisions a live PostgreSQL backend, injects hyper-contextual synthetic data, and renders a fully interactive dashboard — all before the user creates an account.
 
-The product targets the operational gap between tools that are too generic (Excel, Airtable) and platforms that are too expensive and complex to configure without a developer (Salesforce, HubSpot). The primary user is the accidental administrator: a master tradesperson who built a successful service business but now loses evenings and weekends to administrative chaos — missed invoices, untracked parts, forgotten follow-ups. SnapBusy's value proposition is not a database; it is the peace of mind to turn off your brain at 6 PM.
+The product targets the operational gap between tools that are too generic (Excel, Airtable) and platforms that are too expensive and complex to configure without a developer (Salesforce, HubSpot). The primary user is the accidental administrator: a master tradesperson who built a successful service business but now loses evenings and weekends to administrative chaos — missed invoices, untracked parts, forgotten follow-ups. Scheza's value proposition is not a database; it is the peace of mind to turn off your brain at 6 PM.
 
-SnapBusy is deliberately **not** positioned as a no-code database builder. That framing invites commodity comparison to Airtable and a race to zero on price. SnapBusy redesigns how the business runs — it proposes the workflow, not merely the table that stores it. Its defensibility rests on three compounding traits a schema generator alone cannot accumulate: **proprietary per-tenant operational data**, **embedded workflows** the business runs on daily, and **switching costs** that grow with every imported record and learned pattern. A schema generator has none of these; a system that learns one specific business over time has all three.
+Scheza is deliberately **not** positioned as a no-code database builder. That framing invites commodity comparison to Airtable and a race to zero on price. Scheza redesigns how the business runs — it proposes the workflow, not merely the table that stores it. Its defensibility rests on three compounding traits a schema generator alone cannot accumulate: **proprietary per-tenant operational data**, **embedded workflows** the business runs on daily, and **switching costs** that grow with every imported record and learned pattern. A schema generator has none of these; a system that learns one specific business over time has all three.
 
-That compounding thesis has a natural endgame, and it defines SnapBusy's arc across three verbs: **AI builds → AI suggests → AI runs.** In the MVP the AI *builds* the system — schema, data, dashboard — in under a minute. In the Growth phase it *suggests* how the business should run, watching for what falls through the cracks. The endpoint is an AI that *runs* the business inside the system: an always-on, per-tenant operator — a digital employee — that executes routine operational work autonomously and reports back on the owner's channel of choice. This is deferred to a gated **Phase 3** (see *Project Scoping*), not the MVP. But every phase before it exists to accumulate the proprietary data, embedded workflow, and earned trust a digital employee needs to run one specific business. Naming the endgame now keeps the earlier phases pointed at it — and keeps SnapBusy on the right side of the AI-driven collapse of seat-based SaaS, as the system that *does* the work rather than the one that gets automated away.
+That compounding thesis has a natural endgame, and it defines Scheza's arc across three verbs: **AI builds → AI suggests → AI runs.** In the MVP the AI *builds* the system — schema, data, dashboard — in under a minute. In the Growth phase it *suggests* how the business should run, watching for what falls through the cracks. The endpoint is an AI that *runs* the business inside the system: an always-on, per-tenant operator — a digital employee — that executes routine operational work autonomously and reports back on the owner's channel of choice. This is deferred to a gated **Phase 3** (see *Project Scoping*), not the MVP. But every phase before it exists to accumulate the proprietary data, embedded workflow, and earned trust a digital employee needs to run one specific business. Naming the endgame now keeps the earlier phases pointed at it — and keeps Scheza on the right side of the AI-driven collapse of seat-based SaaS, as the system that *does* the work rather than the one that gets automated away.
 
 Target market: Ontario SMEs, 1–15 employees, in skilled trades and local services. Initial go-to-market targets the Greater Toronto Area and Ottawa-Gatineau corridor. Pricing is **usage-based**: a low monthly base fee (~$29) plus metered overage on active records managed — jobs, invoices, and customers tracked per cycle — over a generous included allotment sized to cover a typical trades account. A 14-day free trial is triggered at account claim. (See *Pricing & Metering* for the metering model and the pure-usage-vs-hybrid open question.)
 
@@ -60,7 +60,7 @@ Target market: Ontario SMEs, 1–15 employees, in skilled trades and local servi
 
 The core technical unlock is **deterministic JSON schema generation at edge-compute speeds**. In 2026, frontier models (GPT-4o-mini, Claude 3.5 Sonnet) reliably output strict, nested JSON under strict system prompts — valid enough to pipe directly into a database provisioning API without a human engineer sanitizing output. This collapses the Time to Value from months to seconds.
 
-The differentiator is not the deferred authentication (though it reduces bounce). The "aha" moment occurs at second ~14: the user sees a dashboard already populated with *their* operational reality — an invoice for "Emergency Pipe Repair at 100 City Centre Dr, Mississauga," a parts inventory listing "3/4 inch copper fittings," a dispatch view showing "Truck 2 – Currently on Hurontario St." This **hyper-contextual synthetic data** eliminates blank-canvas paralysis — the leading cause of B2B SaaS churn at onboarding. Competitors deliver an empty filing cabinet; SnapBusy delivers a fully staffed, organized office.
+The differentiator is not the deferred authentication (though it reduces bounce). The "aha" moment occurs at second ~14: the user sees a dashboard already populated with *their* operational reality — an invoice for "Emergency Pipe Repair at 100 City Centre Dr, Mississauga," a parts inventory listing "3/4 inch copper fittings," a dispatch view showing "Truck 2 – Currently on Hurontario St." This **hyper-contextual synthetic data** eliminates blank-canvas paralysis — the leading cause of B2B SaaS churn at onboarding. Competitors deliver an empty filing cabinet; Scheza delivers a fully staffed, organized office.
 
 Ontario-specific differentiation reinforces retention: Canadian data residency (PIPEDA-compliant, AWS ca-central-1), native EN/FR bilingual architecture, and white-label resale for GTA/Ottawa digital agencies.
 
@@ -68,8 +68,8 @@ Ontario-specific differentiation reinforces retention: Canadian data residency (
 
 Four rules derived from market research. Every feature and scope decision is checkable against them.
 
-1. **Value compounds, it does not front-load.** The 30-second generation is the hook, not the product. SnapBusy must be more useful in month six than in minute one, because the business's own accumulated data and patterns live inside it. The endpoint of that compounding is an autonomous operator that can run the business *because* it has learned it — the arc from *AI builds* to *AI suggests* to *AI runs* (see Executive Summary and Project Scoping Phase 3).
-2. **Redesign the workflow, don't automate the step.** SnapBusy proposes how the work should be organized, then runs it — rather than bolting automation onto an existing broken process.
+1. **Value compounds, it does not front-load.** The 30-second generation is the hook, not the product. Scheza must be more useful in month six than in minute one, because the business's own accumulated data and patterns live inside it. The endpoint of that compounding is an autonomous operator that can run the business *because* it has learned it — the arc from *AI builds* to *AI suggests* to *AI runs* (see Executive Summary and Project Scoping Phase 3).
+2. **Redesign the workflow, don't automate the step.** Scheza proposes how the work should be organized, then runs it — rather than bolting automation onto an existing broken process.
 3. **Explainable by default.** Every AI-generated field, table, or suggestion carries a plain-language reason and a one-click override. Adoption stalls on trust, not capability — and this user is wary of losing control.
 4. **Charge for value delivered, not seats occupied.** Pricing meters the records a business actually manages, not logins — the model best fit to a 1–3 person trades operation and most resilient to AI-driven disruption of seat-based SaaS.
 
@@ -110,7 +110,7 @@ Rationale: paying strangers — not friends, not beta testers — who pulled out
 **12-Month Milestone — Default Alive**
 - ~$10,000 MRR (~$120K ARR; roughly 200–280 active paying businesses at blended ARPA, exact count varies with records-under-management)
 
-Rationale: $10K MRR covers all infrastructure and API costs, supports a founder salary, and validates that the Ontario SME market is deep enough to scale. Under usage-based metering, MRR and records-under-management move together — revenue grows as customers deepen usage rather than only as headcount grows. At this threshold SnapBusy transitions from "AI project" to a defensible, sellable Micro-SaaS.
+Rationale: $10K MRR covers all infrastructure and API costs, supports a founder salary, and validates that the Ontario SME market is deep enough to scale. Under usage-based metering, MRR and records-under-management move together — revenue grows as customers deepen usage rather than only as headcount grows. At this threshold Scheza transitions from "AI project" to a defensible, sellable Micro-SaaS.
 
 ### Technical Success
 
@@ -151,7 +151,7 @@ These metrics track the thesis that value compounds rather than front-loads (Pro
 **Persona:** Tim Kowalski, 47. Runs TK Mechanical — 5 HVAC trucks serving Mississauga and Brampton. His business lives in a WhatsApp group, a dog-eared notebook in his truck, and a shared Excel file nobody updates correctly.
 
 **Opening Scene**
-9:30 PM on a Wednesday. Tim is trying to figure out if he invoiced the Dhaliwal family for a furnace repair two weeks ago — scrolling through WhatsApp messages to find the date. He Googles "simple job tracking for HVAC small business," clicks a SnapBusy ad. The landing page is one thing: a text box and the words *"What kind of business are you running?"*
+9:30 PM on a Wednesday. Tim is trying to figure out if he invoiced the Dhaliwal family for a furnace repair two weeks ago — scrolling through WhatsApp messages to find the date. He Googles "simple job tracking for HVAC small business," clicks a Scheza ad. The landing page is one thing: a text box and the words *"What kind of business are you running?"*
 
 He types: *"I run an HVAC company in Mississauga. I have 5 trucks, I need to track my jobs, parts inventory, and send invoices."* He hits Enter. No sign-up. No credit card.
 
@@ -180,7 +180,7 @@ The dashboard loads as swipeable cards — not a desktop table crammed onto a 6-
 Tim, back at the office, sees Marco's completed job update appear in the Jobs table in real time. He marks the invoice as sent without calling Marco. No WhatsApp thread. No back-and-forth.
 
 **Resolution**
-Marco never visits a settings page. He never sees a database. He uses SnapBusy the way he uses Google Maps — it just works on his phone.
+Marco never visits a settings page. He never sees a database. He uses Scheza the way he uses Google Maps — it just works on his phone.
 
 **Requirements Revealed:** Shared dashboard access (invite by email), mobile-first card view, touch-optimized hit areas (48×48px min), real-time data sync, simplified field-worker entry flow, no-configuration shared access.
 
@@ -189,7 +189,7 @@ Marco never visits a settings page. He never sees a database. He uses SnapBusy t
 **Persona:** Sarah Tremblay, 31. Operations Manager at Vert Paysage — a landscaping and snow removal company in Ottawa with 15 seasonal workers. Half her clients expect everything in French; half her workers only read French. She manages dispatch, client contracts, and worker schedules across both languages, currently via Google Sheets and printed paper contracts.
 
 **Opening Scene**
-Sarah hears about SnapBusy at an Ottawa trade association meeting. She opens it on her laptop and types in French: *"Je gère une entreprise de déneigement à Ottawa. J'ai 15 employés, des clients résidentiels et commerciaux, et je dois gérer les contrats en français et en anglais."*
+Sarah hears about Scheza at an Ottawa trade association meeting. She opens it on her laptop and types in French: *"Je gère une entreprise de déneigement à Ottawa. J'ai 15 employés, des clients résidentiels et commerciaux, et je dois gérer les contrats en français et en anglais."*
 
 **Rising Action**
 The dashboard generates in French. Column names: *Clients, Employés, Contrats, Statut.* Synthetic data uses localized names — *Gagnon, Leblanc* — and Gatineau addresses. She toggles the language switch top-right. Everything — menus, column headers, dummy data — flips to English instantly, no reload. She clicks into a dummy contract entry: fields for Client Name, Civic Address, Contract Type, Language Preference (EN/FR), Service Schedule, and Gate Access Code — the last marked with a padlock icon.
@@ -198,7 +198,7 @@ The dashboard generates in French. Column names: *Clients, Employés, Contrats, 
 The Gate Access Code padlock tooltip reads: *"Stored encrypted. Canadian servers only (PIPEDA)."* Sarah exhales. She handles security codes for 40+ residential properties and has always been nervous storing them in Google Sheets. This one detail closes the deal. She claims the app and invites her dispatcher and three team leads.
 
 **Resolution**
-Sarah runs weekly dispatch in SnapBusy in French. Her English-speaking client in Kanata fills out the intake form in English. Both entries land in the same database. No translation friction. No compliance anxiety.
+Sarah runs weekly dispatch in Scheza in French. Her English-speaking client in Kanata fills out the intake form in English. Both entries land in the same database. No translation friction. No compliance anxiety.
 
 **Requirements Revealed:** French-language prompt support, EN/FR UI toggle (labels + synthetic data), bilingual intake form, field-level sensitivity indicators, PIPEDA-compliant data residency messaging, multi-user invite flow, mixed-language entry support.
 
@@ -246,22 +246,22 @@ Tim never saw a raw schema, an error code, or a JSON object. He had a conversati
 Tim's dashboard is live and full of synthetic data. A prompt appears: *"Ready to make this yours? Import your real customers and jobs."* His actual data lives in a three-year-old Excel file — 400 rows of jobs and a separate sheet of clients. The nightmare scenario in his head: *"now re-type three years of jobs."* If that were the ask, he would close the tab.
 
 **Rising Action**
-He drags the Excel file onto the screen. SnapBusy reads the columns and **shows its work**: a mapping table appears — *"Your column 'Customer' → Clients.Name," "Your column 'Addr' → Jobs.Address," "Your column 'Amt' → Invoices.Total."* Two columns it isn't sure about are flagged, not silently guessed: *"'Ref#' — map to Job Number, or skip?"* Each proposed match is editable before anything is committed. Nothing has been written to his database yet.
+He drags the Excel file onto the screen. Scheza reads the columns and **shows its work**: a mapping table appears — *"Your column 'Customer' → Clients.Name," "Your column 'Addr' → Jobs.Address," "Your column 'Amt' → Invoices.Total."* Two columns it isn't sure about are flagged, not silently guessed: *"'Ref#' — map to Job Number, or skip?"* Each proposed match is editable before anything is committed. Nothing has been written to his database yet.
 
 **Climax**
 Tim fixes one mapping, confirms the rest, and taps **Import**. A progress meter runs; the synthetic rows are cleared and replaced with his real 400 jobs and his real clients. He scrolls and sees *"Dhaliwal – Furnace Repair – Feb 2024"* — the exact job he spent 20 minutes hunting for in WhatsApp in Journey 1. It's in the system now, searchable, forever.
 
 **Resolution**
-Tim has effectively switched. Three years of his operational history now live in SnapBusy — a switching cost that no synthetic-data demo could create. He never re-typed a single row.
+Tim has effectively switched. Three years of his operational history now live in Scheza — a switching cost that no synthetic-data demo could create. He never re-typed a single row.
 
 **Requirements Revealed:** CSV/Excel upload; AI-assisted column mapping reusing the schema-generation capability; visible, editable mapping UI before commit (explainability principle); ambiguous columns flagged rather than silently guessed; non-destructive replacement of synthetic data with imported data; import as the primary activation event.
 
 ### Journey 7: Tim — The Digital Employee Closes the Loop (Vision — Phase 3)
 
-**Persona:** Same Tim, a year in. SnapBusy holds his real customers, jobs, and invoices, and has watched how he works for months. He has quietly turned on the operator and approved a handful of routine actions.
+**Persona:** Same Tim, a year in. Scheza holds his real customers, jobs, and invoices, and has watched how he works for months. He has quietly turned on the operator and approved a handful of routine actions.
 
 **Opening Scene**
-Friday, 6 PM. In the old days this is when Tim's second shift started — figuring out who never got invoiced, which quotes went cold, whether he's low on parts. Tonight his phone buzzes with a WhatsApp message from SnapBusy.
+Friday, 6 PM. In the old days this is when Tim's second shift started — figuring out who never got invoiced, which quotes went cold, whether he's low on parts. Tonight his phone buzzes with a WhatsApp message from Scheza.
 
 **Rising Action**
 The message is a plain-language summary: *"6 jobs finished this week without an invoice — I drafted all 6, want me to send them? · The Kaur quote from 9 days ago hasn't been answered — draft follow-up ready · Copper fittings below reorder point."* Each item has a one-tap **Send / Edit / Skip.** Because Tim has approved "draft an invoice for a finished job" enough times, that role now runs on its own and is showing him the result, not asking permission. The customer follow-up — a customer-facing action — still waits for his tap.
@@ -301,14 +301,14 @@ Tim never opens a settings screen. He didn't hire anyone. The business ran its o
 
 ### Compliance & Regulatory (PIPEDA — Privacy by Design)
 
-SnapBusy adopts a **Privacy by Design** posture. Canadian data residency is the foundation, not the complete strategy.
+Scheza adopts a **Privacy by Design** posture. Canadian data residency is the foundation, not the complete strategy.
 
 **Data Residency**
 All user data must be stored exclusively on Canadian-region infrastructure (AWS ca-central-1 or Supabase equivalent). This is enforced at the infrastructure configuration level and must be verified before any production deployment.
 
 **Informed Consent at Claim**
 At the magic link claim step (demo → live account conversion), the UI must display a mandatory, unchecked checkbox:
-*"I agree to the SnapBusy Privacy Policy and Terms of Service."*
+*"I agree to the Scheza Privacy Policy and Terms of Service."*
 This checkbox is a **hard blocker** — account creation cannot complete without explicit consent. The timestamp of consent must be stored against the user record.
 
 **Data Portability**
@@ -324,7 +324,7 @@ Upon account cancellation:
 ### Technical Constraints — Multi-Tenant Data Isolation
 
 **Architecture Decision: RLS + Shared Instance**
-SnapBusy uses a single shared PostgreSQL instance (Supabase) with **Row-Level Security (RLS)** as the tenant isolation mechanism. Separate schemas per tenant and separate database instances are explicitly rejected — the former creates unmanageable migration complexity; the latter is cost-prohibitive at the MVP stage.
+Scheza uses a single shared PostgreSQL instance (Supabase) with **Row-Level Security (RLS)** as the tenant isolation mechanism. Separate schemas per tenant and separate database instances are explicitly rejected — the former creates unmanageable migration complexity; the latter is cost-prohibitive at the MVP stage.
 
 **Implementation Requirements**
 - Every generated table must include an `organization_id` column, automatically populated at provisioning time with the authenticated user's UID
@@ -406,22 +406,22 @@ Activity logging is scoped to the **Growth** phase and must ship before either d
 ### Detected Innovation Areas
 
 **1. AI as Architect (Generative Data Structure)**
-SnapBusy represents a new category of AI application: **Generative Architecture**. Unlike AI tools that assist users within pre-existing structures (autocomplete, summarization, content generation), SnapBusy uses AI to generate the structure itself — database schema, relational model, UI layout, and contextual data — from a single natural language prompt. The technical enabler is deterministic JSON schema generation: frontier models in 2026 can be strictly constrained to output valid, nested JSON reliably enough to pipe directly into a database provisioning API. This eliminates the human engineering layer that previously made "prompt-to-app" a novelty rather than a product.
+Scheza represents a new category of AI application: **Generative Architecture**. Unlike AI tools that assist users within pre-existing structures (autocomplete, summarization, content generation), Scheza uses AI to generate the structure itself — database schema, relational model, UI layout, and contextual data — from a single natural language prompt. The technical enabler is deterministic JSON schema generation: frontier models in 2026 can be strictly constrained to output valid, nested JSON reliably enough to pipe directly into a database provisioning API. This eliminates the human engineering layer that previously made "prompt-to-app" a novelty rather than a product.
 
 **2. Blank Canvas Inversion (Pre-Populated Deferred Auth)**
-Standard B2B SaaS onboarding creates an empty product and asks users to fill it. SnapBusy inverts this: the user's first interaction is with a fully populated, Ontario-localized dashboard specific to their trade. Combined with deferred authentication (no account required to experience the product), this creates a novel conversion pattern: users experience the full value proposition *before* they are asked to commit. The "aha moment at second 14" — seeing hyper-contextual synthetic data that mirrors their operational reality — is the product's primary conversion mechanism, not a feature tour or marketing copy.
+Standard B2B SaaS onboarding creates an empty product and asks users to fill it. Scheza inverts this: the user's first interaction is with a fully populated, Ontario-localized dashboard specific to their trade. Combined with deferred authentication (no account required to experience the product), this creates a novel conversion pattern: users experience the full value proposition *before* they are asked to commit. The "aha moment at second 14" — seeing hyper-contextual synthetic data that mirrors their operational reality — is the product's primary conversion mechanism, not a feature tour or marketing copy.
 
 **3. Conversational Live Schema Mutation**
-SnapBusy allows users to modify a live, production database schema through natural language via a floating chat interface. Adding a column, renaming a table, or restructuring a relationship is a typed sentence, not a configuration screen. The underlying implementation — LLM → JSON schema diff → Supabase migration → UI re-render — makes this safe and non-destructive. This pattern exists in enterprise platforms (Salesforce Flow, Retool) but requires administrator training and technical knowledge. SnapBusy makes it accessible to a 47-year-old HVAC contractor on his iPhone.
+Scheza allows users to modify a live, production database schema through natural language via a floating chat interface. Adding a column, renaming a table, or restructuring a relationship is a typed sentence, not a configuration screen. The underlying implementation — LLM → JSON schema diff → Supabase migration → UI re-render — makes this safe and non-destructive. This pattern exists in enterprise platforms (Salesforce Flow, Retool) but requires administrator training and technical knowledge. Scheza makes it accessible to a 47-year-old HVAC contractor on his iPhone.
 
 **4. Workflow Suggestion Layer (Proactive, Not Reactive)** — *Growth*
-Most software records what the user does; SnapBusy notices what is *falling through*. A per-tenant engine watches usage patterns and surfaces suggestions in plain language — for example: *"Six jobs were marked complete this month with no invoice attached — add a reminder when a job closes unbilled?"* Each suggestion is accepted, dismissed, or edited by the owner, and dismissals are remembered and never re-asked. This is the single largest differentiator against horizontal tools (Airtable) and rigid vertical tools (Jobber): it turns the product from a place to record work into a system that redesigns the workflow (Product Principle 2). It depends on a trigger/action **execution engine** that does not exist in the MVP; that engine is scoped ahead of the suggestion layer (see Project Scoping).
+Most software records what the user does; Scheza notices what is *falling through*. A per-tenant engine watches usage patterns and surfaces suggestions in plain language — for example: *"Six jobs were marked complete this month with no invoice attached — add a reminder when a job closes unbilled?"* Each suggestion is accepted, dismissed, or edited by the owner, and dismissals are remembered and never re-asked. This is the single largest differentiator against horizontal tools (Airtable) and rigid vertical tools (Jobber): it turns the product from a place to record work into a system that redesigns the workflow (Product Principle 2). It depends on a trigger/action **execution engine** that does not exist in the MVP; that engine is scoped ahead of the suggestion layer (see Project Scoping).
 
 **5. Learned Patterns per Tenant (The Moat)** — *Growth*
-SnapBusy maintains a per-business record of what the owner actually does: fields added manually and repeatedly, workflows edited, suggestions dismissed, terminology used. This record feeds future suggestions and schema refinements *for that business specifically*. It is the embodiment of Product Principle 1 (value compounds): the system is measurably more useful in month six than in minute one. Critically, it is the defensibility that a schema generator cannot copy — a competitor can replicate the 30-second generation trick overnight, but cannot replicate a year of one specific business's accumulated patterns, and that record cannot be exported to a rival.
+Scheza maintains a per-business record of what the owner actually does: fields added manually and repeatedly, workflows edited, suggestions dismissed, terminology used. This record feeds future suggestions and schema refinements *for that business specifically*. It is the embodiment of Product Principle 1 (value compounds): the system is measurably more useful in month six than in minute one. Critically, it is the defensibility that a schema generator cannot copy — a competitor can replicate the 30-second generation trick overnight, but cannot replicate a year of one specific business's accumulated patterns, and that record cannot be exported to a rival.
 
 **6. Autonomous Per-Tenant Operator (The Digital Employee)** — *Vision / Phase 3*
-Patterns 4 and 5 let SnapBusy *notice* and *suggest*; this one lets it *act*. A per-tenant operator runs routine operational work autonomously — chasing unbilled jobs, following up on stale quotes, flagging parts below reorder threshold, drafting customer follow-ups — then reports back on the owner's channel of choice (SMS, messaging app, email, or dashboard). It is the literal fulfillment of the product's core promise: *the peace of mind to turn your brain off at 6 PM.* It is not a new data asset but a new *use* of the ones Patterns 4 and 5 accumulate — it consumes the activity log, the execution engine, and the learned patterns, and therefore inherits their moat: a competitor can copy the 30-second generation overnight but cannot copy an operator that has run *this* business for six months. The distinction from the Growth Suggestion Layer is exact and load-bearing: the Suggestion Layer proposes and the human acts; the operator executes the approved action end-to-end and remembers the approval so it stops asking. That graduation — from suggestion inbox to digital employee, earned per action-type — is the pattern. It depends on infrastructure that does not exist before Growth and on trust that must be measured, not assumed. As it matures, the single operator can be presented as a **digital crew** of named roles (bookkeeper, sales, operations) sharing one per-tenant memory, and can act beyond the business's own data through connected external tools (email, search/SEO, messaging) via a standard tool-connection protocol such as MCP — each tool a leashed, audited action class (see *Project Scoping — Phase 3* for the entry gate, roles, tools, and safety model).
+Patterns 4 and 5 let Scheza *notice* and *suggest*; this one lets it *act*. A per-tenant operator runs routine operational work autonomously — chasing unbilled jobs, following up on stale quotes, flagging parts below reorder threshold, drafting customer follow-ups — then reports back on the owner's channel of choice (SMS, messaging app, email, or dashboard). It is the literal fulfillment of the product's core promise: *the peace of mind to turn your brain off at 6 PM.* It is not a new data asset but a new *use* of the ones Patterns 4 and 5 accumulate — it consumes the activity log, the execution engine, and the learned patterns, and therefore inherits their moat: a competitor can copy the 30-second generation overnight but cannot copy an operator that has run *this* business for six months. The distinction from the Growth Suggestion Layer is exact and load-bearing: the Suggestion Layer proposes and the human acts; the operator executes the approved action end-to-end and remembers the approval so it stops asking. That graduation — from suggestion inbox to digital employee, earned per action-type — is the pattern. It depends on infrastructure that does not exist before Growth and on trust that must be measured, not assumed. As it matures, the single operator can be presented as a **digital crew** of named roles (bookkeeper, sales, operations) sharing one per-tenant memory, and can act beyond the business's own data through connected external tools (email, search/SEO, messaging) via a standard tool-connection protocol such as MCP — each tool a leashed, audited action class (see *Project Scoping — Phase 3* for the entry gate, roles, tools, and safety model).
 
 ### Market Context & Competitive Landscape
 
@@ -433,7 +433,7 @@ Existing research (see `docs/research.md`) maps the competitive landscape into t
 | No-Code Powerhouses | Webflow, Bubble, Softr | Too technical; require hours of configuration; blank canvas problem |
 | Internal Tool Builders | Retool, Glide, ToolJet | Powerful but require developer setup; not accessible to non-technical SMEs |
 
-None of these players combine: (a) AI-generated schema, (b) pre-populated synthetic data, (c) deferred auth, and (d) Ontario-specific localization in a single sub-45-second experience. The closest analog is Softr (Airtable → web app) but it requires the user to already have their data structured in Airtable. SnapBusy generates the structure from scratch.
+None of these players combine: (a) AI-generated schema, (b) pre-populated synthetic data, (c) deferred auth, and (d) Ontario-specific localization in a single sub-45-second experience. The closest analog is Softr (Airtable → web app) but it requires the user to already have their data structured in Airtable. Scheza generates the structure from scratch.
 
 The innovation window is specific to 2025–2027: the cost and reliability of deterministic JSON generation has only recently become viable for consumer-grade products. First-mover advantage in the Ontario SME vertical is available now.
 
@@ -460,7 +460,7 @@ The innovation window is specific to 2025–2027: the cost and reliability of de
 
 ### Project-Type Overview
 
-SnapBusy is a multi-tenant B2B SaaS platform serving Ontario SMEs in skilled trades. Each business account operates in a fully isolated data environment. The product is designed for non-technical primary users (the business owner/admin) and semi-technical secondary users (field workers, dispatchers), requiring a permission model that protects the generative engine from accidental misuse without adding configuration overhead.
+Scheza is a multi-tenant B2B SaaS platform serving Ontario SMEs in skilled trades. Each business account operates in a fully isolated data environment. The product is designed for non-technical primary users (the business owner/admin) and semi-technical secondary users (field workers, dispatchers), requiring a permission model that protects the generative engine from accidental misuse without adding configuration overhead.
 
 ### Tenant Model
 
@@ -472,7 +472,7 @@ Covered in full under **Domain-Specific Requirements — Multi-Tenant Data Isola
 
 ### Permission Model (RBAC — Two Hardcoded Roles)
 
-SnapBusy ships with two hardcoded roles for MVP. A custom RBAC configuration UI is explicitly out of scope.
+Scheza ships with two hardcoded roles for MVP. A custom RBAC configuration UI is explicitly out of scope.
 
 | Capability | Admin | Member |
 |---|---|---|
@@ -498,7 +498,7 @@ SnapBusy ships with two hardcoded roles for MVP. A custom RBAC configuration UI 
 
 **MVP Model: Base + Metered Overage (Hybrid)**
 
-SnapBusy prices on value delivered, not seats occupied (Product Principle 4). Seat-based SaaS is the model most exposed to AI-driven disruption and fits a 1–3 person trades business badly regardless — a solo operator in a busy year and a crew of three in a slow one should not pay the same seat bill. The billable unit is the **active record managed** (jobs, invoices, and customers tracked per cycle), not the user login.
+Scheza prices on value delivered, not seats occupied (Product Principle 4). Seat-based SaaS is the model most exposed to AI-driven disruption and fits a 1–3 person trades business badly regardless — a solo operator in a busy year and a crew of three in a slow one should not pay the same seat bill. The billable unit is the **active record managed** (jobs, invoices, and customers tracked per cycle), not the user login.
 
 | Attribute | Value |
 |---|---|
@@ -510,7 +510,7 @@ SnapBusy prices on value delivered, not seats occupied (Product Principle 4). Se
 | Trial-to-paid conversion prompt | Persistent banner from Day 12: *"Your trial expires in 2 days. Add billing to keep your business running."* |
 | Post-trial behaviour | Account enters read-only mode; data preserved for 30 days then subject to offboarding cascade |
 
-**Conversion guardrails (why usage pricing won't scare this user):** trades owners fear unpredictable bills — the exact chaos SnapBusy sells relief from. Three controls make the model safe: the included allotment is deliberately generous (a typical account stays inside it and pays only the base), usage is always visible via the live meter, and the optional hard cap makes the worst case bounded and self-chosen.
+**Conversion guardrails (why usage pricing won't scare this user):** trades owners fear unpredictable bills — the exact chaos Scheza sells relief from. Three controls make the model safe: the included allotment is deliberately generous (a typical account stays inside it and pays only the base), usage is always visible via the live meter, and the optional hard cap makes the worst case bounded and self-chosen.
 
 **Why no usage caps during trial:** encouraging users to migrate their full operations — and import their history — during the trial maximizes switching cost and conversion probability. A user who has imported 500 real records is far more likely to pay than one who created 3 test entries.
 
@@ -521,8 +521,8 @@ SnapBusy prices on value delivered, not seats occupied (Product Principle 4). Se
 Stripe is a Day 1 dependency. Manual billing is inconsistent with the product's zero-friction mission and creates the exact administrative chaos the product is designed to eliminate.
 
 **Implementation (Stripe Checkout + Customer Portal + Metered Billing):**
-- No custom billing UI is built — SnapBusy uses Stripe-hosted surfaces exclusively for MVP
-- **Metered subscription:** the plan is a Stripe subscription with a flat base price plus a **metered usage component**; SnapBusy reports each cycle's active-record count to Stripe as usage records against the metered price
+- No custom billing UI is built — Scheza uses Stripe-hosted surfaces exclusively for MVP
+- **Metered subscription:** the plan is a Stripe subscription with a flat base price plus a **metered usage component**; Scheza reports each cycle's active-record count to Stripe as usage records against the metered price
 - **Upgrade flow:** "Add Billing" button redirects to Stripe Checkout; on success, Stripe fires `checkout.session.completed` webhook
 - **Billing management:** "Billing" in Settings redirects to Stripe Customer Portal (card updates, invoice history with usage breakdown, cancellation)
 - **Usage reporting:** a scheduled job computes active-record counts per organization per cycle and posts them to Stripe; this count is also surfaced in-app as the live usage meter
@@ -863,7 +863,7 @@ Ordered by dependency and payoff. Items 1–3 are MVP; 4–9 are Growth, sequenc
 | NFR-P7 | CSV/Excel import of up to 5,000 rows completes in < 60 seconds; the column-mapping preview renders in < 5 seconds of file upload |
 | NFR-P8 | (Growth) Workflow suggestions are computed asynchronously and never block CRUD operations; a computed suggestion surfaces within one dashboard session refresh |
 
-*Rationale:* Performance is SnapBusy's primary competitive differentiator. TTV < 45 seconds is a core product promise; any regression beyond this threshold directly undermines the "aha moment" and the activation funnel.
+*Rationale:* Performance is Scheza's primary competitive differentiator. TTV < 45 seconds is a core product promise; any regression beyond this threshold directly undermines the "aha moment" and the activation funnel.
 
 ### Security
 
@@ -884,7 +884,7 @@ Ordered by dependency and payoff. Items 1–3 are MVP; 4–9 are Growth, sequenc
 | NFR-SC2 | Vercel serverless functions must auto-scale to handle traffic spikes without manual intervention |
 | NFR-SC3 | Each organization's generated schema may contain up to 20 tables and 50,000 rows within the MVP infrastructure tier; growth beyond this triggers an upgrade prompt to the Admin |
 
-*Note:* The serverless stack (Vercel + Supabase) handles auto-scaling natively. NFR-SC3 defines the explicit ceiling at which SnapBusy must proactively communicate an upgrade path rather than silently degrading.
+*Note:* The serverless stack (Vercel + Supabase) handles auto-scaling natively. NFR-SC3 defines the explicit ceiling at which Scheza must proactively communicate an upgrade path rather than silently degrading.
 
 ### Accessibility
 

@@ -59,7 +59,7 @@ context:
 - `src/app/page.tsx` -- EXISTING minimal client landing (uses `Home` i18n namespace). REPLACE body to render `<PromptBuilder />` inside a minimal hero (headline + subhead from `Home`).
 - `src/components/generation/PromptBuilder.tsx` -- CREATE. Client component (`'use client'`); the Mad Libs form. RHF + `zodResolver` + shadcn `Form`/`Select`/`Input`/`Textarea`/`Label`/`Button`. On valid submit → `saveIntent()` then hand-off per OQ1.
 - `src/components/ui/` -- currently empty (`.gitkeep`). ADD via `npx shadcn add button input label select textarea form` (config present: new-york/zinc/RSC/lucide/TW v4). Do not hand-edit generated files.
-- `src/lib/generation/intent.ts` -- CREATE. `TradeType` union + `GenerationIntent` type; `createPromptIntentSchema(t)` factory; `saveIntent(intent, storage?)` / `readIntent(storage?)` (JSON in `sessionStorage` key `snapbusy.generation.intent`; storage param injectable for tests; `readIntent` re-validates, returns `null` on absent/corrupt).
+- `src/lib/generation/intent.ts` -- CREATE. `TradeType` union + `GenerationIntent` type; `createPromptIntentSchema(t)` factory; `saveIntent(intent, storage?)` / `readIntent(storage?)` (JSON in `sessionStorage` key `scheza.generation.intent`; storage param injectable for tests; `readIntent` re-validates, returns `null` on absent/corrupt).
 - `src/lib/i18n/en.json` / `fr.json` -- ADD a `PromptBuilder` namespace (field labels, placeholders, trade-option labels keyed by enum, CTA, validation messages) to BOTH catalogs. Extend `Home` hero copy if needed.
 - `src/lib/utils.ts` -- REUSE `cn()`. `normalizeTableName()` is NOT used here (no keys persisted to the DB).
 - `tests/unit/prompt-intent.test.ts` -- CREATE. Node-env unit tests for the schema + intent helper.
@@ -142,4 +142,4 @@ Unit tests call it with `(k) => k` and assert on the returned key.
 - Load `/` in EN and FR: only the guided prompt + CTA above the fold; labels/options/CTA translate.
 - Submit empty → each field shows an accessible translated error; screen-reader announces via `aria-describedby`; focus lands on the first invalid field.
 - Tab through the form with the keyboard only; every control is reachable and operable; focus rings visible. Touch targets ≥48px on mobile width.
-- Submit valid → `sessionStorage['snapbusy.generation.intent']` holds the correct payload (trade key, city, track, locale) and the app navigates to `/generate` showing the skeleton stub.
+- Submit valid → `sessionStorage['scheza.generation.intent']` holds the correct payload (trade key, city, track, locale) and the app navigates to `/generate` showing the skeleton stub.

@@ -15,14 +15,14 @@ context:
 
 ## Intent
 
-**Problem:** The SnapBusy repository is empty. Every later Epic 1 story (data model, LLM pipeline, dashboard) depends on a consistent, deployable, secure-by-default foundation with the exact mandated stack, i18n wiring, and CI safety gates — none of which exist yet.
+**Problem:** The Scheza repository is empty. Every later Epic 1 story (data model, LLM pipeline, dashboard) depends on a consistent, deployable, secure-by-default foundation with the exact mandated stack, i18n wiring, and CI safety gates — none of which exist yet.
 
 **Approach:** Scaffold a Next.js App Router project with `create-next-app` + shadcn/ui, install the architecture's pinned dependency set, wire next-intl (EN/FR) so no user-facing string is hardcoded from the first component, and stand up GitHub Actions CI (lint + type-check) plus a Vercel-deploy workflow — including a lint gate that fails the build if the Supabase service-role key reaches a client bundle, and a committed `.env.example` with placeholders only.
 
 ## Boundaries & Constraints
 
 **Always:**
-- Initialize with the exact flags: `create-next-app@latest snapbusy --typescript --tailwind --eslint --app --src-dir --import-alias "@/*" --no-turbopack`, then `shadcn@latest init --style new-york --base-color zinc --css-variables`.
+- Initialize with the exact flags: `create-next-app@latest scheza --typescript --tailwind --eslint --app --src-dir --import-alias "@/*" --no-turbopack`, then `shadcn@latest init --style new-york --base-color zinc --css-variables`.
 - Pin every dependency to the architecture's exact version strings (see Design Notes). Runtime deps and `@types/papaparse` as a devDep.
 - All user-facing strings resolve through `next-intl` `useTranslations()`; an EN catalog (`src/lib/i18n/en.json`) and a FR catalog (`src/lib/i18n/fr.json`) both exist, locale files under `src/lib/i18n/`.
 - ESLint (`.eslintrc.json`, legacy format) fails the build on (a) any occurrence of `SUPABASE_SERVICE_ROLE_KEY` in client-bundled code, and (b) a hardcoded user-facing string bypassing the translation layer in `src/` components.
@@ -61,7 +61,7 @@ Greenfield — no application code exists. Relevant existing files are planning 
 ## Tasks & Acceptance
 
 **Execution:**
-- [x] `package.json` / project root -- run `create-next-app@latest snapbusy` with the exact flags into the working directory, then `shadcn@latest init` with the exact flags -- establishes the mandated framework baseline.
+- [x] `package.json` / project root -- run `create-next-app@latest scheza` with the exact flags into the working directory, then `shadcn@latest init` with the exact flags -- establishes the mandated framework baseline.
 - [x] `package.json` -- install the pinned dependency set at exact versions (runtime + `@types/papaparse` devDep) per Design Notes; add scripts: `lint`, `type-check` (`tsc --noEmit`), `test`, `build` -- locks the toolchain.
 - [x] `tsconfig.json` -- confirm strict mode + `@/*`→`src/*` alias -- foundation for all imports.
 - [x] `next.config.ts`, `tailwind.config.ts` -- TS config; `darkMode: 'class'`; wire the next-intl plugin -- framework + theming baseline.
@@ -84,7 +84,7 @@ Greenfield — no application code exists. Relevant existing files are planning 
 
 ## Implementation Notes
 
-**Scaffold lives in `snapbusy/` subfolder.** `create-next-app@latest snapbusy` was run from the repo root, producing the project under `snapbusy/` (matching architecture.md's directory tree whose root is `snapbusy/`). The existing repo-root tooling (`_bmad`, `_bmad-output`, `docs`, `.github/agents`) is untouched. CI/deploy workflows use `working-directory: snapbusy` and `cache-dependency-path: snapbusy/package-lock.json`.
+**Scaffold lives in `scheza/` subfolder.** `create-next-app@latest scheza` was run from the repo root, producing the project under `scheza/` (matching architecture.md's directory tree whose root is `scheza/`). The existing repo-root tooling (`_bmad`, `_bmad-output`, `docs`, `.github/agents`) is untouched. CI/deploy workflows use `working-directory: scheza` and `cache-dependency-path: scheza/package-lock.json`.
 
 **Resolved toolchain versions (create-next-app@latest defaults):** `next@16.3.6`, `react@19.2.8`, `react-dom@19.2.8`, `typescript@^5`, `tailwindcss@^4`. `@types/node` was bumped from the scaffold default `^20` to `^24` because Vitest 5 requires `@types/node >=22`.
 

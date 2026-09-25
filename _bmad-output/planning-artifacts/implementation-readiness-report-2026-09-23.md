@@ -17,7 +17,7 @@ date: '2026-09-23'
 # Implementation Readiness Assessment Report
 
 **Date:** 2026-09-23
-**Project:** SnapBusy
+**Project:** Scheza
 
 ## Document Inventory
 
@@ -212,7 +212,7 @@ Supported. Optimistic UI → TanStack Query; swipeable cards → react-swipeable
 | # | Divergence | Severity | Resolution |
 |---|---|---|---|
 | U1 | **Chat-driven *design/theming* changes** — design.md shows the chat changing brand color and layout ("Change the brand color to red"). The MVP Conversational Editor is **append-only schema operations only** (add table/column/view); theming-via-chat is not in scope. | 🟠 Medium (scope-creep risk if a dev reads design.md literally) | Authoritative scope is `epics.md` Epic 5 (schema-only). Theming is not MVP. Recorded here so implementation does not build it. |
-| U2 | **Stale branding** — design.md is titled "DashForge" and uses `admin.dashforge.ca` / `snow-pros.ca` URLs. | 🟢 Low (cosmetic) | Canonical product is **SnapBusy** at `scheza.com/{slug}`; ignore DashForge naming/URLs. |
+| U2 | **Stale branding** — design.md is titled "DashForge" and uses `admin.dashforge.ca` / `snow-pros.ca` URLs. | 🟢 Low (cosmetic) | Canonical product is **Scheza** at `scheza.com/{slug}`; ignore DashForge naming/URLs. |
 | U3 | **Non-MVP features in design.md** — voice/microphone input, a map component, and generated public marketing website (`snow-pros.ca`). | 🟢 Low | Public website generation is a Growth item; voice input and maps are not in PRD MVP. Out of scope for Epics 1–8. |
 | U4 | **Bespoke visual system** (Geist/Inter, custom `#FAFAFA`/`#111111` palette) vs the Architecture's shadcn New York/zinc off-the-shelf mandate. | 🟢 Low | Already reconciled: UX-DR17 sets MVP = shadcn defaults; bespoke look is Growth polish. |
 | U5 | **TTV target mismatch** — design.md says "< 30 seconds"; PRD NFR-P1 says "< 45 seconds p95". | 🟢 Low | Use the PRD's **NFR-P1 (<45s p95)** as the binding target; 30s is an aspirational design north-star. |
@@ -220,7 +220,7 @@ Supported. Optimistic UI → TanStack Query; swipeable cards → react-swipeable
 ### Warnings
 
 - **U1 is the only one worth active guarding during implementation:** the design's "change the color / layout via chat" vision could be mistaken for MVP scope. Epics.md correctly constrains the MVP editor to append-only schema ops — keep it there.
-- The UX doc lives outside `planning_artifacts` and is stale-branded; consider copying a SnapBusy-rebranded version into `planning_artifacts` before dev picks it up, so it isn't misread as a different product.
+- The UX doc lives outside `planning_artifacts` and is stale-branded; consider copying a Scheza-rebranded version into `planning_artifacts` before dev picks it up, so it isn't misread as a different product.
 
 ## Epic Quality Review
 
@@ -278,7 +278,7 @@ The planning artifacts are aligned and implementation-ready. 100% of MVP functio
 3. **Add a non-functional verification checklist (M3)** at release level for platform NFRs with no story AC: NFR-SC1 (200 concurrent orgs — load test), NFR-SC2 (auto-scale), NFR-R2 (uptime monitoring).
 4. **Fold architecture-mandated unit tests into DoD (M4):** `normalizeTableName()` edge cases → Story 1.2; `formatCurrency()` → Story 3.1/3.2.
 5. **Establish the API envelope + `AppError` convention (M5)** as project-wide DoD in Story 1.1/1.2.
-6. **Rebrand & relocate the UX doc (U2):** copy a SnapBusy-branded `docs/design.md` into `planning_artifacts` so "DashForge" naming/URLs don't mislead implementers.
+6. **Rebrand & relocate the UX doc (U2):** copy a Scheza-branded `docs/design.md` into `planning_artifacts` so "DashForge" naming/URLs don't mislead implementers.
 7. **Keep non-MVP design ideas out of scope (U3):** voice input, map component, generated public website are not MVP.
 8. **Bind targets to the PRD where design diverges (U4/U5):** MVP visual system = shadcn New York/zinc (bespoke look is Growth); TTV target = NFR-P1 (<45s p95), not the design's 30s.
 

@@ -10,13 +10,13 @@ inputDocuments:
   - docs/design.md
 ---
 
-# SnapBusy - Epic Breakdown
+# Scheza - Epic Breakdown
 
 ## Overview
 
-This document provides the complete epic and story breakdown for SnapBusy, decomposing the requirements from the PRD, UX Design (`docs/design.md`), and Architecture requirements into implementable stories.
+This document provides the complete epic and story breakdown for Scheza, decomposing the requirements from the PRD, UX Design (`docs/design.md`), and Architecture requirements into implementable stories.
 
-> **Scope note:** SnapBusy is delivered in phases. **MVP (Phase 1)** = FR1–FR55 + all non-Forward-Compatibility NFRs, with the Forward-Compatibility NFRs (NFR-FC1–FC4) constraining *how* MVP is built. **Growth** = FR56–FR61. **Vision / Phase 3** = FR62–FR69 (gated, traceability only). Epic and story creation focuses on MVP + the Growth/Phase-3 seams that must not be foreclosed.
+> **Scope note:** Scheza is delivered in phases. **MVP (Phase 1)** = FR1–FR55 + all non-Forward-Compatibility NFRs, with the Forward-Compatibility NFRs (NFR-FC1–FC4) constraining *how* MVP is built. **Growth** = FR56–FR61. **Vision / Phase 3** = FR62–FR69 (gated, traceability only). Epic and story creation focuses on MVP + the Growth/Phase-3 seams that must not be foreclosed.
 
 ## Requirements Inventory
 
@@ -317,7 +317,7 @@ This document provides the complete epic and story breakdown for SnapBusy, decom
 ## Epic List
 
 ### Epic 1: Foundation & the Generative "Aha" Moment
-Stand up the platform and deliver SnapBusy's core value proposition end-to-end: an anonymous visitor describes their business with a guided prompt and, in under 45 seconds, lands in a fully interactive, Ontario-localized, data-populated dashboard — with a plain-language reason on every generated field and a one-tap override — before ever creating an account. This epic establishes the foundational architecture that every later epic builds on: `create-next-app` scaffolding + pinned deps (AR1, AR2), the shared-JSONB data model (`records` + `org_schemas`, no runtime DDL — AR3), the single static membership-based RLS policy and `auth_org_ids()` (AR4, FR44), the guarded `mutate.ts` write layer (AR5, NFR-FC1), the Gemini pipeline with `HARDENED_SYSTEM_PROMPT` + timeout + fallback (AR7), the Schema Validator gate (AR8), and the CI safety gates (AR11, AR12). It stands alone as a public, shareable demo.
+Stand up the platform and deliver Scheza's core value proposition end-to-end: an anonymous visitor describes their business with a guided prompt and, in under 45 seconds, lands in a fully interactive, Ontario-localized, data-populated dashboard — with a plain-language reason on every generated field and a one-tap override — before ever creating an account. This epic establishes the foundational architecture that every later epic builds on: `create-next-app` scaffolding + pinned deps (AR1, AR2), the shared-JSONB data model (`records` + `org_schemas`, no runtime DDL — AR3), the single static membership-based RLS policy and `auth_org_ids()` (AR4, FR44), the guarded `mutate.ts` write layer (AR5, NFR-FC1), the Gemini pipeline with `HARDENED_SYSTEM_PROMPT` + timeout + fallback (AR7), the Schema Validator gate (AR8), and the CI safety gates (AR11, AR12). It stands alone as a public, shareable demo.
 **FRs covered:** FR1, FR2, FR3, FR4, FR5, FR35, FR44, FR46, FR47
 **NFRs woven in:** NFR-P1, NFR-P2, NFR-S3, NFR-S5, NFR-S6, NFR-R1, NFR-R3, NFR-SC1/2/3, NFR-FC1–FC4 (seams)
 
@@ -386,14 +386,14 @@ The Ontario-specific trust and reach layer, plus PIPEDA lifecycle obligations. I
 
 ## Epic 1: Foundation & the Generative "Aha" Moment
 
-Stand up the platform and deliver SnapBusy's core value proposition end-to-end: an anonymous visitor describes their business with a guided prompt and, in under 45 seconds, lands in a fully interactive, Ontario-localized, data-populated dashboard — with a plain-language reason on every generated field and a one-tap override — before ever creating an account. This epic establishes the shared-JSONB data model, membership-based RLS isolation, the guarded write layer, the Gemini generation pipeline, the Schema Validator, the CI safety gates, and the i18n + metering seams that every later epic builds on. Stories are ordered as a **walking skeleton**: prove the data pipeline with a hardcoded schema first, then layer the LLM, fallback, dashboard, and explainability on that proven spine.
+Stand up the platform and deliver Scheza's core value proposition end-to-end: an anonymous visitor describes their business with a guided prompt and, in under 45 seconds, lands in a fully interactive, Ontario-localized, data-populated dashboard — with a plain-language reason on every generated field and a one-tap override — before ever creating an account. This epic establishes the shared-JSONB data model, membership-based RLS isolation, the guarded write layer, the Gemini generation pipeline, the Schema Validator, the CI safety gates, and the i18n + metering seams that every later epic builds on. Stories are ordered as a **walking skeleton**: prove the data pipeline with a hardcoded schema first, then layer the LLM, fallback, dashboard, and explainability on that proven spine.
 
 *(Covers FR1, FR2, FR3, FR4, FR5, FR35, FR44, FR46, FR47. NFRs woven in: NFR-P1, NFR-P2, NFR-S3, NFR-S4, NFR-S5, NFR-S6, NFR-R1, NFR-R3, NFR-SC3, NFR-FC1–FC4. UX: UX-DR1, UX-DR2, UX-DR3, UX-DR13.)*
 
 ### Story 1.1: Project Scaffold & Toolchain
 
 As a developer,
-I want the SnapBusy repository scaffolded with the mandated stack, dependencies, i18n wiring, and CI safety gates,
+I want the Scheza repository scaffolded with the mandated stack, dependencies, i18n wiring, and CI safety gates,
 So that every subsequent story is built on a consistent, deployable, secure-by-default foundation.
 
 **Acceptance Criteria:**
@@ -571,7 +571,7 @@ So that I get a live, private account that holds my real business data.
 
 **Given** a demo dashboard
 **When** the visitor taps the prominent "Make it Real" claim CTA
-**Then** they are shown an email field and a **mandatory, unchecked** privacy consent checkbox ("I agree to the SnapBusy Privacy Policy and Terms of Service") (FR36, UX-DR9)
+**Then** they are shown an email field and a **mandatory, unchecked** privacy consent checkbox ("I agree to the Scheza Privacy Policy and Terms of Service") (FR36, UX-DR9)
 
 **Given** the claim form
 **When** the visitor submits without checking the consent box
@@ -1268,7 +1268,7 @@ So that my team and my clients can each work in their own language.
 ### Story 8.2: PWA Install ("Add to Home Screen")
 
 As a mobile user,
-I want to install SnapBusy as an app icon on my phone,
+I want to install Scheza as an app icon on my phone,
 So that it opens like a native app without an app store.
 
 **Acceptance Criteria:**
