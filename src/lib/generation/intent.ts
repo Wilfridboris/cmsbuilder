@@ -74,7 +74,7 @@ export const createPromptIntentSchema = (t: (key: string) => string) =>
 export type PromptIntentInput = z.infer<ReturnType<typeof createPromptIntentSchema>>;
 
 /** sessionStorage key holding the captured intent — the seam Story 1.4 reads. */
-export const INTENT_STORAGE_KEY = "snapbusy.generation.intent";
+export const INTENT_STORAGE_KEY = "scheza.generation.intent";
 
 /**
  * Minimal storage contract satisfied by `sessionStorage`. Injectable so unit

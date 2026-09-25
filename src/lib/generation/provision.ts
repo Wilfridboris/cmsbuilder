@@ -78,7 +78,7 @@ async function resolveOrg(
   const { error } = await admin.from("organizations").upsert(
     {
       id,
-      name: `SnapBusy Session ${shortId}`,
+      name: `Scheza Session ${shortId}`,
       slug: `session-${shortId}`,
     },
     { onConflict: "id" },

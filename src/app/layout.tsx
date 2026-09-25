@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SnapBusy",
+  title: "Scheza",
   description:
     "Describe your business and get a working, Ontario-ready dashboard in seconds.",
 };

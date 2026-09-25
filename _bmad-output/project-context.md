@@ -1,5 +1,5 @@
 ---
-project_name: 'SnapBusy'
+project_name: 'Scheza'
 user_name: 'Boris'
 date: '2026-05-18'
 sections_completed: ['technology_stack', 'language_rules', 'framework_rules', 'testing_rules', 'quality_rules', 'workflow_rules', 'anti_patterns']
@@ -10,7 +10,7 @@ optimized_for_llm: true
 
 # Project Context for AI Agents
 
-_Critical rules and patterns AI agents must follow when implementing code for SnapBusy. Focused on unobvious details agents might otherwise miss._
+_Critical rules and patterns AI agents must follow when implementing code for Scheza. Focused on unobvious details agents might otherwise miss._
 
 ---
 

@@ -18,7 +18,7 @@ import type { SchemaDefinition } from "@/types/db";
 
 /** Stable identity of the demo org so the /demo read can find it. */
 export const DEMO_ORG_ID = "00000000-0000-0000-0000-0000000000d0";
-export const DEMO_ORG_SLUG = "snapbusy-demo";
+export const DEMO_ORG_SLUG = "scheza-demo";
 export const DEMO_TABLE_KEY = "clients";
 
 /** System actor for bootstrap writes (not a real auth user). */
@@ -83,7 +83,7 @@ async function upsertDemoOrg(admin: SupabaseClient): Promise<void> {
   const { error } = await admin.from("organizations").upsert(
     {
       id: DEMO_ORG_ID,
-      name: "SnapBusy Demo Co.",
+      name: "Scheza Demo Co.",
       slug: DEMO_ORG_SLUG,
     },
     { onConflict: "id" },

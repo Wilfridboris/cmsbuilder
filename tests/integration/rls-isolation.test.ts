@@ -65,8 +65,8 @@ describeRls("RLS tenant isolation (real Supabase)", () => {
   let memberToken = "";
   let strangerToken = "";
 
-  const memberEmail = `member-${runId}@rls-test.snapbusy.local`;
-  const strangerEmail = `stranger-${runId}@rls-test.snapbusy.local`;
+  const memberEmail = `member-${runId}@rls-test.scheza.local`;
+  const strangerEmail = `stranger-${runId}@rls-test.scheza.local`;
   const password = `Pw-${runId}-Aa1!`;
 
   beforeAll(async () => {

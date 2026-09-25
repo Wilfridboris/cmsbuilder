@@ -1,4 +1,4 @@
-# SnapBusy
+# Scheza
 
 Describe your business and get a working, Ontario-localized dashboard in
 seconds. This repository is the Next.js App Router application scaffolded in
