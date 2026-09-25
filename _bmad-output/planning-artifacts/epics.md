@@ -198,7 +198,7 @@ This document provides the complete epic and story breakdown for SnapBusy, decom
 
 **AI / LLM Pipeline (Architecture uses Google Gemini, not the OpenAI/Groq named in the PRD Integration List)**
 
-- **AR7:** All Gemini calls go through `callGeminiWithTimeout()` (`src/lib/gemini/client.ts`) with `HARDENED_SYSTEM_PROMPT` on every call; model `gemini-2.0-flash`; 15s timeout via `Promise.race` + `AbortController`; retry once, then deploy `UNIVERSAL_FIELD_SERVICE_TEMPLATE`. Generation is ONE structured call returning `{ schema, seedRows }`; `responseMimeType: "application/json"` + `responseSchema`. The `relation` field type is excluded from MVP.
+- **AR7:** All Gemini calls go through `callGeminiWithTimeout()` (`src/lib/gemini/client.ts`) with `HARDENED_SYSTEM_PROMPT` on every call; model `gemini-3.8-flash` (superseded the original `gemini-2.0-flash` pin in Story 1.4 — see Epic 1 retro 2026-09-24); 15s timeout via `Promise.race` + `AbortController`; retry once, then deploy `UNIVERSAL_FIELD_SERVICE_TEMPLATE`. Generation is ONE structured call returning `{ schema, seedRows }`; `responseMimeType: "application/json"` + `responseSchema`. The `relation` field type is excluded from MVP.
 - **AR8:** The Schema Validator (`src/lib/schema/validator.ts`) runs synchronously on every LLM-proposed schema-metadata operation before persistence to `org_schemas`. Permitted ops MVP: `add_table`, `add_field`, `add_view` (append-only). Rejects reserved column collisions and blocked keywords; logs all rejections to Sentry with `organization_id` + raw output.
 
 **Infrastructure, Deployment & CI/CD**
@@ -474,7 +474,7 @@ So that I immediately see my own business, already organized.
 
 **Given** a submitted prompt
 **When** the generation API route runs
-**Then** it wraps the input in the opinionated inflation system prompt and issues exactly ONE structured Gemini call (`gemini-2.0-flash`, `responseMimeType: "application/json"` + `responseSchema`) via `callGeminiWithTimeout()` with `HARDENED_SYSTEM_PROMPT`, returning `{ schema, seedRows }` together (AR7, NFR-S5)
+**Then** it wraps the input in the opinionated inflation system prompt and issues exactly ONE structured Gemini call (`gemini-3.8-flash` — superseded `gemini-2.0-flash` in Story 1.4, `responseMimeType: "application/json"` + `responseSchema`) via `callGeminiWithTimeout()` with `HARDENED_SYSTEM_PROMPT`, returning `{ schema, seedRows }` together (AR7, NFR-S5)
 **And** the returned schema and seed rows are passed through the Schema Validator (allowlist: `add_table`, `add_field`, `add_view`; reject reserved-column collisions and blocked keywords `DROP GRANT TRUNCATE DELETE EXEC -- ; /*`; the `relation` field type is never accepted) before anything is persisted (AR8, NFR-S4)
 
 **Given** validated generation output
@@ -646,6 +646,42 @@ So that a field worker cannot accidentally change structure, billing, or team ac
 **Given** an Admin
 **When** they use the dashboard
 **Then** all Admin-only surfaces are available, and the account creator retains Admin per Story 2.1
+
+---
+
+> **Carried-over hardening (from the Epic 1 retrospective, 2026-09-24).** Stories 2.5–2.6 are generation-pipeline fixes surfaced by the Epic 1 retro (findings F7/F8) and scheduled into this sprint. They touch Epic 1 code (`schema/validator.ts`, `utils.ts`) but ride Epic 2's delivery. Full specs: `spec-2-5-schema-validator-keyword-false-reject.md`, `spec-2-6-non-ascii-key-normalization.md`.
+
+### Story 2.5: Schema Validator — Stop False-Rejecting Legitimate Labels
+
+As a tradesperson generating my app,
+I want the safety filter to accept ordinary business names,
+So that a table like "Grants" or a column like "Deleted?" or "Drop-off time" gives me my real custom dashboard instead of the generic fallback.
+
+**Acceptance Criteria:**
+
+**Given** a generated schema whose only issue is a label containing a blocked keyword as a substring ("Grants", "Deleted?", "Drop-off time")
+**When** it is validated
+**Then** it passes and provisions as a real (non-fallback) generation
+
+**Given** a schema with a reserved-key collision, an unsupported/`relation` type, or an empty label/key
+**When** it is validated
+**Then** it still rejects with the generic client error and a Sentry rejection log — the real protections are unchanged (retro F7).
+
+### Story 2.6: Key Normalization — Preserve Accented / Non-ASCII Names (French Path)
+
+As a francophone owner,
+I want my French, accented column names to survive generation,
+So that "numéro" and "coût" become usable fields instead of collapsing and dumping me into the English fallback.
+
+**Acceptance Criteria:**
+
+**Given** an accented French field/table name ("numéro", "coût", "Réf. client")
+**When** it is normalized
+**Then** it yields a readable ASCII key ("numero", "cout", "ref_client") and the schema validates as a real generation; two distinct accented names never collapse into a false duplicate-key rejection
+
+**Given** an ASCII input, or a purely non-Latin key
+**When** it is normalized
+**Then** the ASCII key is byte-identical to today (no regression), and a non-Latin key yields a deterministic non-empty `[a-z0-9_]` key rather than rejecting on emptiness (retro F8).
 
 ---
 

@@ -113,7 +113,7 @@ justified usage pricing early.
 
 ### Technical Constraints & Dependencies
 
-- **LLM:** Google Gemini (`@google/genai` v2.4.0) — model `gemini-2.0-flash` for speed/cost profile; strict JSON output via `responseMimeType: "application/json"` + `responseSchema`
+- **LLM:** Google Gemini (`@google/genai` v2.4.0) — model `gemini-3.8-flash` for speed/cost profile (supersedes the original `gemini-2.0-flash` pin, retired for generation during Story 1.4; see Epic 1 retro 2026-09-24); strict JSON output via `responseMimeType: "application/json"` + `responseSchema`
 - **Database:** Supabase PostgreSQL + Auth + RLS + Realtime — ca-central-1 region (PIPEDA)
 - **Frontend:** Next.js 16 + shadcn/ui (New York theme) + Tailwind CSS
 - **Hosting:** Vercel (serverless functions, edge middleware, auto-scaling)
@@ -946,7 +946,7 @@ export async function callGeminiWithTimeout<T>(
     setTimeout(() => reject(new Error('Gemini timeout')), timeoutMs)
   );
   const generatePromise = ai.models.generateContent({
-    model: 'gemini-2.0-flash',
+    model: 'gemini-3.8-flash', // superseded 'gemini-2.0-flash' in Story 1.4
     contents: userPrompt,
     config: {
       systemInstruction: HARDENED_SYSTEM_PROMPT,

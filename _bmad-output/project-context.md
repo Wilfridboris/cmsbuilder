@@ -19,7 +19,7 @@ _Critical rules and patterns AI agents must follow when implementing code for Sn
 - **Next.js** 16 — App Router, TypeScript strict, `src/` dir, `@/*` alias, `--no-turbopack`
 - **Tailwind CSS** v4 (PostCSS) + **shadcn/ui** New York theme, zinc base, CSS variables
 - **Supabase** JS client 2.105.4 + `@supabase/ssr` 0.10.3 — PostgreSQL, Auth, RLS, Realtime
-- **Google Gemini** `@google/genai` 2.4.0 — model `gemini-2.0-flash`, server-side only
+- **Google Gemini** `@google/genai` 2.4.0 — model `gemini-3.8-flash` (supersedes the original `gemini-2.0-flash` pin — Story 1.4 bumped it after the generation API returned 404 for 2.0-flash; see Epic 1 retro 2026-09-24), server-side only
 - **TanStack Query** 5.100.10 — server state only (no Redux/Zustand)
 - **React Hook Form** 7.76.0 + **Zod** 4.4.3 + `@hookform/resolvers` 5.2.2
 - **next-intl** 4.12.0 — EN/FR, client-side bundle swap, no page reload
@@ -76,7 +76,7 @@ _Critical rules and patterns AI agents must follow when implementing code for Sn
 
 - Every Gemini call must use `callGeminiWithTimeout()` from `src/lib/gemini/client.ts` with `HARDENED_SYSTEM_PROMPT` — no bare `ai.models.generateContent()` calls
 - Timeout is 15 seconds via `Promise.race` + `AbortController`; retry once on failure; deploy `UNIVERSAL_FIELD_SERVICE_TEMPLATE` on second failure or timeout
-- Model is always `gemini-2.0-flash`; output always uses `responseMimeType: "application/json"` + `responseSchema`
+- Model is always `gemini-3.8-flash` (superseded the original `gemini-2.0-flash` pin in Story 1.4); output always uses `responseMimeType: "application/json"` + `responseSchema`
 - `@google/genai` 2.4.0 is server-side only — never import in client components or hooks
 - `'relation'` field type is explicitly excluded from MVP FieldType — do not generate or accept FK/relation fields
 - Generation uses ONE structured call returning `{ schema, seedRows }` together (not two sequential calls); a malformed `seedRows` section must not invalidate a valid schema
