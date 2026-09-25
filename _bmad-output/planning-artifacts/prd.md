@@ -159,7 +159,7 @@ He types: *"I run an HVAC company in Mississauga. I have 5 trucks, I need to tra
 Skeleton screens pulse for 8 seconds. His dashboard loads pre-populated: 5 trucks listed, a Jobs table with 8 dummy entries — one reads *"Furnace Tune-Up – 2241 Confederation Pkwy, Mississauga – $220 – Invoice Pending."* Parts inventory lists copper fittings, capacitors, and refrigerant cans with stock counts. He notices a small info icon next to a column he didn't ask for — **Warranty Expiry**. He taps it: *"Added Warranty Expiry — HVAC installs in Ontario usually carry a manufacturer warranty you'll want to track."* Next to the reason is a one-tap **Remove**. He keeps it; it's exactly right. He clicks a dummy job. An edit form opens with fields: Client Name, Address, Service Type, Parts Used, Invoice Status, Technician. He types into the chat bubble: *"Add a field for the second technician on a job."* The table refreshes. A new column appears.
 
 **Climax**
-At second ~14, Tim sees *"Emergency Pipe Repair – 1400 Hurontario St, Mississauga"* in the jobs list. Something clicks. This isn't a demo — this is his business, already organized. He clicks **"Make it Real."** Magic link arrives in 40 seconds. Dummy data clears. His dashboard is live at `snapbusy.ca/tkmechanical`. He adds the Dhaliwal furnace job — the one he spent 20 minutes searching for in WhatsApp — in 45 seconds.
+At second ~14, Tim sees *"Emergency Pipe Repair – 1400 Hurontario St, Mississauga"* in the jobs list. Something clicks. This isn't a demo — this is his business, already organized. He clicks **"Make it Real."** Magic link arrives in 40 seconds. Dummy data clears. His dashboard is live at `scheza.com/tkmechanical`. He adds the Dhaliwal furnace job — the one he spent 20 minutes searching for in WhatsApp — in 45 seconds.
 
 **Resolution**
 Tim bookmarks the PWA to his iPhone home screen. Thursday morning he texts his dispatcher: *"Use this instead of WhatsApp for job tracking."* He does not open Excel that day. Or the next week.
@@ -171,7 +171,7 @@ Tim bookmarks the PWA to his iPhone home screen. Thursday morning he texts his d
 **Persona:** Marco, 29. One of Tim's HVAC technicians, Truck 3. Comfortable with his iPhone; uncomfortable with anything that feels like "software." Used to Tim texting job addresses in WhatsApp.
 
 **Opening Scene**
-Monday morning. Tim sends Marco a link: *"Use this for jobs now — snapbusy.ca/tkmechanical."* Marco opens it on his phone in his truck outside a Tim Hortons on Mavis Rd.
+Monday morning. Tim sends Marco a link: *"Use this for jobs now — scheza.com/tkmechanical."* Marco opens it on his phone in his truck outside a Tim Hortons on Mavis Rd.
 
 **Rising Action**
 The dashboard loads as swipeable cards — not a desktop table crammed onto a 6-inch screen. Each card shows a job: address, status, assigned technician. He finds his name on two jobs. He taps the first card; the address opens. He taps it — Apple Maps launches with the address pre-loaded. He finishes the job, taps "Add Entry." The form fields are large and finger-friendly. He selects "Service Complete" from a dropdown, types a note about the replaced part, taps Save. It syncs instantly.
@@ -204,7 +204,7 @@ Sarah runs weekly dispatch in SnapBusy in French. Her English-speaking client in
 
 ### Journey 4: Priya — The Customer Filling the Intake Form
 
-**Persona:** Priya Sharma, 38. Homeowner in Brampton. Furnace stopped working on a Tuesday evening. Found Tim's Google Business profile; his bio links to `snapbusy.ca/forms/tkmechanical`.
+**Persona:** Priya Sharma, 38. Homeowner in Brampton. Furnace stopped working on a Tuesday evening. Found Tim's Google Business profile; his bio links to `scheza.com/forms/tkmechanical`.
 
 **Opening Scene**
 Priya taps the link on her phone. A clean, single-page form opens — no sign-up, no navigation, no app to download. Header reads: "TK Mechanical — Book a Service Call."
@@ -218,7 +218,7 @@ On Tim's dashboard, a new entry pops into the Jobs table: *"Priya Sharma – 87 
 **Resolution**
 Priya got a response in 18 minutes. Tim captured a lead with no website, no booking platform, no third-party form tool — the intake URL was auto-generated when he built his dashboard, at no additional cost.
 
-**Requirements Revealed:** Auto-generated public intake URL (`snapbusy.ca/forms/[slug]`), schema-derived form fields, mobile-optimized single-page form, no-auth submission flow, real-time push to owner's dashboard, email notification on new intake submission (web push deferred to Growth phase).
+**Requirements Revealed:** Auto-generated public intake URL (`scheza.com/forms/[slug]`), schema-derived form fields, mobile-optimized single-page form, no-auth submission flow, real-time push to owner's dashboard, email notification on new intake submission (web push deferred to Growth phase).
 
 ### Journey 5: Tim — The Edge Case (Broken Schema Recovery)
 
@@ -588,7 +588,7 @@ Stripe is a Day 1 dependency. Manual billing is inconsistent with the product's 
 | Two-role system (Admin / Member) | Full — metadata tag in Supabase Auth, conditional UI rendering |
 | EN/FR UI + data toggle | Full — instant toggle, no reload |
 | PIPEDA consent at claim | Full — mandatory unchecked checkbox, timestamp stored |
-| Standalone Intake Form | Full — auto-generated at `snapbusy.ca/forms/[slug]` |
+| Standalone Intake Form | Full — auto-generated at `scheza.com/forms/[slug]` |
 | Stripe billing (Day 1) | Full — Checkout + Customer Portal + Webhook handler |
 | Sentry error monitoring | Full |
 | Schema Validator (blocking task) | Full — required gate before Conversational Editor ships |

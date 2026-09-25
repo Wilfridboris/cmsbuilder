@@ -107,7 +107,7 @@ context:
 - **`middleware.ts` vs `proxy.ts`:** Next 16 deprecated `middleware.ts` (renamed `proxy.ts`) but it remains functional; kept at `src/middleware.ts` to honor the frozen Code Map, with a code comment noting the deprecation.
 - **Re-request path:** callback failures redirect to `/?claim=expired|error` and middleware bounces to `/?auth=required`; the home page renders a translated, non-alarming notice with the natural re-claim entry — no raw error screen, no unlisted pages.
 - **Matrix rows 8–9 (`/{slug}` access):** the security-critical isolation guarantee (non-member reads yield no row) is enforced and covered by the `test:rls` gate; the page's redirect-on-null glue is thin and verified by `build` + the spec's manual browser check.
-- **Deferred / ops (not code gaps):** (1) the `20260924060000_pending_claims.sql` migration is authored but **not applied** to the shared test DB — needs `npm run db:push` (or MCP apply) before the live flow works; (2) Supabase Auth custom SMTP (Resend over snapbusy.ca) must be configured for magic-link delivery — app code only calls `signInWithOtp`. The full email round-trip was not exercised end-to-end (requires live Gemini + SMTP + mail catcher); it is covered by unit tests and the green RLS gate.
+- **Deferred / ops (not code gaps):** (1) the `20260924060000_pending_claims.sql` migration is authored but **not applied** to the shared test DB — needs `npm run db:push` (or MCP apply) before the live flow works; (2) Supabase Auth custom SMTP (Resend over scheza.com) must be configured for magic-link delivery — app code only calls `signInWithOtp`. The full email round-trip was not exercised end-to-end (requires live Gemini + SMTP + mail catcher); it is covered by unit tests and the green RLS gate.
 
 ## Spec Change Log
 
@@ -136,7 +136,7 @@ Review pass 1 (2026-09-25) — three layers (blind-hunter, edge-case-hunter, ver
 - `low`, rejected — middleware conflates auth-server error with no-session (edge E1): treating an errored/unknown session as unauthenticated is the SAFE default (letting through on an auth-server error would be an isolation hole); the fix adds a branch that weakens that. Rare transient case.
 - `low`, rejected — derived slug could collide with a static route or reserved word (blind B7): verified-but-unlikely — a trade+city slug rarely equals `demo`/`generate`/`privacy`/`terms`; the fix adds a reserved-word guard (complexity). Noted as optional hardening.
 - `low`, rejected — `ensureUniqueSlug` loop is unbounded (edge E3): terminates in practice on the first free candidate; a max-attempts bound adds complexity for a non-reachable case.
-- `low`, rejected — email placeholder hardcodes `.ca` TLD (blind B2): illustrative placeholder appropriate to the Canadian SMB audience (snapbusy.ca); not a validation constraint.
+- `low`, rejected — email placeholder hardcodes `.ca` TLD (blind B2): illustrative placeholder appropriate to the Canadian SMB audience (scheza.com); not a validation constraint.
 - `low`, rejected — cross-device open shows "expired or already used" (blind B4): the frozen decision routes cross-device to the re-request path, and distinguishing a cross-device open from a true expiry at the exchange is not cleanly feasible; the copy already offers a fresh-link path.
 - `low`, rejected — French "Rendez-le réel" reads literal (blind B12): cosmetic copy preference with no named harm.
 
@@ -146,7 +146,7 @@ Review pass 1 (2026-09-25) — three layers (blind-hunter, edge-case-hunter, ver
 
 **Org promotion, not creation.** The anonymous session org is already a real `organizations` row (minted in `provision.ts`). Claim promotes it in place — add membership, set a real slug, soft-delete synthetic `records` — avoiding any org-to-org data migration. Isolation then flows automatically through `auth_org_ids()` because the user now has an `org_members` row.
 
-**Resend is SMTP config, not app code.** Magic-link email is sent by Supabase Auth using the project's custom SMTP (Resend over snapbusy.ca) configured in Supabase Auth settings — app code calls `signInWithOtp`, not the Resend SDK. Verify the SMTP setting exists as an ops dependency.
+**Resend is SMTP config, not app code.** Magic-link email is sent by Supabase Auth using the project's custom SMTP (Resend over scheza.com) configured in Supabase Auth settings — app code calls `signInWithOtp`, not the Resend SDK. Verify the SMTP setting exists as an ops dependency.
 
 ## Verification
 
@@ -159,4 +159,4 @@ Review pass 1 (2026-09-25) — three layers (blind-hunter, edge-case-hunter, ver
 
 **Manual checks:**
 - With the app running (single dev server on http://localhost:3000, browser MCP), run the full flow: generate a demo, apply a 1.7 override, click "Make it Real", verify consent is a hard blocker, submit, complete the magic link (use the local inbucket/mail catcher or Supabase local auth), and confirm landing on `/{slug}` with the overridden schema and no synthetic rows. Toggle locale to FR and confirm all claim copy is translated.
-- Confirm Supabase Auth custom SMTP (Resend/snapbusy.ca) is configured for the target environment.
+- Confirm Supabase Auth custom SMTP (Resend/scheza.com) is configured for the target environment.

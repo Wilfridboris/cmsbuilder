@@ -368,7 +368,7 @@ table can be **projected** into a materialized typed view without changing the w
 | Data at rest | AES-256 via Supabase/AWS infrastructure | NFR-S2 |
 | Sentry logging | All Schema Validator rejections logged with `organization_id` + raw LLM output | FR45 |
 
-> **Auth email branding:** Supabase Auth is configured with **Resend as custom SMTP** so magic-link emails are sent from the `snapbusy.ca` domain (branded sender) rather than Supabase's shared SMTP. Supabase still generates and verifies the token — Resend only delivers the email. No additional cost (Resend is already in the stack).
+> **Auth email branding:** Supabase Auth is configured with **Resend as custom SMTP** so magic-link emails are sent from the `scheza.com` domain (branded sender) rather than Supabase's shared SMTP. Supabase still generates and verifies the token — Resend only delivers the email. No additional cost (Resend is already in the stack).
 
 **Schema Validator — Allowlist & Blocklist:**
 

@@ -330,7 +330,7 @@ Stand up the platform and deliver SnapBusy's core value proposition end-to-end: 
 > - **Metering seam:** bake the **"active record" billable-unit definition** into the `records` data model now. Epic 7 then adds only the Stripe integration, the Vercel Cron reporting/reconciliation jobs, and the live meter UI.
 
 ### Epic 2: Claim, Accounts & Team Access
-Turn a demo into a committed customer. A visitor claims their generated app via passwordless magic link, agrees to a mandatory privacy consent (PIPEDA), and gets a live, isolated organization at `snapbusy.ca/{slug}` with synthetic data cleared. The account creator becomes Admin; they can invite teammates by email and assign the Admin or Member role, with Member permissions enforced both in the UI and independently at the API. Delivers the complete authentication, org-provisioning, and RBAC domain.
+Turn a demo into a committed customer. A visitor claims their generated app via passwordless magic link, agrees to a mandatory privacy consent (PIPEDA), and gets a live, isolated organization at `scheza.com/{slug}` with synthetic data cleared. The account creator becomes Admin; they can invite teammates by email and assign the Admin or Member role, with Member permissions enforced both in the UI and independently at the API. Delivers the complete authentication, org-provisioning, and RBAC domain.
 **FRs covered:** FR18, FR19, FR20, FR21, FR22, FR23, FR24, FR36
 **NFRs woven in:** NFR-S1, NFR-S2, NFR-S3
 
@@ -356,7 +356,7 @@ The product's highest-risk surface, isolated as its own epic. An Admin evolves t
 **NFRs woven in:** NFR-S4, NFR-S5, NFR-R1
 
 ### Epic 6: Public Intake Forms
-Lead capture with zero extra tooling. Every claimed dashboard auto-generates a public, no-auth, mobile-optimized intake form at `snapbusy.ca/forms/{slug}` whose fields derive from the schema. External submissions push into the owner's data table in real time, and the Admin gets an email notification (Resend; web push deferred to Growth).
+Lead capture with zero extra tooling. Every claimed dashboard auto-generates a public, no-auth, mobile-optimized intake form at `scheza.com/forms/{slug}` whose fields derive from the schema. External submissions push into the owner's data table in real time, and the Admin gets an email notification (Resend; web push deferred to Growth).
 **FRs covered:** FR25, FR26, FR27, FR28
 **NFRs woven in:** NFR-A2, NFR-A4, NFR-P5
 
@@ -557,7 +557,7 @@ So that I trust what the AI built and feel in control from the first moment.
 
 ## Epic 2: Claim, Accounts & Team Access
 
-Turn a demo into a committed customer. A visitor claims their generated app via passwordless magic link, agrees to a mandatory privacy consent (PIPEDA), and gets a live, isolated organization at `snapbusy.ca/{slug}` with synthetic data cleared. The account creator becomes Admin; they can invite teammates by email and assign Admin or Member roles, with Member permissions enforced both in the UI and independently at the API. Delivers the complete authentication, org-provisioning, and RBAC domain.
+Turn a demo into a committed customer. A visitor claims their generated app via passwordless magic link, agrees to a mandatory privacy consent (PIPEDA), and gets a live, isolated organization at `scheza.com/{slug}` with synthetic data cleared. The account creator becomes Admin; they can invite teammates by email and assign Admin or Member roles, with Member permissions enforced both in the UI and independently at the API. Delivers the complete authentication, org-provisioning, and RBAC domain.
 
 *(Covers FR18, FR19, FR20, FR21, FR22, FR36, FR23, FR24. NFRs woven in: NFR-S1, NFR-S2, NFR-S3. UX: UX-DR9.)*
 
@@ -584,7 +584,7 @@ So that I get a live, private account that holds my real business data.
 
 **Given** a successful claim
 **When** the account goes live
-**Then** the synthetic demo data is cleared, a unique `{slug}` is provisioned, and the dashboard is reachable at `snapbusy.ca/{slug}` under the org's RLS isolation
+**Then** the synthetic demo data is cleared, a unique `{slug}` is provisioned, and the dashboard is reachable at `scheza.com/{slug}` under the org's RLS isolation
 **And** the visitor's pre-account schema overrides (removed/renamed fields from Story 1.7) are carried into the live schema
 
 ### Story 2.2: Passwordless Login for Returning Users
@@ -1025,7 +1025,7 @@ So that I stay confident in the tool instead of hitting an error.
 
 ## Epic 6: Public Intake Forms
 
-Lead capture with zero extra tooling. Every claimed dashboard auto-generates a public, no-auth, mobile-optimized intake form at `snapbusy.ca/forms/{slug}` whose fields derive from the schema. External submissions push into the owner's data table in real time, and the Admin gets an email notification (Resend; web push deferred to Growth). Depends only on Epics 1–3.
+Lead capture with zero extra tooling. Every claimed dashboard auto-generates a public, no-auth, mobile-optimized intake form at `scheza.com/forms/{slug}` whose fields derive from the schema. External submissions push into the owner's data table in real time, and the Admin gets an email notification (Resend; web push deferred to Growth). Depends only on Epics 1–3.
 
 > **Scope: single form for MVP.** One auto-generated, customer-facing lead-capture form per dashboard, mapped to one designated target table. **Multiple use-case forms** (e.g., an employee-leave form, a separate new-client form, each with its own URL like `/forms/{slug}/{formKey}`) are a **Growth enhancement** — purely additive on the existing data model (a form = a `table_key` + a public route), so deferring boxes nothing in. Revisit when a paying customer requests a second form.
 
@@ -1041,7 +1041,7 @@ So that I can capture leads without building or paying for a separate form tool.
 
 **Given** a claimed dashboard with a `{slug}`
 **When** the account goes live
-**Then** a public intake form is automatically available at `snapbusy.ca/forms/{slug}` with no additional setup (FR25)
+**Then** a public intake form is automatically available at `scheza.com/forms/{slug}` with no additional setup (FR25)
 
 **Given** the org's schema
 **When** the intake form renders its fields

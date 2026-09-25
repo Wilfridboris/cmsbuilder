@@ -4,7 +4,7 @@
 
 ## Goal
 
-This epic converts an anonymous demo into a committed, live customer. A visitor claims their generated app via a passwordless magic link, accepts a mandatory privacy consent, and receives an isolated organization reachable at `snapbusy.ca/{slug}` with the synthetic demo data cleared and their pre-account schema overrides carried forward. The account creator becomes an Admin who can invite teammates by email and assign each an Admin or Member role. It delivers the complete authentication, org-provisioning, and role-based access control (RBAC) domain — the trust and access foundation every post-claim epic depends on. It also carries two generation-pipeline hardening fixes (2.5, 2.6) surfaced by the Epic 1 retrospective.
+This epic converts an anonymous demo into a committed, live customer. A visitor claims their generated app via a passwordless magic link, accepts a mandatory privacy consent, and receives an isolated organization reachable at `scheza.com/{slug}` with the synthetic demo data cleared and their pre-account schema overrides carried forward. The account creator becomes an Admin who can invite teammates by email and assign each an Admin or Member role. It delivers the complete authentication, org-provisioning, and role-based access control (RBAC) domain — the trust and access foundation every post-claim epic depends on. It also carries two generation-pipeline hardening fixes (2.5, 2.6) surfaced by the Epic 1 retrospective.
 
 ## Stories
 
@@ -18,7 +18,7 @@ This epic converts an anonymous demo into a committed, live customer. A visitor 
 ## Requirements & Constraints
 
 - Claiming requires a valid email plus an explicit, initially-unchecked privacy consent checkbox; the claim is hard-blocked and cannot proceed until consent is checked. Store a consent timestamp against the user on successful claim (PIPEDA obligation).
-- Authentication is passwordless magic link only — no password is ever requested, for either first claim or returning login. Magic-link and account emails are delivered via Resend (as branded custom SMTP over the snapbusy.ca domain); token generation/verification stays with the auth provider.
+- Authentication is passwordless magic link only — no password is ever requested, for either first claim or returning login. Magic-link and account emails are delivered via Resend (as branded custom SMTP over the scheza.com domain); token generation/verification stays with the auth provider.
 - On successful claim: bootstrap the organization and its owning membership, assign the creator the Admin role, clear the synthetic demo data, provision a unique URL slug, and make the dashboard reachable under the org's tenant isolation. Pre-account schema overrides (fields the visitor removed/renamed pre-claim) must be carried into the live schema.
 - Two roles only: Admin and Member. Member preselected by default at invite time. Members may view, add, and edit records but must not reach the Conversational Editor, Settings, Invite, or Billing surfaces. Admins have all surfaces; the creator retains Admin.
 - RBAC must be enforced independently at the API, not only hidden in the UI: any schema-mutation, invite, billing, or settings route must verify the caller's role and reject a Member with a 403. Frontend hiding is never the sole enforcement.
