@@ -109,6 +109,25 @@ export type OrgSchemaRow = {
   updated_at: string;
 };
 
+/**
+ * Durable finalize record for a magic-link claim (Story 2.1). Written pre-auth
+ * by the claim POST (service-role) and resolved by `token` on the auth
+ * callback. `consumed_at` guards idempotency: a second finalize with the same
+ * token is a no-op. Mirrors `20260924060000_pending_claims.sql`.
+ */
+export type PendingClaimRow = {
+  id: string;
+  token: string;
+  email: string;
+  session_org_id: string;
+  consent_accepted_at: string;
+  policy_version: string;
+  slug_base: string;
+  created_at: string;
+  expires_at: string;
+  consumed_at: string | null;
+};
+
 /** The non-deleted-row `data` returned by the read layer, plus its identity. */
 export type RecordData = {
   id: string;

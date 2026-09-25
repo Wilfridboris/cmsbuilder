@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { motion, useReducedMotion } from "framer-motion";
+import { Sparkles } from "lucide-react";
 
 import type {
   RecordData,
@@ -32,6 +33,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { RecordDetail } from "@/components/dashboard/RecordDetail";
 import { OverrideControl } from "@/components/dashboard/OverrideControl";
+import { Button } from "@/components/ui/button";
+import { ClaimModal } from "@/components/claim/ClaimModal";
 
 /**
  * DemoDashboard (Story 1.6 + 1.7) — the interactive, anonymous demo dashboard.
@@ -69,7 +72,12 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
   const t = useTranslations("Dashboard");
   const tExplain = useTranslations("Explainability");
   const tGenerate = useTranslations("Generate");
+  const tClaim = useTranslations("Claim");
   const prefersReducedMotion = useReducedMotion();
+
+  // "Make it Real" claim modal (Story 2.1). Opens the passwordless magic-link
+  // claim, carrying the CURRENT overridden schema state into the round trip.
+  const [claimOpen, setClaimOpen] = useState(false);
 
   // Session-only, optimistic copies of the seeded schema + records. Edits and
   // overrides mutate THESE, never the DB — lost on hard reload (which re-POSTs
@@ -186,6 +194,31 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
 
   return (
     <div className="flex flex-col gap-6">
+      {/* "Make it Real" claim handoff (Story 2.1, UX-DR9): a prominent,
+          high-contrast CTA that opens the magic-link claim, passing the current
+          overridden schema state. */}
+      <div className="flex flex-col gap-3 rounded-xl border border-primary/25 bg-primary/5 p-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-1">
+          <p className="text-base font-semibold text-foreground text-pretty">
+            {tClaim("ctaHeadline")}
+          </p>
+          <p className="text-sm text-muted-foreground text-pretty">
+            {tClaim("ctaSubtext")}
+          </p>
+        </div>
+        <Button
+          type="button"
+          size="lg"
+          onClick={() => setClaimOpen(true)}
+          className="min-h-12 shrink-0 gap-2"
+        >
+          <Sparkles aria-hidden="true" className="size-4" />
+          <span>{tClaim("cta")}</span>
+        </Button>
+      </div>
+
+      <ClaimModal open={claimOpen} onOpenChange={setClaimOpen} schema={schema} />
+
       {/* Tab browse across generated (visible) tables. */}
       <div
         role="tablist"

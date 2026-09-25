@@ -45,7 +45,7 @@
 # Epics 9 (Growth) & 10 (Phase 3) are DEFERRED and intentionally unstoried (out of MVP scope).
 
 generated: 2026-09-23
-last_updated: 09-24-2026 22:29
+last_updated: 09-25-2026 00:15 (2.1 review)
 project: SnapBusy
 project_key: NOKEY
 tracking_system: file-system
@@ -64,8 +64,8 @@ development_status:
   epic-1-retrospective: done
 
   # ── Epic 2: Claim, Accounts & Team Access ────────────────────────────────
-  epic-2: backlog
-  2-1-claim-app-via-magic-link: backlog
+  epic-2: in-progress
+  2-1-claim-app-via-magic-link: review
   2-2-passwordless-login-for-returning-users: backlog
   2-3-invite-team-members-with-roles: backlog
   2-4-role-based-access-enforcement: backlog

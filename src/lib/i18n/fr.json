@@ -96,5 +96,40 @@
     "subtitle": "Une vue en lecture seule, préremplie, qui valide le pipeline de données locataire de bout en bout.",
     "tableCaption": "Enregistrements de démonstration lus en direct depuis le magasin d'enregistrements partagé.",
     "empty": "Aucun enregistrement à afficher pour le moment."
+  },
+  "Claim": {
+    "cta": "Rendez-le réel",
+    "ctaHeadline": "Faites de ce tableau de bord le vôtre",
+    "ctaSubtext": "Conservez votre tableau de bord et commencez à l'utiliser — aucun mot de passe requis.",
+    "title": "Rendez-le réel",
+    "subtitle": "Saisissez votre courriel et nous vous enverrons un lien sécurisé pour réclamer ce tableau de bord. Aucun mot de passe requis.",
+    "emailLabel": "Adresse courriel",
+    "emailPlaceholder": "vous@votreentreprise.ca",
+    "consentLabel": "J'accepte la <privacy>politique de confidentialité</privacy> et les <terms>conditions d'utilisation</terms>.",
+    "submit": "Envoyer mon lien sécurisé",
+    "close": "Fermer",
+    "sentTitle": "Vérifiez votre courriel",
+    "sentBody": "Nous avons envoyé un lien de connexion sécurisé à {email}. Ouvrez-le dans ce navigateur pour réclamer votre tableau de bord.",
+    "linkExpired": "Ce lien a expiré ou a déjà été utilisé. Décrivez votre entreprise ci-dessous pour créer un nouveau tableau de bord et réessayer.",
+    "linkError": "Nous n'avons pas pu finaliser votre réclamation à partir de ce lien. Décrivez votre entreprise ci-dessous pour créer un nouveau tableau de bord et réessayer.",
+    "authRequired": "Veuillez d'abord réclamer votre tableau de bord ou vous connecter.",
+    "error": {
+      "consentRequired": "Veuillez accepter la politique de confidentialité et les conditions d'utilisation pour continuer.",
+      "invalidEmail": "Veuillez saisir une adresse courriel valide.",
+      "noSession": "Votre démonstration a expiré. Veuillez décrire à nouveau votre entreprise pour recommencer.",
+      "sendFailed": "Nous n'avons pas pu envoyer votre lien pour le moment. Veuillez réessayer dans un instant.",
+      "invalidBody": "Une erreur est survenue. Veuillez réessayer.",
+      "genericError": "Une erreur est survenue. Veuillez réessayer."
+    }
+  },
+  "Legal": {
+    "privacyTitle": "Politique de confidentialité",
+    "termsTitle": "Conditions d'utilisation",
+    "placeholder": "Cette page arrive bientôt."
+  },
+  "SlugDashboard": {
+    "subtitle": "Votre tableau de bord en direct. Ajoutez vos premiers enregistrements pour commencer.",
+    "emptyDashboard": "Aucun tableau à afficher pour le moment.",
+    "emptyTable": "Aucun enregistrement pour le moment."
   }
 }

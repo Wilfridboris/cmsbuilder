@@ -96,5 +96,40 @@
     "subtitle": "A seeded, read-only view proving the tenant data pipeline end-to-end.",
     "tableCaption": "Seeded demo records, read live from the shared record store.",
     "empty": "No records to show yet."
+  },
+  "Claim": {
+    "cta": "Make it Real",
+    "ctaHeadline": "Make this dashboard yours",
+    "ctaSubtext": "Keep your dashboard and start using it — no password needed.",
+    "title": "Make it Real",
+    "subtitle": "Enter your email and we'll send you a secure link to claim this dashboard. No password required.",
+    "emailLabel": "Email address",
+    "emailPlaceholder": "you@yourbusiness.ca",
+    "consentLabel": "I agree to the <privacy>Privacy Policy</privacy> and <terms>Terms of Service</terms>.",
+    "submit": "Send my secure link",
+    "close": "Close",
+    "sentTitle": "Check your email",
+    "sentBody": "We sent a secure sign-in link to {email}. Open it in this browser to claim your dashboard.",
+    "linkExpired": "That link has expired or was already used. Describe your business below to build a fresh dashboard and try again.",
+    "linkError": "We couldn't complete your claim from that link. Describe your business below to build a fresh dashboard and try again.",
+    "authRequired": "Please claim or sign in to your dashboard first.",
+    "error": {
+      "consentRequired": "Please agree to the Privacy Policy and Terms of Service to continue.",
+      "invalidEmail": "Please enter a valid email address.",
+      "noSession": "Your demo has expired. Please describe your business again to start over.",
+      "sendFailed": "We couldn't send your link just now. Please try again in a moment.",
+      "invalidBody": "Something went wrong. Please try again.",
+      "genericError": "Something went wrong. Please try again."
+    }
+  },
+  "Legal": {
+    "privacyTitle": "Privacy Policy",
+    "termsTitle": "Terms of Service",
+    "placeholder": "This page is coming soon."
+  },
+  "SlugDashboard": {
+    "subtitle": "Your live dashboard. Add your first records to get started.",
+    "emptyDashboard": "No tables to show yet.",
+    "emptyTable": "No records yet."
   }
 }
