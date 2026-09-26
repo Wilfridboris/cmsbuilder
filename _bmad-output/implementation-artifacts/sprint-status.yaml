@@ -42,10 +42,14 @@
 #   must land first; LLM/fallback/dashboard/explainability layer on that proven spine.
 # Epic 4 (Data Import) is ACTIVATION-CRITICAL — do NOT defer it past Epic 3 (claim clears
 #   synthetic data, so import must be ready or users hit empty tables).
-# Epics 9 (Growth) & 10 (Phase 3) are DEFERRED and intentionally unstoried (out of MVP scope).
+# Epic 9 (Relationships — Advanced, Growth), Epic 10 (Growth Substrate) & Epic 11 (Phase 3) are
+#   DEFERRED and intentionally unstoried (out of MVP scope).
+# RELATIONS (MVP core, added 2026-09-26): sequence Story 1.8 FIRST — it establishes the relationConfig
+#   type, the validator phase/source gate, and the table-level displayField that 3.7-3.9 depend on —
+#   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
-generated: 2026-09-23
-last_updated: 09-26-2026 (3.2 review; add & delete records)
+generated: '2026-09-23'
+last_updated: 09-26-2026 18:30
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -53,46 +57,45 @@ story_location: _bmad-output/implementation-artifacts
 
 development_status:
   # ── Epic 1: Foundation & the Generative "Aha" Moment ─────────────────────
-  epic-1: done
+  epic-1: in-progress
   1-1-project-scaffold-toolchain: done
-  1-2-platform-data-model-tenant-isolation: done
+  1-2-platform-data-model-tenant-isolation-walking-skeleton: done
   1-3-guided-mad-libs-prompt-intake: done
-  1-4-ai-schema-synthetic-data-generation: done
-  1-5-hard-fallback-template: done
-  1-6-interactive-demo-dashboard: done
+  1-4-ai-schema-synthetic-data-generation-ontario-french-localized: done
+  1-5-hard-fallback-template-no-error-screens: done
+  1-6-interactive-demo-dashboard-pre-account-browse-basic-edit: done
   1-7-schema-explainability-one-tap-override: done
+  1-8-generated-relationships-display-fields: backlog
   epic-1-retrospective: done
 
-  # ── Epic 2: Claim, Accounts & Team Access ────────────────────────────────
   epic-2: done
-  2-1-claim-app-via-magic-link: done
+  2-1-claim-app-via-magic-link-make-it-real: done
   2-2-passwordless-login-for-returning-users: done
   2-3-invite-team-members-with-roles: done
   2-4-role-based-access-enforcement: done
-  # Carried from Epic 1 retrospective 2026-09-24 (F7/F8 hardening — see epic-1-retro-2026-09-24.md)
-  2-5-schema-validator-keyword-false-reject: done
-  2-6-non-ascii-key-normalization: done
+  2-5-schema-validator-stop-false-rejecting-legitimate-labels: done
+  2-6-key-normalization-preserve-accented-non-ascii-names-french-p: done
   epic-2-retrospective: done
 
-  # ── Epic 3: Core Data Management (Daily Driver) ──────────────────────────
   epic-3: in-progress
   3-1-responsive-table-card-views: done
   3-2-add-delete-records: review
   3-3-inline-edit-with-optimistic-ui: backlog
   3-4-filter-sort-records: backlog
-  3-5-admin-column-hide: backlog
+  3-5-admin-column-hide-non-destructive: backlog
   3-6-real-time-multi-user-sync: backlog
+  3-7-relationship-lookup-field-record-picker: backlog
+  3-8-filter-sort-by-relationship-safe-delete-of-referenced-record: backlog
+  3-9-reverse-related-list: backlog
   epic-3-retrospective: optional
 
-  # ── Epic 4: Data Import — CSV/Excel with AI Column Mapping (ACTIVATION-CRITICAL) ──
   epic-4: backlog
   4-1-upload-parse-a-spreadsheet: backlog
-  4-2-ai-proposed-column-mapping: backlog
+  4-2-ai-proposed-column-mapping-shown-before-any-write: backlog
   4-3-edit-mapping-resolve-flagged-columns: backlog
-  4-4-confirm-import: backlog
+  4-4-confirm-import-non-destructive-replace: backlog
   epic-4-retrospective: optional
 
-  # ── Epic 5: Conversational Schema Editor (Append-Only, Guarded) ──────────
   epic-5: backlog
   5-1-add-a-column-via-chat: backlog
   5-2-add-a-table-via-chat: backlog
@@ -101,40 +104,39 @@ development_status:
   5-5-safe-handling-of-unsupported-operations: backlog
   epic-5-retrospective: optional
 
-  # ── Epic 6: Public Intake Forms ──────────────────────────────────────────
   epic-6: backlog
   6-1-auto-generated-public-intake-form: backlog
   6-2-no-auth-external-submission: backlog
-  6-3-real-time-push-to-owners-dashboard: backlog
+  6-3-real-time-push-to-owner-s-dashboard: backlog
   6-4-email-notification-on-new-submission: backlog
+  6-5-exclude-relationship-fields-from-public-intake-forms: backlog
   epic-6-retrospective: optional
 
-  # ── Epic 7: Billing, Trials & Usage Metering ─────────────────────────────
   epic-7: backlog
-  7-1-14-day-free-trial: backlog
-  7-2-start-usage-based-subscription-via-stripe-checkout: backlog
+  7-1-14-day-free-trial-no-card: backlog
+  7-2-start-a-usage-based-subscription-via-stripe-checkout: backlog
   7-3-manage-subscription-via-stripe-customer-portal: backlog
   7-4-read-only-gating-trial-reminders: backlog
   7-5-active-record-usage-metering-reporting: backlog
   7-6-live-usage-meter-optional-spend-cap: backlog
   epic-7-retrospective: optional
 
-  # ── Epic 8: Localization, PWA & Compliance/Offboarding ───────────────────
   epic-8: backlog
-  8-1-instant-en-fr-ui-toggle: backlog
-  8-2-pwa-install: backlog
+  8-1-instant-en-fr-ui-toggle-no-reload: backlog
+  8-2-pwa-install-add-to-home-screen: backlog
   8-3-field-level-sensitivity-indicator: backlog
-  8-4-download-my-data: backlog
-  8-5-self-service-offboarding: backlog
+  8-4-download-my-data-csv-json: backlog
+  8-5-self-service-offboarding-grace-cascade-delete: backlog
   epic-8-retrospective: optional
 
-  # ── Epic 9: Growth Substrate (DEFERRED — post-$1K MRR, unstoried) ────────
   epic-9: backlog
   epic-9-retrospective: optional
 
-  # ── Epic 10: Autonomous Operations (DEFERRED — Phase 3, gated, unstoried) ─
   epic-10: backlog
   epic-10-retrospective: optional
+
+  epic-11: backlog
+  epic-11-retrospective: optional
 action_items:
   - id: "epic-1-retro-item-1-reconcile-the-gemini-model-in-architectu"
     epic: 1

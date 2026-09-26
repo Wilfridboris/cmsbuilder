@@ -29,8 +29,10 @@ classification:
   domain: general
   complexity: medium
   projectContext: brownfield
-lastEdited: '2026-09-22'
+lastEdited: '2026-09-26'
 editHistory:
+  - date: '2026-09-26'
+    changes: 'Added Relationship/Lookup Fields capability (Salesforce-style cross-table references), reversing the prior implicit exclusion (architecture AR7). Split across phases: MVP "Relationships & Lookups" group FR70-FR78 (generation links core tables, single-reference lookup fields, searchable picker, resolved labels in views, filter/sort by reference, display-field per table, warn-then-soft-delete guard, reverse related lists, excluded from public forms); Growth advanced FR79-FR81 (multi-select, chat-created relations via Conversational Editor, CSV import matching). Amended FR2 (relationships in generated schema) and FR46 (relationship explainability); added NFR-P9 (picker/related-list performance) and NFR-S7 (Schema Validator relation acceptance); added a validator-surface risk row; inserted core relationships into Build Priority (item 4, MVP) and advanced (item 11, Growth); added an open question on MVP import->relationship population. FR IDs are stable/non-contiguous by design.'
   - date: '2026-09-19'
     changes: 'Strategic revision: repositioned away from no-code database builder toward workflow-redesign + defensibility triad; added Product Principles; switched flat $49/mo to usage-based metering (base+overage hybrid) across all sections; added schema explainability, CSV import (MVP), workflow suggestion layer + learned patterns + Business Snapshot + tenant activity logging (Growth), retail POS + Tier-3 API sync (Phase 2); added import journey; reworked success metrics; added FRs and NFRs.'
   - date: '2026-09-22'
@@ -653,6 +655,7 @@ Import — not signup — is the real onboarding gate and the primary activation
 - Full RBAC (Admin / Editor / Viewer roles with configurable UI)
 - White-label resale for GTA/Ottawa digital agencies
 - Conversational Editor: full mutation support (delete, rename, restructure with non-destructive migrations)
+- **Relationships — Advanced:** multi-select references, natural-language relationship creation via the Conversational Editor, and relationship-aware CSV import matching (core to-one relationships, lookup pickers, and related lists ship in the MVP)
 - **Data Import Tier 2:** pre-built export mappings for Jobber, Housecall Pro, ServiceTitan, and QuickBooks — recognizes each export format and pre-fills column mapping (no API required)
 - **Tenant activity logging** — the append-only per-tenant event log (see Domain Requirements); a hard prerequisite for both Business Snapshot and Learned Patterns, and therefore sequenced first among the items below
 - **Workflow execution engine** — trigger/action rules on database events with conditional logic; this does not exist in the MVP and is a **prerequisite for the Workflow Suggestion Layer** below
@@ -706,22 +709,25 @@ Not in Phase 1 (neither MVP nor Growth):
 | Solo founder bandwidth | Off-the-shelf mandate (shadcn/ui, Stripe Portal, Supabase Auth); no custom systems until Growth |
 | Data loss from schema changes | Append-Only constraint eliminates destructive migrations from MVP scope |
 | Trial-to-paid conversion failure | No usage caps during trial; Day 12 persistent banner; data volume creates switching cost |
+| Relationship support widens the LLM schema-op surface | Relationship operations added to the Schema Validator allowlist with referenced-table validation (NFR-S7); restricted-keyword rejection (NFR-S4) unchanged; open-ended chat-created relations deferred to Growth |
 
 ### Build Priority
 
-Ordered by dependency and payoff. Items 1–3 are MVP; 4–9 are Growth, sequenced so prerequisites precede the features that depend on them.
+Ordered by dependency and payoff. Items 1–4 are MVP; 5–11 are Growth, sequenced so prerequisites precede the features that depend on them.
 
 | # | Item | Effort | Phase | Why this order |
 |---|---|---|---|---|
 | 1 | CSV/Excel import with AI column mapping | Medium | MVP | Without it the demo stalls the moment a real user tries real work; it is the primary activation event |
 | 2 | Usage-based metering | Low | MVP | Cheap now, expensive to retrofit once customers sit on legacy plans |
 | 3 | Schema explainability + override | Low | MVP | Small UI change, disproportionate trust payoff at the first-impression moment |
-| 4 | Tenant activity logging | Medium | Growth | Prerequisite substrate for Snapshot and Learned Patterns |
-| 5 | Workflow execution engine | High | Growth | Prerequisite for the suggestion layer (does not exist in MVP) |
-| 6 | Workflow suggestion layer | High | Growth | Biggest differentiator; needs real usage data to suggest against, so it follows import and the engine |
-| 7 | Trades-software export mappings (Tier 2) | Medium | Growth | Turns generic import into "we already know your system" |
-| 8 | Business Snapshot export | Low* | Growth | Reporting layer over activity logs (*Low only once logging from item 4 exists) |
-| 9 | Learned patterns record | Medium | Growth | Long-term moat; compounds only after sustained usage |
+| 4 | Core relationships — generation links + lookup pickers + related lists | Medium | MVP | Makes the generated schema genuinely relational (the FR2 promise) and prevents the free-text data chaos the product exists to end; cheapest to build before real data accumulates |
+| 5 | Tenant activity logging | Medium | Growth | Prerequisite substrate for Snapshot and Learned Patterns |
+| 6 | Workflow execution engine | High | Growth | Prerequisite for the suggestion layer (does not exist in MVP) |
+| 7 | Workflow suggestion layer | High | Growth | Biggest differentiator; needs real usage data to suggest against, so it follows import and the engine |
+| 8 | Trades-software export mappings (Tier 2) | Medium | Growth | Turns generic import into "we already know your system" |
+| 9 | Business Snapshot export | Low* | Growth | Reporting layer over activity logs (*Low only once logging from item 5 exists) |
+| 10 | Learned patterns record | Medium | Growth | Long-term moat; compounds only after sustained usage |
+| 11 | Advanced relationships — multi-select, chat-created, import matching | Medium | Growth | Deepens the relational model once core links are proven; chat-created relations widen the validator surface, so they follow MVP hardening |
 
 ### Open Questions
 
@@ -729,6 +735,7 @@ Ordered by dependency and payoff. Items 1–3 are MVP; 4–9 are Growth, sequenc
 - [ ] Included-allotment size and overage rate for the hybrid model — needs validation against real trades-account record volumes
 - [ ] Which trades vertical to target first for the initial cohort
 - [ ] Whether pre-account generation creates abandoned-system cost worth capping
+- [ ] MVP import → relationship fields: does Tier-1 CSV import populate relationship fields via exact display-label match (reusing the FR49–FR51 confirm/flag flow), with fuzzy and create-if-missing matching deferred to FR81 (Growth)? Confirm the MVP behaviour with architecture
 
 ---
 
@@ -737,7 +744,7 @@ Ordered by dependency and payoff. Items 1–3 are MVP; 4–9 are Growth, sequenc
 ### App Generation
 
 - **FR1:** Visitor can describe their business using a guided structured prompt (trade type, city, and what they track) without creating an account
-- **FR2:** The system generates a relational database schema from the user's prompt input within 45 seconds
+- **FR2:** The system generates a relational database schema — including relationships that link related tables (e.g., a Job references its Client, an Invoice references its Job) — from the user's prompt input within 45 seconds
 - **FR3:** The system populates generated tables with hyper-contextual, Ontario-localized synthetic data at generation time
 - **FR4:** The system automatically deploys a hardcoded Universal Field Service Template when LLM generation fails twice consecutively, without displaying an error screen
 - **FR5:** Visitor can browse, interact with, and edit the generated dashboard before creating an account
@@ -751,6 +758,20 @@ Ordered by dependency and payoff. Items 1–3 are MVP; 4–9 are Growth, sequenc
 - **FR10:** User can filter and sort records within any table view
 - **FR11:** Admin can hide a column from all views without deleting the column or its stored data
 - **FR12:** Multiple team members can view and edit records concurrently with changes reflected in real time
+
+### Relationships & Lookups (MVP)
+
+*Added 2026-09-26. Relationship (lookup) fields make the generated schema genuinely relational — the FR2 promise — instead of duplicating identifying data as free text; they also end the "same client spelled three ways" chaos the product exists to solve. IDs continue the global sequence; phase is tagged per group.*
+
+- **FR70:** The generated schema links related core tables using relationship fields (e.g., a Job references its Client, an Invoice references its Job) rather than duplicating identifying data as free-text columns
+- **FR71:** User can add a relationship (lookup) field to a table that points to records in another table within the same organization (single reference)
+- **FR72:** When adding or editing a record, a relationship field presents a searchable picker over the referenced table, showing each candidate record by its display label
+- **FR73:** Table and card views display the referenced record's label for a relationship field, not an internal identifier
+- **FR74:** User can filter and sort a table by a relationship field (by selecting a referenced record)
+- **FR75:** Each table has a designated display field used to represent its records anywhere they appear as a reference (pickers, labels, related lists)
+- **FR76:** When a user deletes a record that other records reference, the system warns them — showing how many records reference it — before proceeding; on confirmation the record is soft-deleted and referencing records show it as archived
+- **FR77:** From a record, the user can see a related list of the records that reference it (e.g., all invoices for a client), with the referencing table's filter and sort available
+- **FR78:** Relationship fields are excluded from public intake forms by default, so external submitters cannot browse or select another table's records
 
 ### Conversational Editor
 
@@ -805,7 +826,7 @@ Ordered by dependency and payoff. Items 1–3 are MVP; 4–9 are Growth, sequenc
 
 ### Schema Explainability (MVP)
 
-- **FR46:** The system displays a one-line, plain-language reason for each AI-generated table and field at generation time
+- **FR46:** The system displays a one-line, plain-language reason for each AI-generated table, field, or relationship at generation time
 - **FR47:** User can remove or rename any AI-generated field or table with a single action at generation time, without opening a settings screen (removal uses the append-only hide mechanism; no destructive migration)
 
 ### Data Import (MVP — Tier 1)
@@ -832,6 +853,12 @@ Ordered by dependency and payoff. Items 1–3 are MVP; 4–9 are Growth, sequenc
 - **FR59:** The system executes accepted workflows via trigger/action rules on database events with conditional logic
 - **FR60:** The system maintains a per-tenant record of repeated manual actions, edited workflows, dismissed suggestions, and terminology, and uses it to inform future suggestions and schema refinements
 - **FR61:** Admin can export a Business Snapshot summarizing customer and job records, revenue history, and activity timeline
+
+*Relationships — Advanced (Growth). Core to-one relationships, lookup pickers, and related lists ship in the MVP (FR70–FR78); the following deepen the model post-MVP.*
+
+- **FR79:** A relationship field can reference multiple records (multi-select) — e.g., a job linking several assigned technicians
+- **FR80:** Admin can create or adjust a relationship field through the Conversational Editor in natural language, subject to Schema Validator approval
+- **FR81:** During CSV/Excel import, the AI column mapping can map a source column onto a relationship field by matching its values to existing records in the referenced table, flagging unmatched values for the user to resolve (link to an existing record or create a new one) before import completes
 
 ### Autonomous Operations (Vision — Phase 3)
 
@@ -862,6 +889,7 @@ Ordered by dependency and payoff. Items 1–3 are MVP; 4–9 are Growth, sequenc
 | NFR-P6 | EN/FR language toggle applies in < 300ms with no page reload |
 | NFR-P7 | CSV/Excel import of up to 5,000 rows completes in < 60 seconds; the column-mapping preview renders in < 5 seconds of file upload |
 | NFR-P8 | (Growth) Workflow suggestions are computed asynchronously and never block CRUD operations; a computed suggestion surfaces within one dashboard session refresh |
+| NFR-P9 | A relationship picker returns typeahead matches within 500ms at p95 for referenced tables up to 50,000 rows; resolving reference labels and related-list rows for a rendered page adds no more than 300ms to render time |
 
 *Rationale:* Performance is Scheza's primary competitive differentiator. TTV < 45 seconds is a core product promise; any regression beyond this threshold directly undermines the "aha moment" and the activation funnel.
 
@@ -875,6 +903,7 @@ Ordered by dependency and payoff. Items 1–3 are MVP; 4–9 are Growth, sequenc
 | NFR-S4 | The Schema Validator must reject 100% of requests containing restricted keywords (`DROP`, `GRANT`, `TRUNCATE`, `DELETE`, `EXEC`, `--`, `;`, `/*`) |
 | NFR-S5 | 100% of LLM API calls must include the hardened identity-masking system prompt |
 | NFR-S6 | The Supabase service role key must never appear in client-side code — enforced by a CI lint rule that fails the build if the key is detected in frontend bundles |
+| NFR-S7 | The Schema Validator accepts a relationship operation only when the referenced table exists in the organization's schema and the relationship configuration validates; it continues to reject 100% of restricted keywords (NFR-S4) and never emits raw DDL |
 
 ### Scalability
 

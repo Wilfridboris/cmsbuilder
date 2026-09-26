@@ -1,4 +1,6 @@
 ---
+updated: '2026-09-26'
+changeNote: 'Added relationship/lookup field support (§Relationships); FieldType gains ''relation'' + RelationConfig; Schema Validator target-table rule (NFR-S7); reverses the prior relation exclusion. MVP FR70–FR78, Growth FR79–FR81.'
 stepsCompleted:
   - 1
   - 2
@@ -255,6 +257,7 @@ npx @sentry/wizard@latest -i nextjs
 **Deferred Decisions (Post-MVP):**
 - Custom RBAC beyond Admin/Member
 - Full schema mutation in the editor (delete, rename, restructure) — kept append-only in MVP as a **product** choice per PRD, but now cheap: under the record store these are metadata edits (rename = label; delete = soft-delete/hide), not a migration pipeline
+- Advanced relationships — multi-select references (FR79), open-ended Conversational-Editor relation creation (FR80), and relation-aware CSV import matching (FR81); MVP ships core single-reference relations (FR70–FR78, see §Relationships)
 - GraphQL API layer
 - Offline PWA support (service worker caching strategy)
 - Multi-region Supabase (growth phase)
@@ -340,12 +343,41 @@ while no code exists. What it buys:
 
 **Trade-offs accepted (honestly):** we forgo native column types, FK constraints, and
 per-column indexes. Types/required-ness are enforced in the app layer with **Zod** (already
-mandated at every boundary); `'relation'`/FK is already out of MVP scope so that loss is
-near-zero today; filter/sort uses JSONB operators over a GIN index, with a **generated
+mandated at every boundary). We also forgo DB-level **foreign-key constraints**: relationships
+(now in MVP scope — see §Relationships) store the target record's `id` inside `records.data` and
+enforce referential integrity in the app layer through the guarded mutation layer, not the
+database; filter/sort uses JSONB operators over a GIN index, with a **generated
 column** escape hatch for any field that later proves hot. This is the Airtable/Notion/Retool
 data model — boring, proven, and a better fit for *user-defined* schemas than physical DDL.
 If a concrete need for SQL-native per-tenant analytics appears later, a specific logical
 table can be **projected** into a materialized typed view without changing the write path.
+
+### Relationships (Lookup Fields)
+
+Relationships make the generated schema genuinely relational (PRD FR70–FR81) without physical foreign keys — they live entirely inside the existing record store.
+
+| Concern | Decision |
+|---|---|
+| Storage & normalization | A `relation` value in `records.data` is: `cardinality:'one'` → the target `id` (scalar string); `'many'` (Growth FR79) → an `id` array. Store ids, never labels (a label breaks on rename and recreates the "spelled three ways" chaos). |
+| Field vs table config | `SchemaField.relationConfig = { targetTable, cardinality }` is **field-level**. `displayField` is **table-level** on the `org_schemas` table entry (one canonical label field per table, shared by every relation pointing at it) — NOT inside relationConfig. |
+| Canonical query + index | One index: `GIN (data jsonb_path_ops)` on `records`. The reverse related list (FR77) and the delete-guard count use **JSONB containment only** — scalar: `data @> jsonb_build_object(field, to_jsonb(id))`; array: `data @> jsonb_build_object(field, jsonb_build_array(id))`. Both hit the GIN index and one form serves both cardinalities. **Never** `->>` text-extraction — it cannot use the index and seq-scans at 50k rows (NFR-P9). |
+| Forward labels & picker (FR72–FR73) | Labels resolved at read time via a **single batched** `id IN (...)` lookup for the rendered page — never per-row (N+1). The add/edit picker is **server-side typeahead** over the target table (NFR-P9). |
+| Referential integrity (FR76) | App-layer, no DB FK. The delete guard in `src/lib/data/mutate.ts` enumerates every referencing `(table_key, field)` from `org_schemas`, runs one containment query per pair (GIN-indexed), and returns a **capped** count (e.g. "500+"); it warns, then **soft-deletes** (`deleted_at`); referencing rows keep the id and render the target "archived". |
+| displayField lifecycle | Defaults to the first non-hidden text field (else the truncated record id). It **cannot be hidden or removed** while any relation targets its table (guarded like FR76); rename is safe (key is stable). |
+| Write-time integrity | On every relation write, the guarded mutation layer verifies each id exists in `records` under **the same org and `targetTable`**, and that `targetTable` is a real `table_key` in this org's `org_schemas`. RLS stops cross-org *reads*; this check stops a planted foreign or dangling id at *write*. |
+| Isolation (RLS) | **No new policy.** Both sides of a relationship are rows in the shared `records` table under the single org-scoped policy, so a cross-table lookup is already inside the tenant boundary. |
+| Validator (NFR-S7) | `validate(op, { phase, source })`. **Two-pass**: collect every `table_key` in the batch, then accept a `relation` field only if `relationConfig.targetTable` is in that set (self-reference and cycles are legal — no DB FK to deadlock). Accept `cardinality:'many'` only when `phase === 'growth'`, and the editor `source` relation path only in Growth (FR80). NFR-S4 keyword blocklist + NFR-S5 hardened prompt unchanged; no DDL. |
+| Phasing | **MVP (FR70–FR78):** generation + manual single-reference links, resolved labels, filter/sort, delete guard, reverse related list, excluded from public forms. **Growth (FR79–FR81):** multi-select, Conversational-Editor relation creation, CSV import matching. |
+
+**Relations at scale — escalation triggers.** The JSONB relation model above is correct for MVP/Growth scale. These are the pre-decided moves for when it stops being efficient, applied **on evidence, not preemptively** — each adds write-path or refresh cost, and the rows are in escalation order (cheapest first):
+
+| Lever | Trigger | Action |
+|---|---|---|
+| Generated column + btree index | A relation (or scalar) field drives **sort or range/filter** on a table past ~10k live rows, or its label/reverse query breaches NFR-P9 (500ms typeahead / 300ms page-resolve) | Materialize the field to a Postgres **generated column** with a btree index; `records.data` stays the source of truth. Recovers native-column efficiency for that hot path with no change to the write model. |
+| Normalized edge table | A relation is **joined or aggregated for reporting** (e.g. revenue per client), or a target is referenced by 10k+ rows across tables | Add `relations(org_id, from_table, from_id, field, to_id)` with btree indexes, maintained by the guarded mutation layer alongside the JSONB value. Serves counts, reverse lookups, and joins efficiently; JSONB stays canonical. **Rule of three** — only the relations that need it. |
+| Typed read model / materialized view | Any **analytics or Business Snapshot** (Growth) needs `GROUP BY`/aggregation across relations | Project the involved logical tables into typed **materialized views** (or a small read model) refreshed out-of-band; never aggregate over raw JSONB on the request path. |
+
+Re-evaluate all three at the NFR-SC3 ceiling (20 tables / 50k rows per org).
 
 ---
 
@@ -382,6 +414,12 @@ const BLOCKED_KEYWORDS = ['DROP', 'GRANT', 'TRUNCATE', 'DELETE', 'EXEC', '--', '
 // Reject: operations outside PERMITTED_OPERATIONS
 // Reject: table_key / field names that collide with RESERVED_KEYS (would shadow record columns)
 // Reject: any name containing a blocked keyword (belt-and-suspenders — no DDL path exists to exploit)
+// Relation rule (NFR-S7) — validate(op, { phase, source }). TWO-PASS: first collect every table_key in
+//         the batch, then accept a 'relation' field only if relationConfig.targetTable is in that set
+//         (self-reference and cycles ARE allowed — no DB FK exists to deadlock). Accept cardinality
+//         'many' only when phase === 'growth'; accept the editor source relation path only in Growth
+//         (FR80). Reverse-lookup / label queries use jsonb containment over GIN(data jsonb_path_ops) —
+//         never ->> text-extraction. Still no DDL is generated.
 // Normalize: every table_key / field name via normalizeTableName() before persisting to org_schemas
 // Return: { valid: boolean, error?: string, sanitized?: SchemaOperation }
 ```
@@ -390,7 +428,7 @@ const BLOCKED_KEYWORDS = ['DROP', 'GRANT', 'TRUNCATE', 'DELETE', 'EXEC', '--', '
 
 ```
 You are a database structure assistant for Ontario small businesses.
-You may ONLY describe the structure of database tables (column names and data types).
+You may ONLY describe the structure of database tables (column names, data types, and relationships between tables).
 You are NOT permitted to view, modify, or delete user data.
 You are NOT permitted to generate SQL under any circumstances.
 You MUST output only valid JSON conforming to the provided schema definition format.
@@ -850,14 +888,24 @@ type SchemaField = {
   label: string;        // display label (rename = edit this; no migration)
   dataType: FieldType;
   nullable?: boolean;
-  reason?: string;      // one-line, plain-language justification shown at generation time
+  reason?: string;      // one-line, plain-language justification shown at generation time (relations too, FR46)
   sensitive?: boolean;  // drives the PIPEDA SensitivityBadge (FR40)
   hidden?: boolean;     // append-only "hide"/soft-remove (FR11, FR47) — data retained in records.data
+  relationConfig?: RelationConfig; // required when dataType === 'relation' (FR70–FR72)
 };
 
-type FieldType = 'text' | 'number' | 'boolean' | 'date' | 'datetime' | 'email' | 'phone' | 'currency';
-// NOTE: 'relation' type (cross-table lookups) is explicitly excluded from MVP scope.
-// Gemini's system prompt must not generate relation fields. 'relation' support is deferred to Growth phase.
+type FieldType = 'text' | 'number' | 'boolean' | 'date' | 'datetime' | 'email' | 'phone' | 'currency' | 'relation';
+
+// A 'relation' field is a cross-table lookup (FR70–FR81). Its value in records.data is the
+// target record's id (single) or an id array (multi-select — Growth, FR79).
+type RelationConfig = {
+  targetTable: string;           // table_key of the referenced logical table (must exist — NFR-S7)
+  cardinality: 'one' | 'many';   // MVP ships 'one'; 'many' (multi-select) is Growth (FR79)
+};
+// Each logical table in org_schemas also carries displayField: string (FR75) — the field used
+// to represent its records wherever they appear as a reference (picker, label, related list).
+// MVP relations (FR70–FR78) are created at generation time or via the manual add-field UI;
+// open-ended Conversational-Editor relation creation (FR80) is Growth. See §Relationships.
 
 // A tenant row as stored:
 type TenantRecord = {
@@ -1376,11 +1424,12 @@ The feature-based directory structure maps directly to FR categories. Every cros
 
 **Functional Requirements Coverage:**
 
-All 55 MVP FRs are architecturally supported; the 6 Growth-phase FRs (FR56–61) are traced
-with a reserved substrate (activity logging) but intentionally not built at MVP; and the 8
-Phase-3 FRs (FR62–69) are traced to the Forward-Compatibility seams but are neither MVP
-nor Growth scope:
+All 55 MVP FRs are architecturally supported; the MVP relationship FRs (FR70–FR78) are
+supported by §Relationships; the Growth-phase FRs (FR56–FR61, plus advanced relations
+FR79–FR81) are traced but intentionally not built at MVP; and the 8 Phase-3 FRs (FR62–69)
+are traced to the Forward-Compatibility seams but are neither MVP nor Growth scope:
 - FR1–FR5 (App Generation): `api/generate/` pipeline + Gemini + Schema Validator + fallback
+- FR70–FR78 (Relationships & Lookups, MVP): §Relationships — `relationConfig` on `SchemaField`, batched forward label resolution, JSONB-containment reverse related list, reference-count delete guard in `lib/data/mutate.ts`, Validator target-table check (NFR-S7)
 - FR6–FR12 (Data Management): DataTable/CardList + RecordForm + Supabase Realtime
 - FR13–FR17 (Conversational Editor): `api/schema-mutate/` + append-only Validator + SchemaDiffPreview
 - FR18–FR24 (Auth/Permissions): Supabase Auth magic links + role metadata + admin gate in all schema routes

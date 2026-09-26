@@ -130,6 +130,21 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 - **FR68:** Admin can view and manage the operator's work organized as named roles (e.g., bookkeeping, sales follow-up, operations), each with autonomy granted or revoked independently
 - **FR69:** The operator can perform actions through connected external tools via a standard tool-connection protocol; each connected tool is an allowlisted, approval-gated action class subject to activity-log audit and per-type trust threshold, with money-spending tools additionally requiring an Admin-set spend cap and explicit opt-in
 
+**Relationships & Lookups** *(added 2026-09-26; MVP core FR70–FR78, Growth advanced FR79–FR81. IDs continue the global sequence; phase tagged inline.)*
+
+- **FR70:** *[MVP]* The generated schema links related core tables using relationship fields (e.g., Job→Client, Invoice→Job) rather than duplicating identifying data as free text
+- **FR71:** *[MVP]* User can add a relationship (lookup) field pointing to records in another table in the same organization (single reference)
+- **FR72:** *[MVP]* Add/edit forms present a searchable, server-side-typeahead picker over the referenced table, showing each record by its display label
+- **FR73:** *[MVP]* Table and card views display the referenced record's label, not an internal id
+- **FR74:** *[MVP]* User can filter and sort a table by a relationship field (by selecting a referenced record)
+- **FR75:** *[MVP]* Each table has a designated display field used to represent its records wherever they appear as a reference
+- **FR76:** *[MVP]* Deleting a referenced record warns with the referencing count, then soft-deletes; referencing rows keep the id and show the target as archived
+- **FR77:** *[MVP]* From a record, the user sees a related list of the records that reference it (e.g., all invoices for a client), with the referencing table's filter/sort
+- **FR78:** *[MVP]* Relationship fields are excluded from public intake forms by default (no client-list leak to anonymous submitters)
+- **FR79:** *[Growth]* A relationship field can reference multiple records (multi-select)
+- **FR80:** *[Growth]* Admin can create or adjust a relationship field via the Conversational Editor in natural language, subject to Schema Validator approval
+- **FR81:** *[Growth]* CSV/Excel import can map a column onto a relationship field by matching values to existing referenced records, flagging unmatched values to resolve (link or create) before import
+
 ### NonFunctional Requirements
 
 **Performance**
@@ -142,6 +157,7 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 - **NFR-P6:** EN/FR language toggle applies in < 300ms with no page reload
 - **NFR-P7:** CSV/Excel import of up to 5,000 rows completes in < 60 seconds; the column-mapping preview renders in < 5 seconds of file upload
 - **NFR-P8:** (Growth) Workflow suggestions are computed asynchronously and never block CRUD operations; a computed suggestion surfaces within one dashboard session refresh
+- **NFR-P9:** A relationship picker returns typeahead matches within 500ms at p95 for referenced tables up to 50,000 rows; resolving reference labels and related-list rows for a rendered page adds no more than 300ms to render time
 
 **Security**
 
@@ -151,6 +167,7 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 - **NFR-S4:** The Schema Validator must reject 100% of requests containing restricted keywords (`DROP`, `GRANT`, `TRUNCATE`, `DELETE`, `EXEC`, `--`, `;`, `/*`)
 - **NFR-S5:** 100% of LLM API calls must include the hardened identity-masking system prompt
 - **NFR-S6:** The Supabase service role key must never appear in client-side code — enforced by a CI lint rule that fails the build if the key is detected in frontend bundles
+- **NFR-S7:** The Schema Validator accepts a relationship operation only when the referenced table exists in the org schema and the relationship configuration validates; it continues to reject 100% of restricted keywords (NFR-S4) and never emits raw DDL
 
 **Scalability**
 
@@ -198,8 +215,9 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 
 **AI / LLM Pipeline (Architecture uses Google Gemini, not the OpenAI/Groq named in the PRD Integration List)**
 
-- **AR7:** All Gemini calls go through `callGeminiWithTimeout()` (`src/lib/gemini/client.ts`) with `HARDENED_SYSTEM_PROMPT` on every call; model `gemini-3.8-flash` (superseded the original `gemini-2.0-flash` pin in Story 1.4 — see Epic 1 retro 2026-09-24); 15s timeout via `Promise.race` + `AbortController`; retry once, then deploy `UNIVERSAL_FIELD_SERVICE_TEMPLATE`. Generation is ONE structured call returning `{ schema, seedRows }`; `responseMimeType: "application/json"` + `responseSchema`. The `relation` field type is excluded from MVP.
-- **AR8:** The Schema Validator (`src/lib/schema/validator.ts`) runs synchronously on every LLM-proposed schema-metadata operation before persistence to `org_schemas`. Permitted ops MVP: `add_table`, `add_field`, `add_view` (append-only). Rejects reserved column collisions and blocked keywords; logs all rejections to Sentry with `organization_id` + raw output.
+- **AR7:** All Gemini calls go through `callGeminiWithTimeout()` (`src/lib/gemini/client.ts`) with `HARDENED_SYSTEM_PROMPT` on every call; model `gemini-3.8-flash` (superseded the original `gemini-2.0-flash` pin in Story 1.4 — see Epic 1 retro 2026-09-24); 15s timeout via `Promise.race` + `AbortController`; retry once, then deploy `UNIVERSAL_FIELD_SERVICE_TEMPLATE`. Generation is ONE structured call returning `{ schema, seedRows }`; `responseMimeType: "application/json"` + `responseSchema`. Gemini MAY propose `relation` (lookup) fields — the hardened prompt permits describing relationships between tables (never SQL); see AR14 and architecture §Relationships.
+- **AR8:** The Schema Validator (`src/lib/schema/validator.ts`) runs synchronously on every LLM-proposed schema-metadata operation before persistence to `org_schemas`. Permitted ops MVP: `add_table`, `add_field`, `add_view` (append-only). Rejects reserved column collisions and blocked keywords; logs all rejections to Sentry with `organization_id` + raw output. Signature is `validate(op, { phase, source })`: it accepts a `relation` field only when `relationConfig.targetTable` resolves to an existing logical table (**two-pass** over the generation batch — self-reference and cycles are allowed), and gates `cardinality:'many'` and the editor `source` relation path to `phase === 'growth'` (NFR-S7).
+- **AR14:** *(Relationships — added 2026-09-26)* A `relation` field stores the target record's id (single) or an id array (multi-select, Growth) in `records.data`; `SchemaField` gains `relationConfig { targetTable, cardinality }` and each `org_schemas` table gains a **table-level** `displayField` (FR75; defaults to first non-hidden text field; cannot be hidden/removed while targeted). Referential integrity is app-layer via `mutate.ts`: the FR76 delete guard enumerates referencing `(table_key, field)` from `org_schemas` and counts via JSONB **containment** over `GIN(data jsonb_path_ops)` (capped, e.g. "500+"), warns, then soft-deletes; every relation write verifies each id exists under the same org + `targetTable`. Reverse related list (FR77) and label resolution use containment (**never** `->>`); forward labels batch via `id IN (...)`. No DB FK; RLS needs no new policy (both sides share `records`). Scale escalation (generated column → edge table → materialized view) per architecture *§Relations at scale*.
 
 **Infrastructure, Deployment & CI/CD**
 
@@ -293,33 +311,45 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 - FR53: Epic 7 — Meter active records per cycle, report to billing provider
 - FR54: Epic 7 — Admin views current usage vs included allotment
 - FR55: Epic 7 — Optional monthly spend cap pauses new-record creation
+- FR70: Epic 1 — Generation links core tables (Job→Client, Invoice→Job)
+- FR71: Epic 3 — Add relationship (lookup) field, single reference
+- FR72: Epic 3 — Searchable server-side picker over the referenced table
+- FR73: Epic 3 — Referenced record's label shown in table/card views
+- FR74: Epic 3 — Filter and sort by a relationship field
+- FR75: Epic 1 — Table display field designated at generation (editable in Epic 3)
+- FR76: Epic 3 — Delete guard: warn with count, soft-delete, archived display
+- FR77: Epic 3 — Reverse related list on a record
+- FR78: Epic 6 — Relationship fields excluded from public intake forms
 
 **Growth (post-$1K MRR)**
 
-- FR56: Epic 9 — Append-only per-tenant activity log
-- FR57: Epic 9 — Plain-language workflow suggestions from usage patterns
-- FR58: Epic 9 — Accept/edit/dismiss suggestions; dismissals remembered
-- FR59: Epic 9 — Execute accepted workflows (trigger/action rules)
-- FR60: Epic 9 — Per-tenant learned-patterns record informs suggestions
-- FR61: Epic 9 — Business Snapshot export
+- FR56: Epic 10 — Append-only per-tenant activity log
+- FR57: Epic 10 — Plain-language workflow suggestions from usage patterns
+- FR58: Epic 10 — Accept/edit/dismiss suggestions; dismissals remembered
+- FR59: Epic 10 — Execute accepted workflows (trigger/action rules)
+- FR60: Epic 10 — Per-tenant learned-patterns record informs suggestions
+- FR61: Epic 10 — Business Snapshot export
+- FR79: Epic 9 — Multi-select relationships
+- FR80: Epic 9 — Conversational-Editor relation creation
+- FR81: Epic 9 — CSV import matching to relationship fields
 
 **Vision — Phase 3 (gated; traceability only)**
 
-- FR62: Epic 10 — Propose real-world operational action
-- FR63: Epic 10 — Approve/edit/reject proposed action
-- FR64: Epic 10 — Execute approved action end-to-end + audit log
-- FR65: Epic 10 — Autonomous execution per action-type trust threshold
-- FR66: Epic 10 — Review/pause/revoke autonomy per action-type
-- FR67: Epic 10 — Report autonomous work via chosen channel
-- FR68: Epic 10 — Named-role management (bookkeeping/sales/operations)
-- FR69: Epic 10 — Actions via connected external tools (allowlisted, gated)
+- FR62: Epic 11 — Propose real-world operational action
+- FR63: Epic 11 — Approve/edit/reject proposed action
+- FR64: Epic 11 — Execute approved action end-to-end + audit log
+- FR65: Epic 11 — Autonomous execution per action-type trust threshold
+- FR66: Epic 11 — Review/pause/revoke autonomy per action-type
+- FR67: Epic 11 — Report autonomous work via chosen channel
+- FR68: Epic 11 — Named-role management (bookkeeping/sales/operations)
+- FR69: Epic 11 — Actions via connected external tools (allowlisted, gated)
 
 ## Epic List
 
 ### Epic 1: Foundation & the Generative "Aha" Moment
 Stand up the platform and deliver Scheza's core value proposition end-to-end: an anonymous visitor describes their business with a guided prompt and, in under 45 seconds, lands in a fully interactive, Ontario-localized, data-populated dashboard — with a plain-language reason on every generated field and a one-tap override — before ever creating an account. This epic establishes the foundational architecture that every later epic builds on: `create-next-app` scaffolding + pinned deps (AR1, AR2), the shared-JSONB data model (`records` + `org_schemas`, no runtime DDL — AR3), the single static membership-based RLS policy and `auth_org_ids()` (AR4, FR44), the guarded `mutate.ts` write layer (AR5, NFR-FC1), the Gemini pipeline with `HARDENED_SYSTEM_PROMPT` + timeout + fallback (AR7), the Schema Validator gate (AR8), and the CI safety gates (AR11, AR12). It stands alone as a public, shareable demo.
-**FRs covered:** FR1, FR2, FR3, FR4, FR5, FR35, FR44, FR46, FR47
-**NFRs woven in:** NFR-P1, NFR-P2, NFR-S3, NFR-S5, NFR-S6, NFR-R1, NFR-R3, NFR-SC1/2/3, NFR-FC1–FC4 (seams)
+**FRs covered:** FR1, FR2, FR3, FR4, FR5, FR35, FR44, FR46, FR47, FR70, FR75
+**NFRs woven in:** NFR-P1, NFR-P2, NFR-S3, NFR-S5, NFR-S6, NFR-S7, NFR-R1, NFR-R3, NFR-SC1/2/3, NFR-FC1–FC4 (seams)
 
 > **Story-ordering guidance (Step 3):** The first story is a **thin vertical slice** — a hardcoded schema provisioned into `records` → `org_schemas` and rendered as a live read-only table — to prove the full data pipeline before the LLM exists. Layer the Gemini generation, Schema Validator, synthetic-data injection, hard fallback, and explainability affordances (UX-DR2, UX-DR13) as later stories on that proven spine.
 >
@@ -336,8 +366,8 @@ Turn a demo into a committed customer. A visitor claims their generated app via 
 
 ### Epic 3: Core Data Management (Daily Driver)
 The everyday surface: team members manage their real business records. Responsive DataTable on desktop and swipeable cards on mobile, add via schema-typed forms, inline edit-on-blur with optimistic UI, delete, filter/sort, Admin column-hide (no data loss), and real-time multi-user sync — all through the guarded `mutate.ts` layer under RLS. This is where the tool stops being a demo and becomes the business's system of record.
-**FRs covered:** FR6, FR7, FR8, FR9, FR10, FR11, FR12
-**NFRs woven in:** NFR-P3, NFR-P4, NFR-P5, NFR-A2, NFR-A3, NFR-A4, NFR-FC1
+**FRs covered:** FR6, FR7, FR8, FR9, FR10, FR11, FR12, FR71, FR72, FR73, FR74, FR76, FR77
+**NFRs woven in:** NFR-P3, NFR-P4, NFR-P5, NFR-P9, NFR-A2, NFR-A3, NFR-A4, NFR-FC1
 
 > **Boundary vs Epic 1:** this epic owns the **full CRUD/real-time/filter-sort/column-hide suite on the claimed org's real data**; the pre-account demo's browse + basic edit lives in Epic 1. Depends only on Epics 1–2 (data model, `mutate.ts`, real account) — never a future epic.
 
@@ -357,7 +387,7 @@ The product's highest-risk surface, isolated as its own epic. An Admin evolves t
 
 ### Epic 6: Public Intake Forms
 Lead capture with zero extra tooling. Every claimed dashboard auto-generates a public, no-auth, mobile-optimized intake form at `scheza.com/forms/{slug}` whose fields derive from the schema. External submissions push into the owner's data table in real time, and the Admin gets an email notification (Resend; web push deferred to Growth).
-**FRs covered:** FR25, FR26, FR27, FR28
+**FRs covered:** FR25, FR26, FR27, FR28, FR78
 **NFRs woven in:** NFR-A2, NFR-A4, NFR-P5
 
 ### Epic 7: Billing, Trials & Usage Metering
@@ -372,13 +402,18 @@ The Ontario-specific trust and reach layer, plus PIPEDA lifecycle obligations. I
 
 > **Pull-forward candidates (focus-group flag):** **FR40 (field-level sensitivity/PIPEDA indicator)** and **FR41 (PWA "Add to Home Screen")** are small-surface-area FRs with outsized *conversion-trust* and *day-1-habit* payoff (Sarah's deal-closer; Tim's home-screen bookmark). If capacity allows, deliver them earlier than this epic — they have no hard dependency on the rest of Epic 8.
 
-### Epic 9: Growth Substrate — Activity Log, Workflows, Learned Patterns *(Growth — deferred)*
+### Epic 9: Relationships — Advanced *(Growth — deferred)*
+*Post-$1K MRR. Extends the MVP's core relationships (FR70–FR78, delivered in Epics 1/3/6) with the higher-cost, higher-surface pieces.* Multi-select relationship fields (a record linking several targets), natural-language relationship creation through the Conversational Editor (widening the Schema Validator's accepted surface under the `validate(op,{phase,source})` gate), and relationship-aware CSV import that matches source values to existing referenced records. Depends on Epics 1, 3, 5 and AR14.
+**FRs covered:** FR79, FR80, FR81
+**NFRs woven in:** NFR-P9, NFR-S7
+
+### Epic 10: Growth Substrate — Activity Log, Workflows, Learned Patterns *(Growth — deferred)*
 *Post-$1K MRR. Listed for FR completeness; story breakdown deferred until Growth is opened.* The nervous system for later intelligence: append-only per-tenant activity log (the prerequisite substrate — AR/NFR-FC2), the workflow execution engine, the plain-language Workflow Suggestion Layer, the per-tenant learned-patterns record, and the Business Snapshot export (a report over the activity log).
 **FRs covered:** FR56, FR57, FR58, FR59, FR60, FR61
 **NFRs woven in:** NFR-P8, NFR-FC2, NFR-R2 (99.9%)
 
-### Epic 10: Autonomous Operations — The Digital Employee *(Vision / Phase 3 — gated, traceability only)*
-*Gated on proven week-4 retention ≥30% and month-over-month records-under-management growth across ≥2 cohorts. Documented direction, not a build.* A per-tenant operator that proposes → executes-on-approval → graduates to autonomy per action-type, reports on the owner's channel, is organized as named roles, and acts through allowlisted connected external tools — all on the Epic 9 substrate via the NFR-FC seams.
+### Epic 11: Autonomous Operations — The Digital Employee *(Vision / Phase 3 — gated, traceability only)*
+*Gated on proven week-4 retention ≥30% and month-over-month records-under-management growth across ≥2 cohorts. Documented direction, not a build.* A per-tenant operator that proposes → executes-on-approval → graduates to autonomy per action-type, reports on the owner's channel, is organized as named roles, and acts through allowlisted connected external tools — all on the Epic 10 substrate via the NFR-FC seams.
 **FRs covered:** FR62, FR63, FR64, FR65, FR66, FR67, FR68, FR69
 **NFRs woven in:** NFR-FC1–FC4 (fully realized)
 
@@ -552,6 +587,30 @@ So that I trust what the AI built and feel in control from the first moment.
 **Given** a field the visitor removed
 **When** the dashboard re-renders
 **Then** the field is hidden from all demo views while its definition and any data remain intact
+
+### Story 1.8: Generated Relationships & Display Fields
+
+As an anonymous visitor,
+I want the generated schema to link the tables that clearly belong together — jobs to their client, invoices to their job — instead of making me retype names,
+So that my dashboard behaves like one connected business, not disconnected spreadsheets.
+
+**Acceptance Criteria:**
+
+**Given** a prompt that implies related entities (e.g. clients, jobs, invoices)
+**When** the schema is generated
+**Then** Gemini emits single-reference `relation` fields linking the core tables (e.g. Job→Client, Invoice→Job), each carrying a one-line plain-language reason (FR70, FR46, AR14)
+
+**Given** a generated table
+**When** the schema is persisted to `org_schemas`
+**Then** the table definition records a table-level `displayField` (defaulting to the first non-hidden text field) used to represent its rows wherever they appear as a reference (FR75, AR14)
+
+**Given** an LLM-proposed `relation` field
+**When** the Schema Validator runs `validate(op, { phase, source })`
+**Then** it accepts the field only if `relationConfig.targetTable` resolves to a table in the same generation batch (two-pass; self-reference and cycles allowed), rejects `cardinality:'many'` at MVP phase, and keeps all restricted-keyword rejections (NFR-S4) and the hardened prompt (NFR-S5) intact with no DDL emitted (FR70, NFR-S7, AR8, AR14)
+
+**Given** a relation value
+**When** a record is written
+**Then** `records.data` stores the target record's id (single reference), never its label (AR14)
 
 ---
 
@@ -815,6 +874,80 @@ So that the whole crew works from the same live picture.
 **Given** a dropped Realtime connection
 **When** connectivity resumes
 **Then** the client re-subscribes and reconciles without a manual page reload
+
+---
+
+### Story 3.7: Relationship Lookup Field & Record Picker
+
+As a team member,
+I want a field that lets me pick a record from another table instead of typing its name,
+So that every bill points to the one real client, with no misspellings.
+
+**Acceptance Criteria:**
+
+**Given** a table in the claimed org
+**When** an Admin adds a relationship (lookup) field targeting another table in the same org
+**Then** it is created as a single-reference `relation` with `relationConfig.targetTable` set, validated by the Schema Validator (FR71, NFR-S7, AR14)
+
+**Given** a relationship field on an add/edit form
+**When** the user focuses it
+**Then** it presents a searchable, server-side-typeahead picker over the referenced table, showing each candidate by the target table's `displayField` label, returning matches within 500ms at p95 for tables up to 50k rows (FR72, NFR-P9)
+
+**Given** a saved relationship value
+**When** the record appears in a DataTable or swipeable card
+**Then** the referenced record's `displayField` label is shown — never the raw id — resolved for the rendered page in a single batched `id IN (...)` lookup, not a per-row query (FR73, NFR-P9, AR14)
+
+**Given** the referenced record's label later changes
+**When** the referencing view re-renders
+**Then** it shows the updated label (labels resolved at read time, never copied into the referencing row) (FR73, AR14)
+
+---
+
+### Story 3.8: Filter/Sort by Relationship & Safe Delete of Referenced Records
+
+As a team member,
+I want to filter a table by a linked record and be warned before deleting something other records depend on,
+So that I can pull up "all of this client's jobs" and never silently orphan data.
+
+**Acceptance Criteria:**
+
+**Given** a table with a relationship field
+**When** the user filters or sorts by that field
+**Then** they select a referenced record by label and the table filters/sorts by the stored reference, using JSONB containment over the `GIN(data jsonb_path_ops)` index — never `->>` text extraction (FR74, AR14)
+
+**Given** a record referenced by other records
+**When** a user attempts to delete it
+**Then** the system first warns with the count of referencing records (enumerated from the referencing `(table_key, field)` pairs in `org_schemas`, counted via containment, capped e.g. "500+") before proceeding (FR76, AR14)
+
+**Given** the user confirms the delete
+**When** it executes
+**Then** the record is soft-deleted (`deleted_at`) and referencing rows keep the id and render the target as "archived" — no hard delete, no orphan cleanup (FR76, AR14)
+
+**Given** any relationship create or edit
+**When** it passes through `mutate.ts`
+**Then** the layer verifies each referenced id exists under the same org and `targetTable` before persisting, rejecting a planted foreign or dangling id (FR76, NFR-S7, AR14)
+
+---
+
+### Story 3.9: Reverse Related List
+
+As a team member,
+I want to open a client and see all their invoices in one place,
+So that I get the full picture of an account without hunting across tables.
+
+**Acceptance Criteria:**
+
+**Given** a record that other records reference
+**When** the user opens it
+**Then** a related list shows the referencing records (e.g. all invoices for this client), retrieved via a JSONB-containment query over the `GIN(data jsonb_path_ops)` index (FR77, NFR-P9, AR14)
+
+**Given** a related list
+**When** it renders
+**Then** the referencing table's filter and sort are available on it, and resolving its rows for the rendered page adds no more than 300ms (FR77, NFR-P9)
+
+**Given** MVP scope (single-reference relations only)
+**When** the related list runs
+**Then** it handles single-reference relations correctly; multi-select reverse lookups are deferred to Epic 9 (FR77 scope boundary)
 
 ---
 
@@ -1107,6 +1240,28 @@ So that I'm alerted even when I'm not looking at the dashboard.
 **Given** an email delivery failure
 **When** it occurs
 **Then** the submission is still saved and visible in the dashboard (notification failure never blocks data capture)
+
+---
+
+### Story 6.5: Exclude Relationship Fields from Public Intake Forms
+
+As an Admin,
+I want lookup fields left off my public intake form,
+So that an anonymous submitter can never browse or pick from my client list (PIPEDA).
+
+**Acceptance Criteria:**
+
+**Given** a schema containing one or more relationship fields
+**When** the public intake form is auto-generated
+**Then** relationship fields are excluded by default — no picker over another table is rendered to unauthenticated submitters (FR78)
+
+**Given** a relationship field that is required on the target table
+**When** an external submission is saved
+**Then** the record is created with the relationship unset, and the Admin can link it from the dashboard afterward (FR78, FR71)
+
+**Given** the exclusion
+**When** the form is rendered
+**Then** no target-table record ids, labels, or counts appear in the form markup or any network payload (FR78)
 
 ---
 
