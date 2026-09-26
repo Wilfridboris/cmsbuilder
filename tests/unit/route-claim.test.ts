@@ -157,7 +157,9 @@ describe("POST /api/claim", () => {
     expect(otpArg.options.shouldCreateUser).toBe(true);
     expect(otpArg.options.emailRedirectTo).toContain("/auth/callback");
     expect(otpArg.options.emailRedirectTo).toContain("claim_token=tok-123");
-    expect(otpArg.options.data).toMatchObject({ role: "admin" });
+    // No role is seeded into user metadata: the authoritative role is recorded in
+    // org_members at finalizeClaim; RBAC never reads a metadata role scalar.
+    expect(otpArg.options.data?.role).toBeUndefined();
   });
 
   it("returns 502 sendFailed when the magic-link dispatch fails", async () => {

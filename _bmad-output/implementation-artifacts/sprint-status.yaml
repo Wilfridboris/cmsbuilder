@@ -45,7 +45,7 @@
 # Epics 9 (Growth) & 10 (Phase 3) are DEFERRED and intentionally unstoried (out of MVP scope).
 
 generated: 2026-09-23
-last_updated: 09-26-2026 (2.6 review)
+last_updated: 09-26-2026 01:43
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -64,15 +64,15 @@ development_status:
   epic-1-retrospective: done
 
   # ── Epic 2: Claim, Accounts & Team Access ────────────────────────────────
-  epic-2: in-progress
+  epic-2: done
   2-1-claim-app-via-magic-link: done
   2-2-passwordless-login-for-returning-users: done
-  2-3-invite-team-members-with-roles: review
-  2-4-role-based-access-enforcement: review
+  2-3-invite-team-members-with-roles: done
+  2-4-role-based-access-enforcement: done
   # Carried from Epic 1 retrospective 2026-09-24 (F7/F8 hardening — see epic-1-retro-2026-09-24.md)
-  2-5-schema-validator-keyword-false-reject: review
-  2-6-non-ascii-key-normalization: review
-  epic-2-retrospective: optional
+  2-5-schema-validator-keyword-false-reject: done
+  2-6-non-ascii-key-normalization: done
+  epic-2-retrospective: done
 
   # ── Epic 3: Core Data Management (Daily Driver) ──────────────────────────
   epic-3: backlog
@@ -157,7 +157,7 @@ action_items:
       the label substring check so legitimate labels (Deleted?, Grants, Drop-off)
       do not sink real generations to the hard fallback; add tests."
     owner: "Dev"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-24.md"
   - id: "epic-1-retro-item-4-fix-non-ascii-key-normalization-in-norma"
     epic: 1
@@ -165,7 +165,7 @@ action_items:
       accents before stripping) so French/accented field keys do not collapse or empty;
       add accented-key tests."
     owner: "Dev"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-24.md"
   - id: "epic-1-retro-item-5-attach-a-catch-handler-to-the-gemini-sdk"
     epic: 1
@@ -182,3 +182,33 @@ action_items:
     owner: "Boris"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-24.md"
+  - id: "epic-2-retro-item-7-stop-the-claim-flow-from-unconditionally"
+    epic: 2
+    action: "Stop the claim flow from unconditionally asserting role:admin on the
+      caller global user_metadata (callback/route.ts:123-131); write the role tied
+      to the bootstrapped org, or drop the unused metadata role write. [F1]"
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-26.md"
+  - id: "epic-2-retro-item-8-correct-the-misleading-rbac-comments-inv"
+    epic: 2
+    action: "Correct the misleading RBAC comments (invite.ts:31-34, rbac.ts:14-17)
+      that claim JWT metadata role is what 2.4 enforcement reads; enforcement reads
+      org_members (DB). Removes the F1 booby-trap. [F2]"
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-26.md"
+  - id: "epic-2-retro-item-9-reconcile-epic-2-context-md-line-32-role"
+    epic: 2
+    action: "Reconcile epic-2-context.md line 32 (role checks read from JWT) to the
+      as-built DB-source decision from spec-2-4. [F3]"
+    owner: "Boris"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-26.md"
+  - id: "epic-2-retro-item-10-fix-the-auth-required-redirect-target-sl"
+    epic: 2
+    action: "Fix the auth-required redirect target: /[slug]/page.tsx:40 should redirect
+      to /login?auth=required to match middleware/settings/callback. [F7]"
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-26.md"

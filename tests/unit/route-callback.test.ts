@@ -111,6 +111,9 @@ describe("GET /auth/callback", () => {
     expect(updateUser).toHaveBeenCalledTimes(1);
     const arg = updateUser.mock.calls[0][0];
     expect(arg.data.consent_accepted_at).toBe(CONSENT_AT);
-    expect(arg.data.role).toBe("admin");
+    // No role is written to user metadata — the authoritative role lives in
+    // org_members (set by finalizeClaim); a global metadata role scalar could
+    // wrongly assert admin on an account that is a Member of another org.
+    expect(arg.data.role).toBeUndefined();
   });
 });

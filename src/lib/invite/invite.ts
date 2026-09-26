@@ -28,11 +28,11 @@ import { requireAdmin } from "@/lib/auth/rbac";
  *          metadata, then inserts the `org_members` row scoped to the inviter's
  *          org with that same authoritative role.
  *
- * Role is written in BOTH places at invite time: `org_members.role` (durable,
- * per-org authority) and the user-metadata `role` via the invite `data` (the JWT
- * convenience 2.4 enforcement reads) — so an invited Member never transiently
- * reads as Admin. Login (2.2) never sends `data.role`, so sign-in cannot clobber
- * it.
+ * Role authority is `org_members.role` (durable, per-org) — the ONLY source RBAC
+ * reads (`requireAdmin` → `resolveUserOrgMembership`, a DB read). The invite also
+ * seeds the new user's metadata `role` via the invite `data` as initial
+ * provisioning for a freshly-created account, but that copy is never read for
+ * authorization and must never be trusted for it. Login (2.2) sends no `data.role`.
  *
  * Never leaks provider output: every failure resolves to an `AppError` carrying
  * only a translated code.

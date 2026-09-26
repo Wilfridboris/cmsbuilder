@@ -37,7 +37,9 @@ export default async function SlugDashboardPage({
   // depth (and to have the user in hand).
   const user = await getCurrentUser();
   if (!user) {
-    redirect("/?auth=required");
+    // Match middleware + the Settings gate: an unauthenticated visitor goes to
+    // the login form, not the marketing home, so they can sign back in directly.
+    redirect("/login?auth=required");
   }
 
   const cookieStore = await cookies();

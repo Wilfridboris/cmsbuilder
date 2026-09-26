@@ -1,0 +1,1350 @@
+diff --git a/src/app/[slug]/settings/page.tsx b/src/app/[slug]/settings/page.tsx
+new file mode 100644
+index 0000000..1a8782f
+--- /dev/null
++++ b/src/app/[slug]/settings/page.tsx
+@@ -0,0 +1,61 @@
++import { redirect } from "next/navigation";
++import { getTranslations } from "next-intl/server";
++
++import { getCurrentUser } from "@/lib/auth/session";
++import { createAdminClient } from "@/lib/supabase/admin";
++import { resolveUserOrgMembership } from "@/lib/auth/org";
++import { InviteForm } from "@/components/settings/InviteForm";
++
++/**
++ * Admin-only Settings surface at `/{slug}/settings` (Story 2.3).
++ *
++ * Server component mirroring the `/{slug}` protected-page pattern plus an admin
++ * gate. It resolves the caller's membership (org + role) via
++ * `resolveUserOrgMembership` and redirects away to `/{slug}` unless they are an
++ * Admin whose org matches the requested slug. This is a UX gate — the invite
++ * ACTION is independently re-authorized server-side in `POST /api/invite`
++ * (frontend hiding is never the sole enforcement).
++ *
++ * Scope (frozen): the invite form ONLY — no member list, role change, or revoke
++ * UI (deferred to 2.4+).
++ */
++
++export const dynamic = "force-dynamic";
++
++export default async function SettingsPage({
++  params,
++}: {
++  params: Promise<{ slug: string }>;
++}) {
++  const { slug } = await params;
++  const t = await getTranslations("Settings");
++
++  // Middleware already bounced unauthenticated visits to /login; re-check for
++  // defense in depth (and to have the user id for the membership resolve).
++  const user = await getCurrentUser();
++  if (!user) {
++    redirect("/login?auth=required");
++  }
++
++  // Resolve the caller's org + role. A non-member (null) or a Member is not an
++  // admin of this surface → bounce to the tenant dashboard. A slug mismatch (an
++  // admin of a DIFFERENT org) is likewise bounced to their own dashboard.
++  const membership = await resolveUserOrgMembership(user.id, createAdminClient());
++  if (!membership || membership.role !== "admin" || membership.slug !== slug) {
++    redirect(`/${slug}`);
++  }
++
++  return (
++    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-8 px-6 py-16">
++      <header className="flex flex-col gap-2">
++        <h1 className="text-2xl font-semibold tracking-tight text-balance">
++          {t("title")}
++        </h1>
++        <p className="text-sm text-muted-foreground text-pretty">
++          {t("subtitle")}
++        </p>
++      </header>
++      <InviteForm />
++    </main>
++  );
++}
+diff --git a/src/app/api/invite/route.ts b/src/app/api/invite/route.ts
+new file mode 100644
+index 0000000..2a3f484
+--- /dev/null
++++ b/src/app/api/invite/route.ts
+@@ -0,0 +1,96 @@
++import "server-only";
++
++import { NextResponse, type NextRequest } from "next/server";
++import { z } from "zod";
++
++import { AppError } from "@/types/api";
++import type { ApiResponse } from "@/types/api";
++import { createAdminClient } from "@/lib/supabase/admin";
++import { getCurrentUser } from "@/lib/auth/session";
++import { inviteMember } from "@/lib/invite/invite";
++import { reportError } from "@/lib/observability/report";
++
++/**
++ * `POST /api/invite` (Story 2.3) — the Admin-only team-invite dispatch.
++ *
++ * Flow: `getCurrentUser()` (JWT-validated) → 401 if none → Zod-validate
++ * `{ email, role: 'admin' | 'member' }` (→ 400 invalidEmail / invalidRole) →
++ * `inviteMember` (resolves the caller's org, asserts Admin server-side, creates
++ * the invitee account + `org_members` row, sends the branded invite email) →
++ * map `AppError` codes onto the `{ data, error }` envelope; success →
++ * `{ data:{ sent:true }, error:null }`.
++ *
++ * Authorization is server-enforced in `inviteMember`: it independently reads the
++ * caller's membership + role from their JWT-proven identity and rejects a
++ * non-admin / non-member with a 403 — frontend hiding is never the sole gate.
++ *
++ * Never leaks provider output, stacks, or SQL — every failure resolves to a
++ * translated code via the envelope.
++ */
++
++// Request-time only: reads the session + hits the admin API / DB.
++export const dynamic = "force-dynamic";
++
++export type InviteResponse = { sent: true };
++
++const inviteBodySchema = z.object({
++  email: z.string().trim().email(),
++  role: z.enum(["admin", "member"]),
++});
++
++function json(
++  body: ApiResponse<InviteResponse>,
++  status: number,
++): NextResponse<ApiResponse<InviteResponse>> {
++  return NextResponse.json(body, { status });
++}
++
++export async function POST(
++  req: NextRequest,
++): Promise<NextResponse<ApiResponse<InviteResponse>>> {
++  try {
++    // 1. Identify the caller. No session → 401 (the Settings page itself is
++    // bounced to /login by middleware; this is the API-layer backstop).
++    const user = await getCurrentUser();
++    if (!user) {
++      throw new AppError(401, "unauthorized");
++    }
++
++    // 2. Validate the body. A malformed email → 400 invalidEmail; a role outside
++    // {admin, member} → 400 invalidRole. Rejected before any create/send.
++    let raw: unknown;
++    try {
++      raw = await req.json();
++    } catch {
++      throw new AppError(400, "invalidEmail");
++    }
++    const parsed = inviteBodySchema.safeParse(raw);
++    if (!parsed.success) {
++      const roleIssue = parsed.error.issues.some((i) => i.path.includes("role"));
++      throw new AppError(400, roleIssue ? "invalidRole" : "invalidEmail");
++    }
++    const { email, role } = parsed.data;
++
++    // 3. Provision the invite (admin-gate + account/membership bootstrap + email).
++    await inviteMember({
++      inviterUserId: user.id,
++      email,
++      role,
++      adminClient: createAdminClient(),
++      origin: req.nextUrl.origin,
++    });
++
++    return json({ data: { sent: true }, error: null }, 200);
++  } catch (err) {
++    if (err instanceof AppError) {
++      // Log the server-side detail (never surfaced) for the operational codes
++      // (5xx, including the 502 send-failure).
++      if (err.statusCode >= 500) {
++        reportError(err, { route: "/api/invite" });
++      }
++      return json({ data: null, error: err.userMessage }, err.statusCode);
++    }
++    reportError(err, { route: "/api/invite" });
++    return json({ data: null, error: "genericError" }, 500);
++  }
++}
+diff --git a/src/app/auth/confirm/route.ts b/src/app/auth/confirm/route.ts
+new file mode 100644
+index 0000000..ba4674d
+--- /dev/null
++++ b/src/app/auth/confirm/route.ts
+@@ -0,0 +1,104 @@
++import "server-only";
++
++import { cookies } from "next/headers";
++import { NextResponse, type NextRequest } from "next/server";
++
++import { createServerSupabaseClient } from "@/lib/supabase/server";
++import { createAdminClient } from "@/lib/supabase/admin";
++import { resolveUserPrimaryOrgSlug } from "@/lib/auth/org";
++import { reportError } from "@/lib/observability/report";
++
++/**
++ * `GET /auth/confirm` (Story 2.3) — cross-device invite acceptance.
++ *
++ * An invite is opened on the invitee's OWN device, which has no PKCE
++ * `code_verifier` cookie, so the same-browser `exchangeCodeForSession` flow that
++ * claim/login (`/auth/callback`) rely on cannot work here. Supabase's cross-
++ * device flow is `verifyOtp({ token_hash, type })` with a `token_hash` link, so
++ * invite acceptance gets its OWN route and leaves the hardened claim/login
++ * callback untouched.
++ *
++ * Flow: read `token_hash` + `type` from the query → `verifyOtp` on the RLS-scoped
++ * SERVER client (so the session cookies are written onto THIS redirect response)
++ * → resolve the user's primary org slug (reusing the 2.2 resolver) → redirect
++ * `/{slug}`, where membership-based RLS (`auth_org_ids()`) grants immediate
++ * read/write.
++ *
++ * A failed/expired verify redirects to a translated re-request status on the
++ * existing login surface (`/login?login=link-expired`) — never a raw error
++ * screen, never a crash.
++ */
++
++export const dynamic = "force-dynamic";
++
++/**
++ * Email OTP types the cross-device confirm link is honored for. Kept as a local
++ * literal set (not imported from `@supabase/auth-js`, a transitive dep) — it is
++ * passed straight to `verifyOtp`, whose `type` accepts these strings.
++ */
++const CONFIRM_TYPES = ["invite", "signup", "magiclink", "email"] as const;
++type ConfirmType = (typeof CONFIRM_TYPES)[number];
++
++/** Redirect to the translated re-request status on the login surface. */
++function statusRedirect(req: NextRequest): NextResponse {
++  const url = new URL("/login", req.nextUrl.origin);
++  url.searchParams.set("login", "link-expired");
++  return NextResponse.redirect(url);
++}
++
++export async function GET(req: NextRequest): Promise<NextResponse> {
++  const tokenHash = req.nextUrl.searchParams.get("token_hash");
++  const typeParam = req.nextUrl.searchParams.get("type");
++
++  // Missing token or an unrecognized type → re-request path (never a raw screen).
++  if (
++    !tokenHash ||
++    !typeParam ||
++    !CONFIRM_TYPES.includes(typeParam as ConfirmType)
++  ) {
++    return statusRedirect(req);
++  }
++  const type = typeParam as ConfirmType;
++
++  // The whole session-establishment region is guarded: a THROWN exception from
++  // `cookies()`, client creation (missing env), `verifyOtp` (provider/network
++  // fault), or the org resolve must land on the translated re-request path, never
++  // a raw error screen (frozen matrix "never a raw screen / never a crash").
++  try {
++    const cookieStore = await cookies();
++    const supabase = createServerSupabaseClient(cookieStore);
++
++    // Establish the session cross-device (no PKCE verifier). The SSR client writes
++    // the session cookies onto the redirect response via its cookie bridge.
++    const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp(
++      {
++        token_hash: tokenHash,
++        type,
++      },
++    );
++
++    if (verifyError || !verifyData.user) {
++      reportError(new Error(verifyError?.message ?? "no user after verifyOtp"), {
++        route: "/auth/confirm",
++        stage: "verifyOtp",
++      });
++      return statusRedirect(req);
++    }
++
++    // Resolve the org the invitee just joined and land them on it. Membership was
++    // provisioned at invite-send time, so RLS already resolves their org.
++    const resolved = await resolveUserPrimaryOrgSlug(
++      verifyData.user.id,
++      createAdminClient(),
++    );
++    if (!resolved) {
++      // Verified but no membership (should not happen via the invite path) —
++      // route to the same translated status rather than crash.
++      return statusRedirect(req);
++    }
++    return NextResponse.redirect(new URL(`/${resolved.slug}`, req.nextUrl.origin));
++  } catch (err) {
++    reportError(err, { route: "/auth/confirm", stage: "establishSession" });
++    return statusRedirect(req);
++  }
++}
+diff --git a/src/app/login/page.tsx b/src/app/login/page.tsx
+index 1a808ed..5cc854e 100644
+--- a/src/app/login/page.tsx
++++ b/src/app/login/page.tsx
+@@ -41,6 +41,8 @@ function LoginNotice() {
+   let message: string | null = null;
+   if (auth === "required") message = t("authRequired");
+   else if (login === "no-org") message = t("noOrg");
++  // Story 2.3: an expired/invalid invite confirm link lands here for a fresh link.
++  else if (login === "link-expired") message = t("linkExpired");
+ 
+   if (!message) return null;
+ 
+diff --git a/src/components/settings/InviteForm.tsx b/src/components/settings/InviteForm.tsx
+new file mode 100644
+index 0000000..0193189
+--- /dev/null
++++ b/src/components/settings/InviteForm.tsx
+@@ -0,0 +1,215 @@
++"use client";
++
++import { useId, useState } from "react";
++import { useTranslations } from "next-intl";
++import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
++import { CheckCircle2, Loader2, Send } from "lucide-react";
++
++import { Button } from "@/components/ui/button";
++import { Input } from "@/components/ui/input";
++import { Label } from "@/components/ui/label";
++import {
++  Select,
++  SelectContent,
++  SelectItem,
++  SelectTrigger,
++  SelectValue,
++} from "@/components/ui/select";
++import type { ApiResponse } from "@/types/api";
++import type { MemberRole } from "@/types/db";
++
++/**
++ * InviteForm (Story 2.3) — the Admin-only team-invite surface.
++ *
++ * Mirrors the proven `LoginForm`/`ClaimModal` patterns (`useId()` ARIA wiring, an
++ * inline `<p role="alert">` for errors, a "sent" success state, form reset) and
++ * adds a role `select` with **Member preselected** (FR20/FR21). On submit it
++ * POSTs `{ email, role }` to `POST /api/invite`; the server independently
++ * re-enforces Admin authorization (frontend gating is never the sole gate).
++ *
++ * Server error codes (invalidEmail, invalidRole, forbidden, accountExists,
++ * sendFailed) map to translated inline messages — never a raw error. All copy
++ * resolves through the `Settings` next-intl namespace (EN + FR). Motion is a
++ * subtle reveal gated by `useReducedMotion` (WCAG AA).
++ */
++
++/** Server error codes this form maps to a translated inline message. */
++const ERROR_KEYS = new Set([
++  "invalidEmail",
++  "invalidRole",
++  "forbidden",
++  "accountExists",
++  "sendFailed",
++  "unauthorized",
++  "genericError",
++]);
++
++export function InviteForm() {
++  const t = useTranslations("Settings");
++  const [email, setEmail] = useState("");
++  // Member preselected by default at invite time (FR20/FR21).
++  const [role, setRole] = useState<MemberRole>("member");
++  const [status, setStatus] = useState<"idle" | "submitting" | "sent">("idle");
++  const [error, setError] = useState<string | null>(null);
++  const [sentEmail, setSentEmail] = useState("");
++
++  const prefersReducedMotion = useReducedMotion();
++  const emailId = useId();
++  const roleId = useId();
++  const roleHintId = useId();
++  const errorId = useId();
++
++  const resolveError = (code: string | null): string => {
++    if (code && ERROR_KEYS.has(code)) {
++      return t(`error.${code}`);
++    }
++    return t("error.genericError");
++  };
++
++  const reset = () => {
++    setEmail("");
++    setRole("member");
++    setStatus("idle");
++    setError(null);
++    setSentEmail("");
++  };
++
++  const handleSubmit = async (event: React.FormEvent) => {
++    event.preventDefault();
++    setStatus("submitting");
++    setError(null);
++
++    try {
++      const res = await fetch("/api/invite", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ email: email.trim(), role }),
++      });
++      const body: ApiResponse<{ sent: true }> = await res.json();
++      if (!res.ok || !body.data) {
++        setError(resolveError(body.error));
++        setStatus("idle");
++        return;
++      }
++      setSentEmail(email.trim());
++      setStatus("sent");
++    } catch {
++      setError(resolveError(null));
++      setStatus("idle");
++    }
++  };
++
++  const reveal = prefersReducedMotion
++    ? { initial: { opacity: 0 }, animate: { opacity: 1 } }
++    : {
++        initial: { opacity: 0, y: 8 },
++        animate: { opacity: 1, y: 0 },
++      };
++
++  if (status === "sent") {
++    return (
++      <motion.div
++        {...reveal}
++        transition={{ duration: 0.25 }}
++        className="flex flex-col items-center gap-4 py-4 text-center"
++      >
++        <CheckCircle2 aria-hidden="true" className="size-10 text-primary" />
++        <div className="flex flex-col gap-1">
++          <h2 className="text-lg font-semibold tracking-tight">
++            {t("sentTitle")}
++          </h2>
++          <p className="text-sm text-muted-foreground text-pretty">
++            {t("sentBody", { email: sentEmail })}
++          </p>
++        </div>
++        <Button type="button" variant="outline" onClick={reset} className="gap-2">
++          {t("sendAnother")}
++        </Button>
++      </motion.div>
++    );
++  }
++
++  return (
++    <motion.form
++      {...reveal}
++      transition={{ duration: 0.25 }}
++      onSubmit={handleSubmit}
++      className="flex flex-col gap-5"
++    >
++      <div className="flex flex-col gap-2">
++        <Label htmlFor={emailId}>{t("emailLabel")}</Label>
++        <Input
++          id={emailId}
++          type="email"
++          inputMode="email"
++          autoComplete="off"
++          required
++          value={email}
++          placeholder={t("emailPlaceholder")}
++          aria-invalid={error !== null}
++          aria-describedby={error ? errorId : undefined}
++          onChange={(e) => {
++            setEmail(e.target.value);
++            if (error) setError(null);
++          }}
++          className="min-h-12"
++        />
++      </div>
++
++      <div className="flex flex-col gap-2">
++        <Label htmlFor={roleId}>{t("roleLabel")}</Label>
++        <Select
++          value={role}
++          onValueChange={(value) => {
++            setRole(value as MemberRole);
++            if (error) setError(null);
++          }}
++        >
++          <SelectTrigger
++            id={roleId}
++            aria-describedby={roleHintId}
++            className="min-h-12 w-full"
++          >
++            <SelectValue placeholder={t("rolePlaceholder")} />
++          </SelectTrigger>
++          <SelectContent>
++            <SelectItem value="member">{t("roleMember")}</SelectItem>
++            <SelectItem value="admin">{t("roleAdmin")}</SelectItem>
++          </SelectContent>
++        </Select>
++        <p id={roleHintId} className="text-sm text-muted-foreground text-pretty">
++          {role === "admin" ? t("roleAdminHint") : t("roleMemberHint")}
++        </p>
++      </div>
++
++      <AnimatePresence>
++        {error ? (
++          <motion.p
++            key="error"
++            initial={{ opacity: 0 }}
++            animate={{ opacity: 1 }}
++            exit={{ opacity: 0 }}
++            id={errorId}
++            role="alert"
++            className="text-sm text-destructive"
++          >
++            {error}
++          </motion.p>
++        ) : null}
++      </AnimatePresence>
++
++      <Button
++        type="submit"
++        disabled={status === "submitting"}
++        className="min-h-12 gap-2"
++      >
++        {status === "submitting" ? (
++          <Loader2 aria-hidden="true" className="size-4 animate-spin" />
++        ) : (
++          <Send aria-hidden="true" className="size-4" />
++        )}
++        <span>{t("submit")}</span>
++      </Button>
++    </motion.form>
++  );
++}
+diff --git a/src/lib/auth/org.ts b/src/lib/auth/org.ts
+index 87aab4c..481822b 100644
+--- a/src/lib/auth/org.ts
++++ b/src/lib/auth/org.ts
+@@ -2,6 +2,8 @@ import "server-only";
+ 
+ import type { SupabaseClient } from "@supabase/supabase-js";
+ 
++import type { MemberRole } from "@/types/db";
++
+ /**
+  * Returning-user org resolution (Story 2.2).
+  *
+@@ -66,3 +68,62 @@ export async function resolveUserPrimaryOrgSlug(
+ 
+   return { slug };
+ }
++
++/**
++ * The caller's membership: the org they act in plus their role. Story 2.3 uses
++ * this to admin-gate the invite route and the Settings page.
++ */
++export type ResolvedMembership = { orgId: string; slug: string; role: MemberRole };
++
++/**
++ * Resolve a user's org membership (org id + slug + role) for admin-gating.
++ *
++ * Sibling of `resolveUserPrimaryOrgSlug`: same most-recent-membership choice and
++ * the same two-read pattern (org_members → organizations) under the service-role
++ * client, but it also carries the authoritative `org_members.role` so the invite
++ * route and the Settings page can reject a non-admin server-side (never UI-only).
++ *
++ * Returns `null` when the user has no membership (or the resolved org has no
++ * slug), so callers can redirect / 403 rather than crash.
++ */
++export async function resolveUserOrgMembership(
++  userId: string,
++  adminClient: SupabaseClient,
++): Promise<ResolvedMembership | null> {
++  const { data: membership, error: memberError } = await adminClient
++    .from("org_members")
++    .select("organization_id, role")
++    .eq("user_id", userId)
++    .order("created_at", { ascending: false })
++    .limit(1)
++    .maybeSingle();
++
++  if (memberError) {
++    throw new Error(`Failed to resolve user membership: ${memberError.message}`);
++  }
++  if (!membership) {
++    return null;
++  }
++
++  const { organization_id: orgId, role } = membership as {
++    organization_id: string;
++    role: MemberRole;
++  };
++
++  const { data: org, error: orgError } = await adminClient
++    .from("organizations")
++    .select("slug")
++    .eq("id", orgId)
++    .maybeSingle();
++
++  if (orgError) {
++    throw new Error(`Failed to resolve org slug: ${orgError.message}`);
++  }
++
++  const slug = (org as { slug: string } | null)?.slug ?? null;
++  if (!slug) {
++    return null;
++  }
++
++  return { orgId, slug, role };
++}
+diff --git a/src/lib/i18n/en.json b/src/lib/i18n/en.json
+index ea747dc..0c6fee3 100644
+--- a/src/lib/i18n/en.json
++++ b/src/lib/i18n/en.json
+@@ -132,6 +132,7 @@
+     "sentBody": "If an account exists for {email}, we've sent a secure sign-in link. Open it in this browser to sign in.",
+     "authRequired": "Please log in to reach your dashboard.",
+     "noOrg": "You're signed in, but you don't have a dashboard yet. Claim one to get started.",
++    "linkExpired": "That invitation link has expired or was already used. Enter your email below and we'll send you a fresh sign-in link.",
+     "linkPrompt": "Already have an account?",
+     "linkCta": "Log in",
+     "error": {
+@@ -140,6 +141,31 @@
+       "genericError": "Something went wrong. Please try again."
+     }
+   },
++  "Settings": {
++    "title": "Invite your team",
++    "subtitle": "Add a teammate by email and choose what they can do. They'll get a secure link to join — no password needed.",
++    "emailLabel": "Teammate's email",
++    "emailPlaceholder": "teammate@yourbusiness.ca",
++    "roleLabel": "Role",
++    "rolePlaceholder": "Choose a role",
++    "roleMember": "Member",
++    "roleAdmin": "Admin",
++    "roleMemberHint": "Can view, add, and edit records.",
++    "roleAdminHint": "Full access, including inviting others.",
++    "submit": "Send invitation",
++    "sentTitle": "Invitation sent",
++    "sentBody": "We sent an invitation to {email}. They'll join your team as soon as they open the link.",
++    "sendAnother": "Invite someone else",
++    "error": {
++      "invalidEmail": "Please enter a valid email address.",
++      "invalidRole": "Please choose a valid role.",
++      "forbidden": "Only admins can invite teammates.",
++      "accountExists": "That email already belongs to a Scheza account on another team, so we can't add them here yet.",
++      "sendFailed": "We couldn't send the invitation just now. Please try again in a moment.",
++      "unauthorized": "Your session expired. Please sign in again.",
++      "genericError": "Something went wrong. Please try again."
++    }
++  },
+   "Legal": {
+     "privacyTitle": "Privacy Policy",
+     "termsTitle": "Terms of Service",
+diff --git a/src/lib/i18n/fr.json b/src/lib/i18n/fr.json
+index f317480..256e7f2 100644
+--- a/src/lib/i18n/fr.json
++++ b/src/lib/i18n/fr.json
+@@ -132,6 +132,7 @@
+     "sentBody": "Si un compte existe pour {email}, nous avons envoyé un lien de connexion sécurisé. Ouvrez-le dans ce navigateur pour vous connecter.",
+     "authRequired": "Veuillez vous connecter pour accéder à votre tableau de bord.",
+     "noOrg": "Vous êtes connecté, mais vous n'avez pas encore de tableau de bord. Réclamez-en un pour commencer.",
++    "linkExpired": "Ce lien d'invitation a expiré ou a déjà été utilisé. Saisissez votre courriel ci-dessous et nous vous enverrons un nouveau lien de connexion.",
+     "linkPrompt": "Vous avez déjà un compte?",
+     "linkCta": "Se connecter",
+     "error": {
+@@ -140,6 +141,31 @@
+       "genericError": "Une erreur est survenue. Veuillez réessayer."
+     }
+   },
++  "Settings": {
++    "title": "Invitez votre équipe",
++    "subtitle": "Ajoutez un coéquipier par courriel et choisissez ce qu'il peut faire. Il recevra un lien sécurisé pour se joindre — aucun mot de passe requis.",
++    "emailLabel": "Courriel du coéquipier",
++    "emailPlaceholder": "coequipier@votreentreprise.ca",
++    "roleLabel": "Rôle",
++    "rolePlaceholder": "Choisissez un rôle",
++    "roleMember": "Membre",
++    "roleAdmin": "Administrateur",
++    "roleMemberHint": "Peut consulter, ajouter et modifier des enregistrements.",
++    "roleAdminHint": "Accès complet, y compris l'invitation d'autres personnes.",
++    "submit": "Envoyer l'invitation",
++    "sentTitle": "Invitation envoyée",
++    "sentBody": "Nous avons envoyé une invitation à {email}. Il rejoindra votre équipe dès qu'il ouvrira le lien.",
++    "sendAnother": "Inviter quelqu'un d'autre",
++    "error": {
++      "invalidEmail": "Veuillez saisir une adresse courriel valide.",
++      "invalidRole": "Veuillez choisir un rôle valide.",
++      "forbidden": "Seuls les administrateurs peuvent inviter des coéquipiers.",
++      "accountExists": "Ce courriel appartient déjà à un compte Scheza d'une autre équipe; nous ne pouvons donc pas l'ajouter ici pour l'instant.",
++      "sendFailed": "Nous n'avons pas pu envoyer l'invitation pour le moment. Veuillez réessayer dans un instant.",
++      "unauthorized": "Votre session a expiré. Veuillez vous reconnecter.",
++      "genericError": "Une erreur est survenue. Veuillez réessayer."
++    }
++  },
+   "Legal": {
+     "privacyTitle": "Politique de confidentialité",
+     "termsTitle": "Conditions d'utilisation",
+diff --git a/src/lib/invite/invite.ts b/src/lib/invite/invite.ts
+new file mode 100644
+index 0000000..41bb000
+--- /dev/null
++++ b/src/lib/invite/invite.ts
+@@ -0,0 +1,157 @@
++import "server-only";
++
++import { randomUUID } from "node:crypto";
++import type { SupabaseClient } from "@supabase/supabase-js";
++
++import { AppError } from "@/types/api";
++import type { MemberRole } from "@/types/db";
++import { resolveUserOrgMembership } from "@/lib/auth/org";
++
++/**
++ * Core invite bootstrap (Story 2.3) — the narrow, service-role membership
++ * provisioning for team invites, mirroring `finalizeClaim`.
++ *
++ * `inviteMember` is the single place the invite action:
++ *   1. resolves the INVITER's org + asserts they are an `admin` of it (server-
++ *      enforced authorization — a non-admin / non-member is rejected with a 403,
++ *      never UI-only gating);
++ *   2. handles the three membership cases for the invitee's email:
++ *        - already a member of THIS org  → idempotent success (no duplicate row,
++ *          no error) — a resend confirms they are on the team;
++ *        - already a Scheza account NOT in this org → `409 accountExists`
++ *          (cross-org add is deferred; the invitee cannot be silently moved);
++ *        - a brand-new email → `admin.inviteUserByEmail` (creates the account +
++ *          sends the branded Supabase→Resend invite email carrying the cross-
++ *          device `token_hash` confirm link) with the chosen `role` on the user
++ *          metadata, then inserts the `org_members` row scoped to the inviter's
++ *          org with that same authoritative role.
++ *
++ * Role is written in BOTH places at invite time: `org_members.role` (durable,
++ * per-org authority) and the user-metadata `role` via the invite `data` (the JWT
++ * convenience 2.4 enforcement reads) — so an invited Member never transiently
++ * reads as Admin. Login (2.2) never sends `data.role`, so sign-in cannot clobber
++ * it.
++ *
++ * Never leaks provider output: every failure resolves to an `AppError` carrying
++ * only a translated code.
++ */
++
++export type InviteMemberInput = {
++  /** The authenticated caller (must be an admin of their org). */
++  inviterUserId: string;
++  /** The invitee's email (already trimmed + validated by the route). */
++  email: string;
++  /** The role to grant the invitee (Member preselected at the form). */
++  role: MemberRole;
++  /** Service-role client — the narrow membership-bootstrap seam. */
++  adminClient: SupabaseClient;
++  /** Request origin, for the `${origin}/auth/confirm` invite redirect. */
++  origin: string;
++};
++
++/** Resolve an existing auth user's id by email via the admin `listUsers` scan. */
++async function findUserIdByEmail(
++  adminClient: SupabaseClient,
++  email: string,
++): Promise<string | null> {
++  const target = email.trim().toLowerCase();
++  // GoTrue admin has no email filter; scan the (small, MVP-scale) user pages.
++  for (let page = 1; page <= 50; page += 1) {
++    const { data, error } = await adminClient.auth.admin.listUsers({
++      page,
++      perPage: 200,
++    });
++    if (error) {
++      throw new AppError(500, "genericError", `listUsers failed: ${error.message}`);
++    }
++    const users = data?.users ?? [];
++    const match = users.find(
++      (u) => (u.email ?? "").toLowerCase() === target,
++    );
++    if (match) {
++      return match.id;
++    }
++    // Last page reached (fewer than a full page returned).
++    if (users.length < 200) {
++      break;
++    }
++  }
++  return null;
++}
++
++/** True when the (org, user) membership already exists. */
++async function isMemberOfOrg(
++  adminClient: SupabaseClient,
++  orgId: string,
++  userId: string,
++): Promise<boolean> {
++  const { data, error } = await adminClient
++    .from("org_members")
++    .select("id")
++    .eq("organization_id", orgId)
++    .eq("user_id", userId)
++    .maybeSingle();
++  if (error) {
++    throw new AppError(500, "genericError", `membership read failed: ${error.message}`);
++  }
++  return Boolean(data);
++}
++
++export async function inviteMember(input: InviteMemberInput): Promise<void> {
++  const { inviterUserId, email, role, adminClient, origin } = input;
++
++  // 1. Resolve the caller's org + role, and assert Admin. A non-member resolves
++  // to null; a Member resolves with role 'member'. Both are 403 — the invite
++  // action is admin-only and server-enforced.
++  const membership = await resolveUserOrgMembership(inviterUserId, adminClient);
++  if (!membership || membership.role !== "admin") {
++    throw new AppError(403, "forbidden");
++  }
++  const { orgId } = membership;
++
++  // 2. If the email already has a Scheza account, branch on membership: an
++  // existing member of THIS org is an idempotent success; anyone else is a
++  // deferred cross-org add (409). Only a brand-new email is invited below.
++  const existingUserId = await findUserIdByEmail(adminClient, email);
++  if (existingUserId) {
++    if (await isMemberOfOrg(adminClient, orgId, existingUserId)) {
++      // Idempotent resend to an existing teammate — no duplicate row, no error.
++      return;
++    }
++    throw new AppError(409, "accountExists");
++  }
++
++  // 3. Brand-new invitee: create the account + send the branded invite email
++  // (cross-device token_hash confirm link) with the role on user metadata.
++  const { data: invited, error: inviteError } =
++    await adminClient.auth.admin.inviteUserByEmail(email, {
++      data: { role },
++      redirectTo: `${origin}/auth/confirm`,
++    });
++
++  if (inviteError || !invited?.user) {
++    // Provider/SMTP failure — never leak the raw message.
++    throw new AppError(
++      502,
++      "sendFailed",
++      `inviteUserByEmail failed: ${inviteError?.message ?? "no user returned"}`,
++    );
++  }
++
++  // 4. Insert the org-scoped membership with the authoritative role. The unique
++  // (organization_id, user_id) index makes a race/resend idempotent.
++  const { error: memberError } = await adminClient.from("org_members").insert({
++    id: randomUUID(),
++    organization_id: orgId,
++    user_id: invited.user.id,
++    principal_type: "human",
++    role,
++  });
++  if (memberError && memberError.code !== "23505") {
++    throw new AppError(
++      500,
++      "genericError",
++      `Failed to create membership: ${memberError.message}`,
++    );
++  }
++}
+diff --git a/tests/unit/auth-confirm.test.ts b/tests/unit/auth-confirm.test.ts
+new file mode 100644
+index 0000000..7412937
+--- /dev/null
++++ b/tests/unit/auth-confirm.test.ts
+@@ -0,0 +1,108 @@
++import { beforeEach, describe, expect, it, vi } from "vitest";
++import type { NextRequest } from "next/server";
++
++/**
++ * Unit coverage for the cross-device invite-acceptance route `GET /auth/confirm`
++ * (Story 2.3), WITHOUT a live auth provider or DB.
++ *
++ *   - valid token_hash → `verifyOtp` called, org resolved, redirect /{slug};
++ *   - failed/expired verify → translated re-request redirect (/login?login=
++ *     link-expired), no crash;
++ *   - missing token / bad type → same re-request path, verifyOtp not called.
++ *
++ * The route reuses the 2.2 `resolveUserPrimaryOrgSlug` for the landing slug; it
++ * is mocked here (this file must `vi.mock("@/lib/auth/org")` for the route). The
++ * `resolveUserOrgMembership` resolver's own logic is unit-tested against a mock
++ * admin client in `auth-org.test.ts` (kept there to avoid the mock shadowing the
++ * real resolver — mirrors the 2.2 placement decision).
++ */
++
++const verifyOtp = vi.fn();
++const resolveUserPrimaryOrgSlug = vi.fn();
++
++vi.mock("@/lib/supabase/server", () => ({
++  createServerSupabaseClient: () => ({ auth: { verifyOtp } }),
++}));
++vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) }));
++vi.mock("@/lib/auth/org", () => ({ resolveUserPrimaryOrgSlug }));
++vi.mock("@/lib/observability/report", () => ({ reportError: vi.fn() }));
++vi.mock("next/headers", () => ({
++  cookies: async () => ({ getAll: () => [], set: () => {} }),
++}));
++
++function makeReq(params: Record<string, string>): NextRequest {
++  const url = new URL("http://localhost:3000/auth/confirm");
++  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
++  return { nextUrl: url } as unknown as NextRequest;
++}
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  verifyOtp.mockResolvedValue({
++    data: { user: { id: "invitee-1", email: "new@example.ca" } },
++    error: null,
++  });
++  resolveUserPrimaryOrgSlug.mockResolvedValue({ slug: "mikes-plumbing-laval" });
++});
++
++describe("GET /auth/confirm — cross-device invite acceptance", () => {
++  it("verifies the token_hash, resolves the org, and redirects to /{slug}", async () => {
++    const { GET } = await import("@/app/auth/confirm/route");
++
++    const res = await GET(makeReq({ token_hash: "th-123", type: "invite" }));
++
++    expect(verifyOtp).toHaveBeenCalledWith({
++      token_hash: "th-123",
++      type: "invite",
++    });
++    expect(resolveUserPrimaryOrgSlug).toHaveBeenCalledWith(
++      "invitee-1",
++      expect.anything(),
++    );
++    expect(res.headers.get("location")).toContain("/mikes-plumbing-laval");
++    expect(res.headers.get("location")).not.toContain("login=");
++  });
++
++  it("redirects to the translated re-request path on a failed/expired verify", async () => {
++    const { GET } = await import("@/app/auth/confirm/route");
++    verifyOtp.mockResolvedValue({
++      data: { user: null },
++      error: { message: "Token has expired or is invalid" },
++    });
++
++    const res = await GET(makeReq({ token_hash: "expired", type: "invite" }));
++
++    const location = res.headers.get("location") ?? "";
++    expect(location).toContain("/login");
++    expect(location).toContain("login=link-expired");
++    // No org resolution attempted on a failed verify.
++    expect(resolveUserPrimaryOrgSlug).not.toHaveBeenCalled();
++  });
++
++  it("redirects to the re-request path (never verifies) when token_hash is missing", async () => {
++    const { GET } = await import("@/app/auth/confirm/route");
++
++    const res = await GET(makeReq({ type: "invite" }));
++
++    expect(res.headers.get("location")).toContain("login=link-expired");
++    expect(verifyOtp).not.toHaveBeenCalled();
++  });
++
++  it("redirects to the re-request path on an unrecognized type", async () => {
++    const { GET } = await import("@/app/auth/confirm/route");
++
++    const res = await GET(makeReq({ token_hash: "th", type: "bogus" }));
++
++    expect(res.headers.get("location")).toContain("login=link-expired");
++    expect(verifyOtp).not.toHaveBeenCalled();
++  });
++
++  it("routes a verified-but-membershipless user to the re-request path (no crash)", async () => {
++    const { GET } = await import("@/app/auth/confirm/route");
++    resolveUserPrimaryOrgSlug.mockResolvedValue(null);
++
++    const res = await GET(makeReq({ token_hash: "th", type: "invite" }));
++
++    expect(res.headers.get("location")).toContain("login=link-expired");
++  });
++});
+diff --git a/tests/unit/auth-org.test.ts b/tests/unit/auth-org.test.ts
+index 9e4ee7d..5e2c353 100644
+--- a/tests/unit/auth-org.test.ts
++++ b/tests/unit/auth-org.test.ts
+@@ -1,14 +1,26 @@
+ import { describe, expect, it } from "vitest";
+ 
+-import { resolveUserPrimaryOrgSlug } from "@/lib/auth/org";
++import {
++  resolveUserPrimaryOrgSlug,
++  resolveUserOrgMembership,
++} from "@/lib/auth/org";
+ 
+ /**
+- * Unit coverage for `resolveUserPrimaryOrgSlug` (Story 2.2) against a mock admin
+- * client — the user→org resolution that lands a returning user post-login:
++ * Unit coverage for the `@/lib/auth/org` resolvers against a mock admin client:
++ *
++ * `resolveUserPrimaryOrgSlug` (Story 2.2) — the user→org resolution that lands a
++ * returning user post-login:
+  *   - most-recent membership resolves the org slug;
+  *   - null when the user has no membership (routed to the no-org status);
+  *   - null when the resolved org somehow has no slug;
+  *   - throws on a membership read error (the callback maps this to ?claim=error).
++ *
++ * `resolveUserOrgMembership` (Story 2.3) — the admin-gating sibling that also
++ * carries `org_members.role`:
++ *   - returns { orgId, slug, role } for the most-recent membership (admin/member);
++ *   - null when the user has no membership;
++ *   - throws on a membership read error.
++ * (Kept here rather than in auth-confirm.test.ts, which must mock this module.)
+  */
+ 
+ /**
+@@ -75,3 +87,49 @@ describe("resolveUserPrimaryOrgSlug", () => {
+     );
+   });
+ });
++
++describe("resolveUserOrgMembership", () => {
++  it("returns { orgId, slug, role } for the most-recent membership", async () => {
++    const admin = makeAdmin([
++      { data: { organization_id: "org-1", role: "admin" }, error: null },
++      { data: { slug: "mikes-plumbing-laval" }, error: null },
++    ]);
++
++    const result = await resolveUserOrgMembership("admin-1", admin);
++
++    expect(result).toEqual({
++      orgId: "org-1",
++      slug: "mikes-plumbing-laval",
++      role: "admin",
++    });
++  });
++
++  it("carries a member role through", async () => {
++    const admin = makeAdmin([
++      { data: { organization_id: "org-2", role: "member" }, error: null },
++      { data: { slug: "acme" }, error: null },
++    ]);
++
++    const result = await resolveUserOrgMembership("u2", admin);
++
++    expect(result).toEqual({ orgId: "org-2", slug: "acme", role: "member" });
++  });
++
++  it("returns null when the user has no membership", async () => {
++    const admin = makeAdmin([{ data: null, error: null }]);
++
++    const result = await resolveUserOrgMembership("nobody", admin);
++
++    expect(result).toBeNull();
++  });
++
++  it("throws on a membership read error", async () => {
++    const admin = makeAdmin([
++      { data: null, error: { message: "permission denied" } },
++    ]);
++
++    await expect(resolveUserOrgMembership("u1", admin)).rejects.toThrow(
++      /membership/i,
++    );
++  });
++});
+diff --git a/tests/unit/route-invite.test.ts b/tests/unit/route-invite.test.ts
+new file mode 100644
+index 0000000..d0ae08e
+--- /dev/null
++++ b/tests/unit/route-invite.test.ts
+@@ -0,0 +1,306 @@
++import { beforeEach, describe, expect, it, vi } from "vitest";
++import type { NextRequest } from "next/server";
++
++/**
++ * Unit coverage for `POST /api/invite` (Story 2.3) WITHOUT a live DB or auth
++ * provider. Locks the frozen I/O matrix rows 1-7 end-to-end through the REAL
++ * `inviteMember` + `resolveUserOrgMembership` (only the caller identity and the
++ * service-role admin client are mocked):
++ *   1. valid admin invite  → inviteUserByEmail + org_members insert w/ chosen role,
++ *                            200 { sent:true };
++ *   2. invalid email       → 400 invalidEmail (no create/send);
++ *   3. invalid/missing role → 400 invalidRole (no create/send);
++ *   4. non-admin caller    → 403 forbidden (no row, no email);
++ *   5. unauthenticated     → 401 (no row, no email);
++ *   6. already a member of this org → idempotent 200 { sent:true }, no dup row, no email;
++ *   7. existing account elsewhere   → 409 accountExists;
++ * plus the `{ data, error }` envelope shape on every path.
++ *
++ * The admin client is a scriptable stub: `.auth.admin.listUsers/inviteUserByEmail`
++ * for the account lookup + invite, and a `.from(table)` query chain for the
++ * membership reads/insert.
++ */
++
++const getCurrentUser = vi.fn();
++const listUsers = vi.fn();
++const inviteUserByEmail = vi.fn();
++const orgMembersInsert = vi.fn();
++
++// Scripted per-table read results. Keyed by a call sequence the tests set up.
++type MaybeSingle = { data: unknown; error: unknown };
++let membershipRead: MaybeSingle; // resolveUserOrgMembership → org_members
++let orgRead: MaybeSingle; // resolveUserOrgMembership → organizations
++let memberOfOrgRead: MaybeSingle; // isMemberOfOrg → org_members
++
++function makeAdminClient() {
++  return {
++    auth: {
++      admin: {
++        listUsers,
++        inviteUserByEmail,
++      },
++    },
++    from(table: string) {
++      // resolveUserOrgMembership: org_members has .order().limit(); the
++      // isMemberOfOrg read on org_members does NOT — disambiguate by chain.
++      if (table === "organizations") {
++        return {
++          select: () => ({
++            eq: () => ({ maybeSingle: async () => orgRead }),
++          }),
++        };
++      }
++      // org_members: two distinct read shapes + the insert.
++      return {
++        select: () => ({
++          eq: () => ({
++            // isMemberOfOrg: .eq().eq().maybeSingle()
++            eq: () => ({ maybeSingle: async () => memberOfOrgRead }),
++            // resolveUserOrgMembership: .eq().order().limit().maybeSingle()
++            order: () => ({
++              limit: () => ({ maybeSingle: async () => membershipRead }),
++            }),
++          }),
++        }),
++        insert: orgMembersInsert,
++      };
++    },
++  };
++}
++
++vi.mock("@/lib/auth/session", () => ({ getCurrentUser }));
++vi.mock("@/lib/supabase/admin", () => ({
++  createAdminClient: () => makeAdminClient(),
++}));
++vi.mock("@/lib/observability/report", () => ({ reportError: vi.fn() }));
++
++function makeReq(body: unknown): NextRequest {
++  return {
++    json: async () => body,
++    nextUrl: { origin: "http://localhost:3000" },
++  } as unknown as NextRequest;
++}
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  // Default: an authenticated ADMIN of "org-1" (slug irrelevant to the route).
++  getCurrentUser.mockResolvedValue({ id: "admin-1", email: "admin@example.ca" });
++  membershipRead = {
++    data: { organization_id: "org-1", role: "admin" },
++    error: null,
++  };
++  orgRead = { data: { slug: "mikes-plumbing-laval" }, error: null };
++  memberOfOrgRead = { data: null, error: null };
++  // Default: the invitee is a brand-new email (no existing account).
++  listUsers.mockResolvedValue({ data: { users: [] }, error: null });
++  inviteUserByEmail.mockResolvedValue({
++    data: { user: { id: "invitee-1" } },
++    error: null,
++  });
++  orgMembersInsert.mockResolvedValue({ error: null });
++});
++
++describe("POST /api/invite", () => {
++  it("row 1 — valid admin invite: sends the email and inserts the membership with the chosen role", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++
++    const res = await POST(makeReq({ email: "new@example.ca", role: "member" }));
++
++    expect(res.status).toBe(200);
++    const body = await res.json();
++    expect(body.error).toBeNull();
++    expect(body.data).toEqual({ sent: true });
++
++    // The branded invite email is dispatched with the role + confirm redirect.
++    expect(inviteUserByEmail).toHaveBeenCalledTimes(1);
++    const [inviteEmail, inviteOpts] = inviteUserByEmail.mock.calls[0];
++    expect(inviteEmail).toBe("new@example.ca");
++    expect(inviteOpts.data).toEqual({ role: "member" });
++    expect(inviteOpts.redirectTo).toContain("/auth/confirm");
++
++    // The org_members row is scoped to the inviter's org with the chosen role.
++    expect(orgMembersInsert).toHaveBeenCalledTimes(1);
++    expect(orgMembersInsert).toHaveBeenCalledWith(
++      expect.objectContaining({
++        organization_id: "org-1",
++        user_id: "invitee-1",
++        principal_type: "human",
++        role: "member",
++      }),
++    );
++  });
++
++  it("row 1b — an admin-role invite writes role:'admin' in both places", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++
++    const res = await POST(makeReq({ email: "new@example.ca", role: "admin" }));
++
++    expect(res.status).toBe(200);
++    expect(inviteUserByEmail.mock.calls[0][1].data).toEqual({ role: "admin" });
++    expect(orgMembersInsert).toHaveBeenCalledWith(
++      expect.objectContaining({ role: "admin" }),
++    );
++  });
++
++  it("row 2 — malformed email → 400 invalidEmail, nothing created/sent", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++
++    const res = await POST(makeReq({ email: "not-an-email", role: "member" }));
++
++    expect(res.status).toBe(400);
++    const body = await res.json();
++    expect(body.data).toBeNull();
++    expect(body.error).toBe("invalidEmail");
++    expect(inviteUserByEmail).not.toHaveBeenCalled();
++    expect(orgMembersInsert).not.toHaveBeenCalled();
++  });
++
++  it("row 3 — role outside {admin,member} → 400 invalidRole", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++
++    const res = await POST(makeReq({ email: "new@example.ca", role: "owner" }));
++
++    expect(res.status).toBe(400);
++    const body = await res.json();
++    expect(body.error).toBe("invalidRole");
++    expect(inviteUserByEmail).not.toHaveBeenCalled();
++  });
++
++  it("row 3b — missing role → 400 invalidRole", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++
++    const res = await POST(makeReq({ email: "new@example.ca" }));
++
++    expect(res.status).toBe(400);
++    expect((await res.json()).error).toBe("invalidRole");
++  });
++
++  it("row 4 — a Member caller → 403 forbidden, no row, no email", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++    membershipRead = {
++      data: { organization_id: "org-1", role: "member" },
++      error: null,
++    };
++
++    const res = await POST(makeReq({ email: "new@example.ca", role: "member" }));
++
++    expect(res.status).toBe(403);
++    const body = await res.json();
++    expect(body.error).toBe("forbidden");
++    expect(inviteUserByEmail).not.toHaveBeenCalled();
++    expect(orgMembersInsert).not.toHaveBeenCalled();
++  });
++
++  it("row 4b — a non-member caller (no membership) → 403 forbidden", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++    membershipRead = { data: null, error: null };
++
++    const res = await POST(makeReq({ email: "new@example.ca", role: "member" }));
++
++    expect(res.status).toBe(403);
++    expect((await res.json()).error).toBe("forbidden");
++    expect(inviteUserByEmail).not.toHaveBeenCalled();
++  });
++
++  it("row 5 — unauthenticated caller → 401, no row, no email", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++    getCurrentUser.mockResolvedValue(null);
++
++    const res = await POST(makeReq({ email: "new@example.ca", role: "member" }));
++
++    expect(res.status).toBe(401);
++    const body = await res.json();
++    expect(body.data).toBeNull();
++    expect(body.error).toBe("unauthorized");
++    expect(inviteUserByEmail).not.toHaveBeenCalled();
++    expect(orgMembersInsert).not.toHaveBeenCalled();
++  });
++
++  it("row 6 — inviting an existing member of this org is an idempotent success (no dup row, no email)", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++    // The email already has an account which IS a member of org-1.
++    listUsers.mockResolvedValue({
++      data: { users: [{ id: "existing-1", email: "teammate@example.ca" }] },
++      error: null,
++    });
++    memberOfOrgRead = { data: { id: "m-1" }, error: null };
++
++    const res = await POST(
++      makeReq({ email: "teammate@example.ca", role: "member" }),
++    );
++
++    expect(res.status).toBe(200);
++    const body = await res.json();
++    expect(body.error).toBeNull();
++    expect(body.data).toEqual({ sent: true });
++    // Idempotent: no new account created, no duplicate membership inserted.
++    expect(inviteUserByEmail).not.toHaveBeenCalled();
++    expect(orgMembersInsert).not.toHaveBeenCalled();
++  });
++
++  it("row 7 — inviting an email tied to an account on ANOTHER org → 409 accountExists", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++    // The email has an account, but it is NOT a member of org-1.
++    listUsers.mockResolvedValue({
++      data: { users: [{ id: "other-1", email: "elsewhere@example.ca" }] },
++      error: null,
++    });
++    memberOfOrgRead = { data: null, error: null };
++
++    const res = await POST(
++      makeReq({ email: "elsewhere@example.ca", role: "member" }),
++    );
++
++    expect(res.status).toBe(409);
++    const body = await res.json();
++    expect(body.data).toBeNull();
++    expect(body.error).toBe("accountExists");
++    // Cross-org add is deferred: no invite email, no membership row.
++    expect(inviteUserByEmail).not.toHaveBeenCalled();
++    expect(orgMembersInsert).not.toHaveBeenCalled();
++  });
++
++  it("maps a provider send failure to 502 sendFailed (never leaks the raw message)", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++    inviteUserByEmail.mockResolvedValue({
++      data: { user: null },
++      error: { message: "smtp unavailable" },
++    });
++
++    const res = await POST(makeReq({ email: "new@example.ca", role: "member" }));
++
++    expect(res.status).toBe(502);
++    const body = await res.json();
++    expect(body.error).toBe("sendFailed");
++    expect(body.error).not.toContain("smtp");
++    expect(orgMembersInsert).not.toHaveBeenCalled();
++  });
++
++  it("treats a unique-violation (23505) on the membership insert as an idempotent success", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++    // A concurrent resend races the unique (organization_id, user_id) index.
++    orgMembersInsert.mockResolvedValue({ error: { code: "23505" } });
++
++    const res = await POST(makeReq({ email: "new@example.ca", role: "member" }));
++
++    expect(res.status).toBe(200);
++    const body = await res.json();
++    expect(body.error).toBeNull();
++    expect(body.data).toEqual({ sent: true });
++  });
++
++  it("maps a non-unique-violation insert error to 500 genericError (never leaks the raw message)", async () => {
++    const { POST } = await import("@/app/api/invite/route");
++    orgMembersInsert.mockResolvedValue({
++      error: { code: "23514", message: "boom" },
++    });
++
++    const res = await POST(makeReq({ email: "new@example.ca", role: "member" }));
++
++    expect(res.status).toBe(500);
++    const body = await res.json();
++    expect(body.data).toBeNull();
++    expect(body.error).toBe("genericError");
++    expect(body.error).not.toContain("boom");
++  });
++});

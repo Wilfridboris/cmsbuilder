@@ -117,12 +117,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return statusRedirect(req, "error");
   }
 
-  // Store the consent timestamp + confirm the admin role on the user metadata.
-  // A metadata write failure must not strand a successfully-bootstrapped org —
-  // log it and still land the user (the membership/slug are already live).
+  // Store the consent timestamp (PIPEDA audit) on the user metadata. The role is
+  // deliberately NOT written here: finalizeClaim already recorded it in
+  // `org_members` (the sole authority RBAC reads), and a global metadata `role`
+  // scalar could wrongly assert admin on an account that is a Member of another
+  // org. A metadata write failure must not strand a successfully-bootstrapped org
+  // — log it and still land the user (the membership/slug are already live).
   const { error: metaError } = await supabase.auth.updateUser({
     data: {
-      role: "admin",
       // The true consent moment (claim-submit time), carried from the pending
       // claim — not the callback time — so the audit record is accurate.
       consent_accepted_at: consentAcceptedAt,

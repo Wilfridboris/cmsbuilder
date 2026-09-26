@@ -172,7 +172,10 @@ export async function POST(
       options: {
         shouldCreateUser: true,
         emailRedirectTo: redirectTo,
-        data: { role: "admin" },
+        // No role is written to user metadata: the authoritative role lives in
+        // `org_members` (set by finalizeClaim), which is the only source RBAC
+        // reads. A global metadata `role` scalar cannot represent per-org roles
+        // and must never be trusted for authorization.
       },
     });
 
