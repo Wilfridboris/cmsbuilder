@@ -45,6 +45,21 @@ export function deriveSlug(intent: { tradeType: string; city: string }): string 
 }
 
 /**
+ * Turn a kebab-case slug base (e.g. `plumbing-laval`) into a human-readable
+ * display name (`Plumbing Laval`) for the org heading. The visitor never typed a
+ * business name in this story, so this title-cased trade+city basis is a sensible
+ * default until an explicit rename lands (see deferred-work). Returns "" only for
+ * an empty base, which the caller guards.
+ */
+export function slugBaseToName(base: string): string {
+  return base
+    .split("-")
+    .filter((word) => word.length > 0)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/**
  * Return `base` if free, else the first `base-N` (N ≥ 2) that is not already an
  * `organizations.slug`. Excludes the claiming org's own id so a re-run (the
  * idempotent finalize path) that already set the slug does not treat its own row

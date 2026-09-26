@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { PendingClaimRow, SchemaDefinition } from "@/types/db";
-import { ensureUniqueSlug } from "@/lib/claim/slug";
+import { ensureUniqueSlug, slugBaseToName } from "@/lib/claim/slug";
 
 /**
  * Core claim bootstrap (Story 2.1) — the ONLY place the service-role admin
@@ -224,11 +224,20 @@ export async function finalizeClaim(
     );
   }
 
-  // 5. Provision a unique, human-readable slug on the org.
+  // 5. Provision a unique, human-readable slug + display name on the org. The
+  // name is title-cased from the same trade+city slug base (the visitor never
+  // typed a business name in this story), replacing the "Scheza Session <id>"
+  // provisioning placeholder so the dashboard heading reads sensibly. An
+  // explicit business-name/rename is deferred follow-up work.
   const slug = await ensureUniqueSlug(adminClient, claim.slug_base, orgId);
+  const name = slugBaseToName(claim.slug_base);
   const { error: slugError } = await adminClient
     .from("organizations")
-    .update({ slug, updated_at: new Date().toISOString() })
+    .update({
+      slug,
+      ...(name ? { name } : {}),
+      updated_at: new Date().toISOString(),
+    })
     .eq("id", orgId);
   if (slugError) {
     throw new ClaimError("failed", `Failed to set org slug: ${slugError.message}`);

@@ -8,7 +8,7 @@ import {
   ClaimError,
   PENDING_CLAIM_TTL_MS,
 } from "@/lib/claim/claim";
-import { deriveSlug, ensureUniqueSlug } from "@/lib/claim/slug";
+import { deriveSlug, ensureUniqueSlug, slugBaseToName } from "@/lib/claim/slug";
 import type { SchemaDefinition } from "@/types/db";
 
 /**
@@ -279,6 +279,19 @@ describe("deriveSlug", () => {
   });
 });
 
+describe("slugBaseToName", () => {
+  it("title-cases a kebab base into a display name", () => {
+    expect(slugBaseToName("plumbing-laval")).toBe("Plumbing Laval");
+    expect(slugBaseToName("mikes-plumbing-ottawa")).toBe("Mikes Plumbing Ottawa");
+  });
+  it("handles the single-segment fallback base", () => {
+    expect(slugBaseToName("app")).toBe("App");
+  });
+  it("returns empty for an empty base (caller guards)", () => {
+    expect(slugBaseToName("")).toBe("");
+  });
+});
+
 describe("ensureUniqueSlug", () => {
   it("returns the base when free", async () => {
     const db = new FakeAdmin();
@@ -382,6 +395,8 @@ describe("finalizeClaim", () => {
     });
     // Slug set on the org.
     expect(db.orgs[0].slug).toBe("plumbing-laval");
+    // Display name promoted off the "Session" placeholder to the title-cased base.
+    expect(db.orgs[0].name).toBe("Plumbing Laval");
     // All synthetic records soft-deleted.
     expect(db.records.every((r) => r.deleted_at !== null)).toBe(true);
     // Token consumed.
