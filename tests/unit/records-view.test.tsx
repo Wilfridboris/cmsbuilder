@@ -24,6 +24,11 @@ vi.mock("next-intl", () => ({
 }));
 vi.mock("react-swipeable", () => ({ useSwipeable: () => ({}) }));
 
+// Story 3.2 layers TanStack Query + framer-motion onto the surface. Under the
+// node SSR renderer the query reads its seeded `initialData` (no fetch), so we
+// wrap renders in a real `QueryClientProvider`.
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
 // Imported AFTER the mocks so the component picks them up.
 const { RecordsView, clampTableIndex } = await import(
   "@/components/dashboard/RecordsView"
@@ -57,12 +62,16 @@ function render(
   tables: TableDefinition[],
   recordsByTable: Record<string, RecordData[]>,
 ) {
+  const queryClient = new QueryClient();
   return renderToStaticMarkup(
-    <RecordsView
-      tables={tables}
-      recordsByTable={recordsByTable}
-      cellStrings={cellStrings}
-    />,
+    <QueryClientProvider client={queryClient}>
+      <RecordsView
+        slug="test-org"
+        tables={tables}
+        recordsByTable={recordsByTable}
+        cellStrings={cellStrings}
+      />
+    </QueryClientProvider>,
   );
 }
 

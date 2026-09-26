@@ -95,6 +95,7 @@ export default async function SlugDashboardPage({
         <p className="text-base text-muted-foreground">{t("emptyDashboard")}</p>
       ) : (
         <RecordsView
+          slug={slug}
           tables={tables}
           recordsByTable={recordsByTable}
           cellStrings={cellStrings}

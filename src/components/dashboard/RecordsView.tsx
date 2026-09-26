@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useSwipeable } from "react-swipeable";
+import { useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Maximize2, Trash2 } from "lucide-react";
 
 import type { RecordData, TableDefinition } from "@/types/db";
 import { formatCell, type CellStrings } from "@/lib/format";
@@ -15,44 +18,68 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { fetchRecords, RecordApiError } from "@/lib/data/records-client";
+import { blankDraftForFields, type Draft } from "@/lib/forms/field-input";
+import { AddRecordForm } from "@/components/dashboard/AddRecordForm";
+import { DeleteConfirmDialog } from "@/components/dashboard/DeleteConfirmDialog";
+import {
+  isOptimisticId,
+  useAddRecord,
+  useDeleteRecord,
+} from "@/components/dashboard/useRecordMutations";
 
 /**
- * RecordsView (Story 3.1) — the read-only responsive records surface for the
+ * RecordsView (Story 3.1 + 3.2) — the responsive records surface for the
  * authenticated tenant dashboard (`/[slug]`).
  *
- * Shows ONE logical table at a time, chosen via an accessible tablist switcher
- * (hidden when the org has a single visible table). The active table renders as
- * a semantic shadcn `<Table>` on desktop (`md+`) and a card list on mobile
- * (`<md`); on mobile a horizontal `react-swipeable` gesture moves between tables
- * (clamped at the ends, no wrap), staying in sync with the switcher.
+ * 3.1 gave the read-only surface: one logical table at a time via an accessible
+ * tablist switcher, a semantic `<Table>` on desktop and a swipeable card list on
+ * mobile. 3.2 layers CRUD on top WITHOUT changing that structure:
+ *   - the active table's rows are read via `useQuery(['records', slug, tableKey])`
+ *     seeded with the server-fetched rows as `initialData` (fast first paint,
+ *     NFR-P3), with `GET /api/records` supplying the authoritative refetch on
+ *     invalidate;
+ *   - an inline quick-add row (desktop) / card (mobile) sits at the top of the
+ *     active table, with an expand control that reopens the SAME form (sharing
+ *     ONE lifted draft) inside a Radix modal — switching preserves the draft;
+ *   - a per-record delete control (a desktop actions column, a mobile card
+ *     action) opens a confirm dialog gating the optimistic soft-delete.
  *
- * Display only: no CRUD, filter/sort, column-hide, detail dialog, or real-time
- * sync — those are Stories 3.2–3.6. Values render through the shared typed
- * `formatCell`, driven by the org's VISIBLE schema field definitions. Initial
- * data is server-fetched by the page and passed in as props; this is a client
- * component only because the switcher state + swipe gesture need the client.
+ * All mutations run the mandatory TanStack optimistic sequence via the mutations
+ * hook. Every failure rolls back and surfaces a translated, non-technical message
+ * (never a raw error). Copy resolves through `SlugDashboard`.
  */
 
 /**
  * Clamp a target table index to `[0, count - 1]` — no wraparound, so the ends of
- * the switcher/swipe feel like ends. With a single table (`count === 1`) every
- * move resolves back to `0`, making swipe a no-op. Pure + exported for tests.
+ * the switcher/swipe feel like ends. Pure + exported for tests.
  */
 export function clampTableIndex(index: number, count: number): number {
   return Math.max(0, Math.min(index, count - 1));
 }
 
 type RecordsViewProps = {
+  /** Route slug — keys the record queries and scopes the API calls. */
+  slug: string;
   /** Visible logical tables (already filtered via `visibleTables`). */
   tables: TableDefinition[];
-  /** Rows per table key, from `listRecords`. */
+  /** Server-fetched rows per table key, seeding each table's query `initialData`. */
   recordsByTable: Record<string, RecordData[]>;
   /** Locale-dependent cell strings for `formatCell`. */
   cellStrings: CellStrings;
 };
 
 export function RecordsView({
+  slug,
   tables,
   recordsByTable,
   cellStrings,
@@ -60,20 +87,108 @@ export function RecordsView({
   const t = useTranslations("SlugDashboard");
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // Clamp defensively: the caller only renders us with >=1 visible table, but a
-  // re-render with fewer tables must never index past the end.
   const safeIndex = Math.min(activeIndex, tables.length - 1);
   const activeTable = tables[safeIndex];
-  const rows = recordsByTable[activeTable.key] ?? [];
+  const tableKey = activeTable.key;
   const hasSwitcher = tables.length > 1;
+
+  const visibleFields = useMemo(
+    () => activeTable.fields.filter((field) => !field.hidden),
+    [activeTable],
+  );
+
+  // Active table's rows via TanStack Query, seeded with server `initialData` so
+  // the first paint needs no fetch; invalidations after a mutation refetch the
+  // authoritative rows from GET /api/records.
+  const { data: rows = [] } = useQuery({
+    queryKey: ["records", slug, tableKey],
+    queryFn: () => fetchRecords(slug, tableKey),
+    initialData: recordsByTable[tableKey] ?? [],
+  });
+
+  const addRecord = useAddRecord(slug, tableKey);
+  const deleteRecord = useDeleteRecord(slug, tableKey);
+
+  // ONE lifted add-draft. When the active table changes we reset the draft (and
+  // close the modal) DURING render via the "adjust state on prop change" pattern
+  // (https://react.dev/reference/react/useState#storing-information-from-previous-renders)
+  // rather than an effect, so fields always match the current schema without a
+  // cascading render.
+  const [draft, setDraft] = useState<Draft>(() =>
+    blankDraftForFields(visibleFields),
+  );
+  const [modalOpen, setModalOpen] = useState(false);
+  const [draftTableKey, setDraftTableKey] = useState(tableKey);
+  if (draftTableKey !== tableKey) {
+    setDraftTableKey(tableKey);
+    setDraft(blankDraftForFields(visibleFields));
+    setModalOpen(false);
+  }
+
+  // The record queued for deletion (drives the confirm dialog).
+  const [pendingDelete, setPendingDelete] = useState<RecordData | null>(null);
+
+  // A single translated status/error line for the surface (rollback message).
+  const [message, setMessage] = useState<string | null>(null);
+
+  const resolveError = (err: unknown): string => {
+    const code = err instanceof RecordApiError ? err.code : "genericError";
+    switch (code) {
+      case "writeFailed":
+        return t("writeFailed");
+      case "loadFailed":
+        return t("loadFailed");
+      case "versionConflict":
+        return t("versionConflict");
+      default:
+        return t("genericError");
+    }
+  };
+
+  const handleAdd = (data: Record<string, unknown>) => {
+    setMessage(null);
+    const idempotencyKey =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    addRecord.mutate(
+      { data, idempotencyKey },
+      {
+        onSuccess: () => {
+          setDraft(blankDraftForFields(visibleFields));
+          setModalOpen(false);
+        },
+        onError: (err) => setMessage(resolveError(err)),
+      },
+    );
+  };
+
+  // Queue a record for deletion. A not-yet-settled optimistic row has a temp id
+  // that matches no server row, so deleting it would send that temp id and
+  // surface a misleading "record changed" message — ignore it until the add
+  // settles to a real row (a beat later the same control works).
+  const requestDelete = (record: RecordData) => {
+    if (isOptimisticId(record.id)) return;
+    setPendingDelete(record);
+  };
+
+  const handleConfirmDelete = () => {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    setMessage(null);
+    deleteRecord.mutate(
+      { id: target.id, expectedVersion: target.version },
+      {
+        onError: (err) => setMessage(resolveError(err)),
+      },
+    );
+    setPendingDelete(null);
+  };
 
   const goTo = (index: number) => {
     setActiveIndex(clampTableIndex(index, tables.length));
   };
 
-  // Mobile: horizontal swipe navigates between tables, clamped (no wraparound)
-  // so the ends feel like ends. Vertical panning stays with the page (the
-  // `touch-pan-y` class below hands vertical gestures back to the browser).
   const swipeHandlers = useSwipeable({
     onSwipedLeft: () => goTo(safeIndex + 1),
     onSwipedRight: () => goTo(safeIndex - 1),
@@ -102,8 +217,6 @@ export function RecordsView({
                 tabIndex={selected ? 0 : -1}
                 onClick={() => goTo(index)}
                 onKeyDown={(event) => {
-                  // ARIA tablist keyboard contract (WAI-ARIA APG, horizontal):
-                  // Arrow keys roving-navigate + activate; Home/End jump to ends.
                   const count = tables.length;
                   let next: number | null = null;
                   if (event.key === "ArrowRight") next = (index + 1) % count;
@@ -114,7 +227,9 @@ export function RecordsView({
                   if (next === null) return;
                   event.preventDefault();
                   goTo(next);
-                  document.getElementById(`records-tab-${tables[next].key}`)?.focus();
+                  document
+                    .getElementById(`records-tab-${tables[next].key}`)
+                    ?.focus();
                 }}
                 className={cn(
                   "relative min-h-12 min-w-12 rounded-t-md px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
@@ -137,9 +252,6 @@ export function RecordsView({
       ) : null}
 
       <section
-        // Tab semantics only when there is a switcher owning this panel — a lone
-        // table has no tablist, so a `role="tabpanel"` + `tabIndex` here would be
-        // an unnamed, purposeless focus stop for screen-reader users.
         {...(hasSwitcher
           ? {
               role: "tabpanel" as const,
@@ -150,8 +262,36 @@ export function RecordsView({
           : {})}
         className="flex flex-col gap-4 focus-visible:outline-none"
       >
-        {/* Desktop: semantic shadcn table (wide schemas scroll within the panel,
-            never the page). */}
+        {/* Rollback / error line for the whole surface. */}
+        <StatusMessage message={message} />
+
+        {/* Inline quick-add: a bordered adder at the top of the active table,
+            sharing the lifted draft with the modal. The expand control reopens
+            the same form in the modal. */}
+        <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
+          <AddRecordForm
+            table={activeTable}
+            draft={draft}
+            onDraftChange={setDraft}
+            onSubmit={handleAdd}
+            pending={addRecord.isPending}
+            variant="inline"
+            trailing={
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="size-12"
+                onClick={() => setModalOpen(true)}
+                aria-label={t("expandForm")}
+              >
+                <Maximize2 aria-hidden="true" className="size-4" />
+              </Button>
+            }
+          />
+        </div>
+
+        {/* Desktop: semantic table with a trailing actions column. */}
         <div className="hidden md:block">
           {rows.length === 0 ? (
             <EmptyTable message={t("emptyTable")} />
@@ -161,12 +301,14 @@ export function RecordsView({
               rows={rows}
               cellStrings={cellStrings}
               caption={t("tableCaption", { table: activeTable.label })}
+              actionsHeader={t("actionsHeader")}
+              deleteLabel={t("deleteRecord")}
+              onDelete={requestDelete}
             />
           )}
         </div>
 
-        {/* Mobile: card list. The swipe handlers wrap the whole mobile area (not
-            just the cards) so an empty table can still be swiped away. */}
+        {/* Mobile: card list, each card with a delete action. */}
         <div {...swipeHandlers} className="touch-pan-y md:hidden">
           {rows.length === 0 ? (
             <EmptyTable message={t("emptyTable")} />
@@ -179,12 +321,72 @@ export function RecordsView({
                 table={activeTable}
                 rows={rows}
                 cellStrings={cellStrings}
+                deleteLabel={t("deleteRecord")}
+                onDelete={requestDelete}
               />
             </ul>
           )}
         </div>
       </section>
+
+      {/* Full-form modal — the SAME AddRecordForm over the SAME lifted draft. */}
+      <Dialog
+        open={modalOpen}
+        onOpenChange={(next) => {
+          if (!next && !addRecord.isPending) setModalOpen(false);
+        }}
+      >
+        <DialogContent
+          closeLabel={t("close")}
+          className="max-h-[85dvh] overflow-y-auto sm:max-w-lg"
+        >
+          <DialogHeader>
+            <DialogTitle className="text-balance">
+              {t("modalTitle", { table: activeTable.label })}
+            </DialogTitle>
+            <DialogDescription className="text-pretty">
+              {t("modalSubtitle")}
+            </DialogDescription>
+          </DialogHeader>
+          <AddRecordForm
+            table={activeTable}
+            draft={draft}
+            onDraftChange={setDraft}
+            onSubmit={handleAdd}
+            pending={addRecord.isPending}
+            variant="modal"
+          />
+        </DialogContent>
+      </Dialog>
+
+      <DeleteConfirmDialog
+        open={pendingDelete !== null}
+        tableLabel={activeTable.label}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setPendingDelete(null)}
+        pending={deleteRecord.isPending}
+      />
     </div>
+  );
+}
+
+function StatusMessage({ message }: { message: string | null }) {
+  const prefersReducedMotion = useReducedMotion();
+  return (
+    <AnimatePresence>
+      {message ? (
+        <motion.p
+          key="status"
+          initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
+          role="alert"
+          className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {message}
+        </motion.p>
+      ) : null}
+    </AnimatePresence>
   );
 }
 
@@ -192,17 +394,23 @@ function EmptyTable({ message }: { message: string }) {
   return <p className="text-sm text-muted-foreground">{message}</p>;
 }
 
-/** Desktop: every visible field is a column; read-only. */
+/** Desktop: every visible field is a column, plus a trailing actions column. */
 function RecordsTable({
   table,
   rows,
   cellStrings,
   caption,
+  actionsHeader,
+  deleteLabel,
+  onDelete,
 }: {
   table: TableDefinition;
   rows: RecordData[];
   cellStrings: CellStrings;
   caption: string;
+  actionsHeader: string;
+  deleteLabel: string;
+  onDelete: (record: RecordData) => void;
 }) {
   const fields = table.fields.filter((field) => !field.hidden);
 
@@ -217,6 +425,9 @@ function RecordsTable({
                 {field.label}
               </TableHead>
             ))}
+            <TableHead scope="col" className="text-right">
+              <span className="sr-only">{actionsHeader}</span>
+            </TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -227,6 +438,18 @@ function RecordsTable({
                   {formatCell(row.data[field.key], field.type, cellStrings)}
                 </TableCell>
               ))}
+              <TableCell className="text-right">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-12 text-muted-foreground hover:text-destructive"
+                  onClick={() => onDelete(row)}
+                  aria-label={deleteLabel}
+                >
+                  <Trash2 aria-hidden="true" className="size-4" />
+                </Button>
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -235,15 +458,19 @@ function RecordsTable({
   );
 }
 
-/** Mobile: one read-only card per record; first two visible fields headline it. */
+/** Mobile: one card per record; first two visible fields headline it. */
 function RecordsCards({
   table,
   rows,
   cellStrings,
+  deleteLabel,
+  onDelete,
 }: {
   table: TableDefinition;
   rows: RecordData[];
   cellStrings: CellStrings;
+  deleteLabel: string;
+  onDelete: (record: RecordData) => void;
 }) {
   const fields = table.fields.filter((field) => !field.hidden);
   const [primaryField, secondaryField, ...restFields] = fields;
@@ -254,24 +481,38 @@ function RecordsCards({
         <li key={row.id}>
           <Card className="gap-0 py-4">
             <CardContent className="flex flex-col gap-2 px-4">
-              {primaryField ? (
-                <p className="text-base font-medium text-foreground text-pretty">
-                  {formatCell(
-                    row.data[primaryField.key],
-                    primaryField.type,
-                    cellStrings,
-                  )}
-                </p>
-              ) : null}
-              {secondaryField ? (
-                <p className="text-sm text-muted-foreground text-pretty">
-                  {formatCell(
-                    row.data[secondaryField.key],
-                    secondaryField.type,
-                    cellStrings,
-                  )}
-                </p>
-              ) : null}
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1 flex flex-col gap-2">
+                  {primaryField ? (
+                    <p className="text-base font-medium text-foreground text-pretty">
+                      {formatCell(
+                        row.data[primaryField.key],
+                        primaryField.type,
+                        cellStrings,
+                      )}
+                    </p>
+                  ) : null}
+                  {secondaryField ? (
+                    <p className="text-sm text-muted-foreground text-pretty">
+                      {formatCell(
+                        row.data[secondaryField.key],
+                        secondaryField.type,
+                        cellStrings,
+                      )}
+                    </p>
+                  ) : null}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="size-12 shrink-0 text-muted-foreground hover:text-destructive"
+                  onClick={() => onDelete(row)}
+                  aria-label={deleteLabel}
+                >
+                  <Trash2 aria-hidden="true" className="size-4" />
+                </Button>
+              </div>
               {restFields.length > 0 ? (
                 <dl className="mt-1 flex flex-col gap-1">
                   {restFields.map((field) => (

@@ -1,0 +1,148 @@
+import "server-only";
+
+import { cookies } from "next/headers";
+import { NextResponse, type NextRequest } from "next/server";
+
+import { AppError } from "@/types/api";
+import type { ApiResponse } from "@/types/api";
+import type { RecordData } from "@/types/db";
+import { getCurrentUser } from "@/lib/auth/session";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { listRecords } from "@/lib/data/records";
+import { mutate } from "@/lib/data/mutate";
+import { reportError } from "@/lib/observability/report";
+import { createBodySchema, listQuerySchema } from "./schemas";
+
+/**
+ * `GET /api/records?slug=&table=` (list) and `POST /api/records` (create) —
+ * Story 3.2 record CRUD for the authenticated dashboard.
+ *
+ * Both mirror `api/invite/route.ts`: `getCurrentUser()` (JWT-validated) → 401 if
+ * none → Zod-validate query/body → build the caller's RLS-scoped server client
+ * from the request cookies → resolve the org by `slug` UNDER that RLS client
+ * (RLS returns the org only if the caller is a member; a non-member sees no row
+ * → 403). Writes go through the guarded `mutate.ts` layer with a `MutateIdentity`
+ * of `{ client: rlsClient, actorId: user.id, orgId }` — never the admin client,
+ * never a client-supplied org id.
+ *
+ * Every failure resolves to a translated error CODE via the `{ data, error }`
+ * envelope; raw SQL/stacks are never leaked. `reportError` logs 5xx detail.
+ */
+
+export const dynamic = "force-dynamic";
+
+function json<T>(
+  body: ApiResponse<T>,
+  status: number,
+): NextResponse<ApiResponse<T>> {
+  return NextResponse.json(body, { status });
+}
+
+/**
+ * Resolve the org id for `slug` under the caller's RLS-scoped client. RLS
+ * returns the row only for a member, so a non-member (or bad slug) yields
+ * nothing → a `forbidden` AppError. Mirrors `[slug]/page.tsx`.
+ */
+async function resolveIdentity(slug: string, actorId: string) {
+  const cookieStore = await cookies();
+  const client = createServerSupabaseClient(cookieStore);
+
+  const { data: org, error } = await client
+    .from("organizations")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  if (error) {
+    throw new AppError(500, "genericError", error.message);
+  }
+  if (!org) {
+    // RLS hid the org (non-member) or the slug does not exist — same outcome.
+    throw new AppError(403, "forbidden");
+  }
+
+  return { client, actorId, orgId: org.id as string };
+}
+
+export async function GET(
+  req: NextRequest,
+): Promise<NextResponse<ApiResponse<RecordData[]>>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      throw new AppError(401, "unauthorized");
+    }
+
+    const parsed = listQuerySchema.safeParse({
+      slug: req.nextUrl.searchParams.get("slug"),
+      table: req.nextUrl.searchParams.get("table"),
+    });
+    if (!parsed.success) {
+      throw new AppError(400, "genericError");
+    }
+    const { slug, table } = parsed.data;
+
+    const identity = await resolveIdentity(slug, user.id);
+    const result = await listRecords(identity.client, identity.orgId, table);
+    if (result.error) {
+      throw new AppError(500, "loadFailed");
+    }
+
+    return json({ data: result.data ?? [], error: null }, 200);
+  } catch (err) {
+    return handleError(err);
+  }
+}
+
+export async function POST(
+  req: NextRequest,
+): Promise<NextResponse<ApiResponse<RecordData>>> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      throw new AppError(401, "unauthorized");
+    }
+
+    let raw: unknown;
+    try {
+      raw = await req.json();
+    } catch {
+      throw new AppError(400, "genericError");
+    }
+    const parsed = createBodySchema.safeParse(raw);
+    if (!parsed.success) {
+      throw new AppError(400, "genericError");
+    }
+    const { slug, table, data, idempotencyKey } = parsed.data;
+
+    const identity = await resolveIdentity(slug, user.id);
+    const result = await mutate(identity, "insert", table, data, {
+      idempotencyKey,
+    });
+    if (result.error || !result.data) {
+      throw new AppError(500, "writeFailed");
+    }
+
+    // The insert returns { id, version }; the created row's data is what we
+    // sent (mutate stores it verbatim). Reconcile the optimistic row to this.
+    const created: RecordData = {
+      id: result.data.id,
+      version: result.data.version,
+      data,
+    };
+    return json({ data: created, error: null }, 200);
+  } catch (err) {
+    return handleError<RecordData>(err);
+  }
+}
+
+function handleError<T>(err: unknown): NextResponse<ApiResponse<T>> {
+  if (err instanceof AppError) {
+    if (err.statusCode >= 500) {
+      reportError(err, { route: "/api/records" });
+    }
+    return json<T>({ data: null, error: err.userMessage }, err.statusCode);
+  }
+  reportError(err, { route: "/api/records" });
+  return json<T>({ data: null, error: "genericError" }, 500);
+}
