@@ -118,11 +118,17 @@ export function RecordsView({
     blankDraftForFields(visibleFields),
   );
   const [modalOpen, setModalOpen] = useState(false);
+  // Bumped whenever the draft is reset externally (table change or add success)
+  // and passed as the `key` of the AddRecordForm instances, so their local
+  // per-field validation error state remounts fresh — otherwise a stale
+  // "invalid" alert can linger on a now-emptied field after a reset.
+  const [formResetKey, setFormResetKey] = useState(0);
   const [draftTableKey, setDraftTableKey] = useState(tableKey);
   if (draftTableKey !== tableKey) {
     setDraftTableKey(tableKey);
     setDraft(blankDraftForFields(visibleFields));
     setModalOpen(false);
+    setFormResetKey((k) => k + 1);
   }
 
   // The record queued for deletion (drives the confirm dialog).
@@ -157,6 +163,7 @@ export function RecordsView({
         onSuccess: () => {
           setDraft(blankDraftForFields(visibleFields));
           setModalOpen(false);
+          setFormResetKey((k) => k + 1);
         },
         onError: (err) => setMessage(resolveError(err)),
       },
@@ -270,6 +277,7 @@ export function RecordsView({
             the same form in the modal. */}
         <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
           <AddRecordForm
+            key={`inline-${formResetKey}`}
             table={activeTable}
             draft={draft}
             onDraftChange={setDraft}
@@ -349,6 +357,7 @@ export function RecordsView({
             </DialogDescription>
           </DialogHeader>
           <AddRecordForm
+            key={`modal-${formResetKey}`}
             table={activeTable}
             draft={draft}
             onDraftChange={setDraft}

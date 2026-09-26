@@ -126,6 +126,9 @@ Pass 1 (2026-09-26) — blind-hunter, edge-case-hunter, verification-gap:
 - **low → defer** — No server-side validation of `data` against the table schema; `createBodySchema` accepts any keys/types and `mutate` stores verbatim (blind BH2). Low harm — own-tenant JSONB under RLS + `actorId`, no cross-tenant risk; `mutate` never validated payload shape (pre-existing). Schema-aware server validation is a larger hardening item.
 - **low → defer** — `useQuery` destructures `data` only, so a failed authoritative background refetch leaves stale rows with no surfaced error (edge EC2). Non-destructive given `initialData` + optimistic writes; surfacing load errors is a nice hardening.
 
+**Manual review (Playwright, post-commit) — patched:**
+- **low → patch** — After a successful *modal* add reset the shared draft, the *inline* `AddRecordForm` kept a stale per-field validation error (`aria-invalid` + "Please enter a valid number." alert) on the now-empty field (its local `errors` state wasn't cleared by the external draft reset). Fixed: `RecordsView` bumps a `formResetKey` on add success (and on table change) passed as the React `key` of both `AddRecordForm` instances, so error state remounts fresh. Re-verified end-to-end in the browser (fail-inline → expand → correct-in-modal → submit → inline form clean).
+
 **Rejected:**
 - **low → reject** — Boolean fields write `false` when untouched, unlike blank scalars which are omitted (edge EC6). A boolean defaulting to `false` is a conventional valid value, not "blank"; omitting it would need touched-tracking state for negligible benefit.
 - **low → reject** — A fully-blank submit creates an empty record (blind BH9). The record is deletable and empty-is-allowed follows from "all fields optional"; blocking it adds a guard for a minor, self-correctable action.
