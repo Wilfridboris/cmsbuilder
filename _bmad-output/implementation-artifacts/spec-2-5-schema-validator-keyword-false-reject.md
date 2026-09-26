@@ -2,10 +2,10 @@
 title: 'Story 2.5: Schema Validator — Stop False-Rejecting Legitimate Labels'
 type: 'bug-fix'
 created: '2026-09-24'
-status: 'ready-for-dev'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
-baseline_commit: '35509373cf08aaea6ed9b4839f2f165d75840c06'
+baseline_commit: 'f00de61453f526f0e02cdc0b2faa6698e21a3dd0'
 story_key: '2-5-schema-validator-keyword-false-reject'
 origin: 'Epic 1 retrospective 2026-09-24 — finding F7 (action item 3)'
 context:
@@ -59,8 +59,8 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/lib/schema/validator.ts` -- drop the label keyword check; convert the key check to word-boundary (or remove with justification) -- stops false-rejecting legitimate labels while keeping real protections.
-- [ ] `tests/unit/schema-validator.test.ts` -- add the both-directions cases from the matrix -- locks the fix and guards against regression.
+- [x] `src/lib/schema/validator.ts` -- drop the label keyword check; convert the key check to word-boundary (or remove with justification) -- stops false-rejecting legitimate labels while keeping real protections.
+- [x] `tests/unit/schema-validator.test.ts` -- add the both-directions cases from the matrix -- locks the fix and guards against regression.
 
 **Acceptance Criteria:**
 - Given a generated schema whose only "problem" is a label containing a blocked keyword as a substring (`"Grants"`, `"Deleted?"`, `"Drop-off time"`), when it is validated, then it passes and provisions as a real (non-fallback) generation.
@@ -69,11 +69,30 @@ context:
 
 ## Implementation Notes
 
-_Pending — not yet implemented. Carried from Epic 1 retrospective (F7 / action item 3)._
+Implemented on branch `main` from baseline `f00de61`.
+
+- `src/lib/schema/validator.ts` — removed both label keyword checks (table `:134` and field `:170`). Replaced substring `containsBlockedKeyword` with `keyIsBlockedVerb`, a whole-word matcher (`BLOCKED_KEYWORD_RE = /\b(DROP|GRANT|TRUNCATE|DELETE|EXEC)\b/i`) applied to the **normalized** key only, after `normalizeTableName`. Chose the preferred "keep the key check, converted to word-boundary" option (satisfies the "never weaken key safety" constraint). Dropped the punctuation entries (`--`, `;`, `/*`) from `BLOCKED_KEYWORDS` — they can never survive normalization into a `[a-z0-9_]` key. `RESERVED_KEYS`, `normalizeTableName`, the type/`relation` allowlist, non-empty-string checks, and `reportRejection` are untouched. Doc comment updated to cite Story 2.5 / retro F7. Because `_` is a regex word char, `drop`/`delete` (bare) reject while `dropoff`/`drop_off`/`backdrop` pass.
+- `tests/unit/schema-validator.test.ts` — repurposed the old "blocked keyword in label or key" case into "rejects a key that normalizes to a bare blocked SQL verb"; added a Story 2.5 block pinning both directions (legitimate labels validate; embedded-verb keys validate; reserved-key collision / `relation` type / empty label still reject).
+- No changes to the route, prompts, provision/mutate, or fallback control flow.
+
+**Verification:** `npm run test` (validator: 24/24 pass), `npm run type-check`, `npm run lint`, `npm run build` — all pass. Manual browser check (generate a "Grants"/"Drop-off"-style dashboard) not run; validation-layer behavior is covered directly by the unit tests.
 
 ## Spec Change Log
 
 ## Review Triage Log
+
+### Iteration 0 (2026-09-26)
+
+| Finding (layer) | Verdict | Route | Evidence |
+|---|---|---|---|
+| Whole-word guard passes multi-word keys (`drop_table`); docstring "oversells" (blind-hunter) | false | — | Intended design: keys are JSONB payload / idempotency-string fragments (`provision.ts:135`), never SQL identifiers. Spec I/O matrix documents "Punctuation in key → validates on other rules." Docstring's concrete examples are all accurate. |
+| No test for multi-word key embedding a verb (blind-hunter) | false | — | Already pinned: key-accept test asserts `"Drop-off time"` → `drop_off_time` (verb `drop` as leading `_`-delimited token) validates — structurally identical to `drop_table`. |
+| Garbled/self-contradicting inline comment at test lines ~156–158 (blind-hunter) | low | patch | Real clarity defect in the new diff (dangling `?`, contradictory half-sentence); a maintainer meets it; fix is a direct correction. |
+| `"Drop-off time"` reused across two tests, grouped misleadingly (blind-hunter) | low | patch | Same test-block clarity root area; grouped with the garbled-comment fix. |
+| Dropping label check relies on unverified downstream escaping (blind-hunter) | false | — | Labels are inert JSONB / auto-escaped React text, never concatenated into SQL; no real injection outcome. A test asserting React escaping tests the framework and adds undemonstrated surface. |
+| `EXEC`/`GRANT`/`TRUNCATE` unreachable, EXEC untested (blind-hunter) | false | — | Bare-verb reject loop iterates all `BLOCKED_KEYWORDS` (incl. EXEC/GRANT/TRUNCATE) at the field-key site and asserts rejection. |
+| Edge-case-hunter | — | — | Empty — all spec/I-O-matrix claims traced and verified. |
+| Table-key blocked-verb guard (`validator.ts:155`) has no test — bare-verb reject test only sets the field key (verification-gap) | medium | patch | Pre-verified gap: deleting/inverting the table-key guard leaves every test green. A spec-required protection is untested at the table-key call site. Fix: mirror the bare-verb loop for `tables[0].key`. |
 
 ## Design Notes
 

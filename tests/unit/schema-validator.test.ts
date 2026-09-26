@@ -108,12 +108,24 @@ describe("validateGeneratedSchema — rejections", () => {
     expect(result.valid).toBe(false);
   });
 
-  it("rejects a blocked keyword in a field label or key", () => {
+  it("rejects a key that normalizes to a bare blocked SQL verb", () => {
+    // Word-boundary match on the normalized key: a bare verb is refused. Pin
+    // BOTH call sites — the field key and the table key — so a regression at
+    // either guard (validator.ts) cannot ship with the other's tests green.
     for (const kw of BLOCKED_KEYWORDS) {
-      const raw = validSchema();
-      raw.schema.tables[0].fields[0].label = `Notes ${kw} here`;
-      const result = validateGeneratedSchema(raw);
-      expect(result.valid, `blocked keyword ${kw} must reject`).toBe(false);
+      const fieldRaw = validSchema();
+      fieldRaw.schema.tables[0].fields[0].key = kw.toLowerCase();
+      expect(
+        validateGeneratedSchema(fieldRaw).valid,
+        `bare field key ${kw} must reject`,
+      ).toBe(false);
+
+      const tableRaw = validSchema();
+      tableRaw.schema.tables[0].key = kw.toLowerCase();
+      expect(
+        validateGeneratedSchema(tableRaw).valid,
+        `bare table key ${kw} must reject`,
+      ).toBe(false);
     }
   });
 
@@ -147,6 +159,59 @@ describe("validateGeneratedSchema — rejections", () => {
     expect(vi.mocked(reportRejection).mock.calls[0][1]).toMatchObject({
       id: "session-1",
     });
+  });
+});
+
+describe("validateGeneratedSchema — Story 2.5: labels are not keyword-checked", () => {
+  // A legitimate label that merely *contains* a blocked keyword as a substring
+  // must validate and provision as a real (non-fallback) generation. Labels are
+  // inert escaped JSONB text — never SQL — so keyword-checking them only
+  // false-rejects ordinary business vocabulary. See retro finding F7.
+  it.each([
+    ["table label", "Grants"],
+    ["table label", "Drop-off time"],
+    ["field label", "Deleted?"],
+    ["field label", "Delete date"],
+    ["field label", "Executive summary"],
+    ["field label", "Grant total"],
+    ["field label", "Truncated notes"],
+  ])("accepts a %s of %j", (where, label) => {
+    const raw = validSchema();
+    if (where === "table label") {
+      raw.schema.tables[0].label = label;
+    } else {
+      raw.schema.tables[0].fields[0].label = label;
+    }
+    const result = validateGeneratedSchema(raw);
+    expect(result.valid, `${label} must validate`).toBe(true);
+  });
+
+  it("accepts keys whose text embeds a blocked verb as a non-word (dropoff, backdrop)", () => {
+    // A normalized key passes unless it is exactly a bare verb. The guard uses
+    // \b(...)\b, but normalizeTableName maps every separator to "_", which is a
+    // regex word char — so no boundary ever forms mid-key. Thus "backdrop"
+    // (verb glued inside), "dropoff" (concatenated), and "Drop-off time" →
+    // "drop_off_time" (verb joined to the next token by "_") all validate.
+    for (const key of ["dropoff", "backdrop", "Drop-off time", "granted", "deleted at source"]) {
+      const raw = validSchema();
+      raw.schema.tables[0].fields[0].key = key;
+      const result = validateGeneratedSchema(raw);
+      expect(result.valid, `key ${key} must validate`).toBe(true);
+    }
+  });
+
+  it("still rejects a reserved-key collision, a relation type, and an empty label", () => {
+    const reserved = validSchema();
+    reserved.schema.tables[0].fields[0].key = RESERVED_KEYS[0];
+    expect(validateGeneratedSchema(reserved).valid).toBe(false);
+
+    const relation = validSchema();
+    relation.schema.tables[0].fields[0].type = "relation";
+    expect(validateGeneratedSchema(relation).valid).toBe(false);
+
+    const emptyLabel = validSchema();
+    emptyLabel.schema.tables[0].fields[0].label = "";
+    expect(validateGeneratedSchema(emptyLabel).valid).toBe(false);
   });
 });
 

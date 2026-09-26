@@ -19,8 +19,11 @@ import { normalizeTableName } from "@/lib/utils";
  *   - accepts only append-only ops (implicitly: only `add_table`/`add_field`
  *     are expressible in the generation shape; no other op can appear);
  *   - rejects reserved-column collisions (`RESERVED_KEYS`);
- *   - rejects any label/key containing a blocked keyword (`BLOCKED_KEYWORDS`,
- *     defense-in-depth on names);
+ *   - rejects a normalized key that is, as a whole word, a blocked SQL verb
+ *     (`BLOCKED_KEYWORDS`); labels are NOT keyword-checked — they are stored as
+ *     inert, auto-escaped JSONB text and never concatenated into SQL, so a
+ *     substring match there only false-rejects legitimate business vocabulary
+ *     (e.g. "Deleted?", "Grants", "Drop-off time"). See Story 2.5 / retro F7;
  *   - never accepts the `relation` field type (nor any type outside the MVP set);
  *   - normalizes every `table_key` and field `key` via `normalizeTableName()`;
  *   - logs every rejection through the observability seam with the org/session
@@ -50,16 +53,21 @@ export const RESERVED_KEYS = [
   "deleted_at",
 ];
 
-/** Blocked keywords, checked against raw labels/keys (defense-in-depth). */
+/**
+ * Blocked SQL verbs, matched as whole words against the *normalized* key only.
+ *
+ * The old punctuation entries (`--`, `;`, `/*`) are intentionally gone: keys are
+ * normalized to `[a-z0-9_]` by `normalizeTableName`, so punctuation can never
+ * survive into a key, and labels are no longer keyword-checked at all. What
+ * remains is a whole-word guard so a bare reserved verb used as a standalone key
+ * (`drop`, `delete`) still rejects, while `dropoff` / `backdrop` do not.
+ */
 export const BLOCKED_KEYWORDS = [
   "DROP",
   "GRANT",
   "TRUNCATE",
   "DELETE",
   "EXEC",
-  "--",
-  ";",
-  "/*",
 ];
 
 export type ValidationResult =
@@ -74,9 +82,18 @@ export type ValidationContext = {
   rawOutput?: unknown;
 };
 
-function containsBlockedKeyword(value: string): boolean {
-  const upper = value.toUpperCase();
-  return BLOCKED_KEYWORDS.some((kw) => upper.includes(kw.toUpperCase()));
+/**
+ * Whole-word match of a blocked SQL verb against a normalized key. Because the
+ * key is already `[a-z0-9_]`, and `_` is a regex word char, `\b`-boundaries make
+ * `drop` (bare) match while `dropoff` / `drop_off` / `backdrop` do not.
+ */
+const BLOCKED_KEYWORD_RE = new RegExp(
+  `\\b(${BLOCKED_KEYWORDS.join("|")})\\b`,
+  "i",
+);
+
+function keyIsBlockedVerb(normalizedKey: string): boolean {
+  return BLOCKED_KEYWORD_RE.test(normalizedKey);
 }
 
 function isNonEmptyString(value: unknown): value is string {
@@ -131,13 +148,12 @@ export function validateGeneratedSchema(
     if (!isNonEmptyString(t.key)) {
       return reject(genericError, "a table is missing a key");
     }
-    if (containsBlockedKeyword(String(t.key)) || containsBlockedKeyword(t.label)) {
-      return reject(genericError, `blocked keyword in table "${t.label}"`);
-    }
-
     const tableKey = normalizeTableName(String(t.key));
     if (!tableKey) {
       return reject(genericError, `table key normalized to empty: "${String(t.key)}"`);
+    }
+    if (keyIsBlockedVerb(tableKey)) {
+      return reject(genericError, `table key is a blocked SQL verb: "${tableKey}"`);
     }
     if (RESERVED_KEYS.includes(tableKey)) {
       return reject(genericError, `table key collides with reserved key: "${tableKey}"`);
@@ -167,10 +183,6 @@ export function validateGeneratedSchema(
       if (!isNonEmptyString(f.key)) {
         return reject(genericError, `a field in "${tableKey}" is missing a key`);
       }
-      if (containsBlockedKeyword(String(f.key)) || containsBlockedKeyword(f.label)) {
-        return reject(genericError, `blocked keyword in field "${f.label}"`);
-      }
-
       const type = f.type;
       // `relation` (and anything outside the MVP set) is never accepted.
       if (
@@ -186,6 +198,9 @@ export function validateGeneratedSchema(
       const fieldKey = normalizeTableName(String(f.key));
       if (!fieldKey) {
         return reject(genericError, `field key normalized to empty: "${String(f.key)}"`);
+      }
+      if (keyIsBlockedVerb(fieldKey)) {
+        return reject(genericError, `field key is a blocked SQL verb: "${fieldKey}"`);
       }
       if (RESERVED_KEYS.includes(fieldKey)) {
         return reject(genericError, `field key collides with reserved key: "${fieldKey}"`);
