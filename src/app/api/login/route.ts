@@ -14,15 +14,17 @@ import { reportError } from "@/lib/observability/report";
  *
  * Login is the claim route's mirror, minus the bootstrap: a thin `signInWithOtp`
  * with NONE of claim's provisioning. It Zod-validates `{ email }`, then dispatches
- * a Supabase→Resend magic link via the RLS-scoped SERVER client so the PKCE
- * verifier cookie lands on THIS response (same-browser exchange, as in 2.1).
+ * a Supabase→Resend magic link via the RLS-scoped SERVER client. The actual auth
+ * URL is a SiteURL `token_hash` link (set by the Magic Link email template) that
+ * lands cross-device on `/auth/confirm` — no supabase.co hop, no PKCE verifier.
  *
  * Constraints (frozen intent):
  *   - `shouldCreateUser: false` — a login request never creates an account.
- *   - NO `data.role` — a returning user (incl. an invited Member from 2.3) already
+ *   - NO `data.role` — a returning user (incl. an invited Member) already
  *     carries their role in user metadata; login must never clobber it.
- *   - NO `claim_token` in `emailRedirectTo` — that path is claim-only. The link
- *     lands on the bare `/auth/callback`, which resolves the user's org (2.2).
+ *   - NO `claim_token` in `emailRedirectTo` — the link lands on the bare
+ *     `/auth/confirm`, which resolves the user's org by membership (login lands
+ *     with no finalize / no metadata write).
  *
  * Anti-enumeration: a no-user / "signups not allowed" provider outcome (the ONLY
  * signal that would reveal whether an email is registered, because
@@ -97,14 +99,14 @@ export async function POST(
     }
     const { email } = parsed.data;
 
-    // 2. Dispatch the login magic link via the RLS-scoped SERVER client so the
-    // PKCE verifier cookie lands on THIS response (same-browser exchange). NO
+    // 2. Dispatch the login magic link via the RLS-scoped SERVER client. The link
+    // lands cross-device on `/auth/confirm` (SiteURL token_hash flow). NO
     // claim_token (claim-only), NO data.role (would clobber the user's role).
     const cookieStore = await cookies();
     const supabase = createServerSupabaseClient(cookieStore);
 
     const origin = req.nextUrl.origin;
-    const redirectTo = `${origin}/auth/callback`;
+    const redirectTo = `${origin}/auth/confirm`;
 
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email,

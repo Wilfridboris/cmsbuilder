@@ -270,3 +270,64 @@ export async function finalizeClaim(
 function isUniqueViolation(code: string | undefined): boolean {
   return code === "23505";
 }
+
+/**
+ * Finalize the claim for a verified email, resolving the token server-side.
+ *
+ * The `token_hash`/`verifyOtp` confirm flow (`/auth/confirm`) carries NO
+ * `claim_token` — claim vs login is decided by the verified email. This resolves
+ * the most-recent UNCONSUMED `pending_claims` row for the email and delegates to
+ * the token-keyed `finalizeClaim` core (so all the idempotency / bootstrap
+ * guarantees — including the expiry check — are shared, single-sourced). No such
+ * row (none was ever created, or every one is already consumed) → `not-found`.
+ *
+ * Expiry is deliberately NOT filtered here: it is delegated to `finalizeClaim`,
+ * which raises `ClaimError('expired')` for an expired most-recent claim so the
+ * confirm route lands the claim re-request surface (`/?claim=expired`) rather
+ * than collapsing an expired claim into `not-found` → `/login?login=no-org`
+ * (frozen I/O matrix). A row selected here that is expired therefore surfaces as
+ * `expired`, not `not-found`.
+ *
+ * Email match is case-insensitive: Supabase normalizes verified emails to
+ * lowercase, and the pending claim stores the raw submitted casing, so an
+ * exact-equality match could miss a legitimate claim.
+ */
+export async function finalizeClaimByEmail(
+  email: string,
+  userId: string,
+  adminClient: SupabaseClient,
+): Promise<FinalizeClaimResult> {
+  const normalized = email.trim().toLowerCase();
+
+  const { data: rows, error: lookupError } = await adminClient
+    .from("pending_claims")
+    .select("token, email, expires_at, consumed_at")
+    .is("consumed_at", null)
+    .order("created_at", { ascending: false });
+
+  if (lookupError) {
+    throw new ClaimError(
+      "failed",
+      `Failed to resolve pending claim by email: ${lookupError.message}`,
+    );
+  }
+
+  // Most-recent UNCONSUMED claim for this email (rows arrive ordered created_at
+  // DESC). Expiry is NOT filtered here — `finalizeClaim` owns that decision so an
+  // expired claim surfaces as `expired`, not `not-found` (see the doc comment).
+  const candidates = (rows ?? []) as Array<
+    Pick<PendingClaimRow, "token" | "email" | "expires_at" | "consumed_at">
+  >;
+  const match = candidates.find(
+    (row) => (row.email ?? "").trim().toLowerCase() === normalized,
+  );
+
+  if (!match) {
+    throw new ClaimError(
+      "not-found",
+      "No unconsumed pending claim for this email.",
+    );
+  }
+
+  return finalizeClaim({ token: match.token, userId, adminClient });
+}

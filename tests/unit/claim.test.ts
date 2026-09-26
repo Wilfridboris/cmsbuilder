@@ -4,6 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   createPendingClaim,
   finalizeClaim,
+  finalizeClaimByEmail,
   ClaimError,
   PENDING_CLAIM_TTL_MS,
 } from "@/lib/claim/claim";
@@ -40,6 +41,7 @@ type ClaimRow = {
   consent_accepted_at: string;
   policy_version: string;
   slug_base: string;
+  created_at: string;
   expires_at: string;
   consumed_at: string | null;
 };
@@ -90,6 +92,9 @@ class SchemaQuery {
 
 class PendingClaimsQuery {
   private filters: Array<{ col: keyof ClaimRow; val: unknown }> = [];
+  private isNullFilters: Array<keyof ClaimRow> = [];
+  private orderCol: keyof ClaimRow | null = null;
+  private orderAsc = true;
   private updatePayload: Partial<ClaimRow> | null = null;
   constructor(private readonly db: FakeAdmin) {}
 
@@ -105,9 +110,33 @@ class PendingClaimsQuery {
     if (this.updatePayload) return this.applyUpdate();
     return this;
   }
+  is(col: keyof ClaimRow, _val: null) {
+    this.isNullFilters.push(col);
+    return this;
+  }
+  order(col: keyof ClaimRow, opts?: { ascending?: boolean }) {
+    // Terminal in finalizeClaimByEmail's lookup: return the filtered rows as a
+    // list (no maybeSingle), sorted by the ordered column.
+    this.orderCol = col;
+    this.orderAsc = opts?.ascending ?? true;
+    const rows = this.matchingRows();
+    rows.sort((a, b) => {
+      const av = String(a[this.orderCol as keyof ClaimRow] ?? "");
+      const bv = String(b[this.orderCol as keyof ClaimRow] ?? "");
+      return this.orderAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+    return Promise.resolve({ data: rows, error: null });
+  }
   update(payload: Partial<ClaimRow>) {
     this.updatePayload = payload;
     return this;
+  }
+  private matchingRows(): ClaimRow[] {
+    return this.db.claims.filter(
+      (r) =>
+        this.filters.every((f) => r[f.col] === f.val) &&
+        this.isNullFilters.every((c) => r[c] === null),
+    );
   }
   private applyUpdate() {
     for (const row of this.db.claims) {
@@ -118,10 +147,7 @@ class PendingClaimsQuery {
     return Promise.resolve({ error: null });
   }
   maybeSingle() {
-    const row =
-      this.db.claims.find((r) =>
-        this.filters.every((f) => r[f.col] === f.val),
-      ) ?? null;
+    const row = this.matchingRows()[0] ?? null;
     return Promise.resolve({ data: row, error: null });
   }
 }
@@ -323,6 +349,7 @@ function seedClaim(db: FakeAdmin, overrides: Partial<ClaimRow> = {}): string {
     consent_accepted_at: new Date().toISOString(),
     policy_version: "2026-09-24",
     slug_base: "plumbing-laval",
+    created_at: overrides.created_at ?? new Date().toISOString(),
     expires_at: new Date(Date.now() + PENDING_CLAIM_TTL_MS).toISOString(),
     consumed_at: null,
     ...overrides,
@@ -437,5 +464,160 @@ describe("finalizeClaim", () => {
     // Nothing bootstrapped.
     expect(db.members).toHaveLength(0);
     expect(db.claims[0].consumed_at).toBeNull();
+  });
+});
+
+// --- finalizeClaimByEmail ---------------------------------------------------
+
+describe("finalizeClaimByEmail", () => {
+  it("resolves the pending claim by email and finalizes (bootstraps the org)", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    seedClaim(db, { token: "tok-email" });
+    db.records.push({ id: "r1", organization_id: ORG_ID, deleted_at: null });
+
+    const { slug, consentAcceptedAt } = await finalizeClaimByEmail(
+      "owner@example.ca",
+      USER_ID,
+      asClient(db),
+    );
+
+    expect(slug).toBe("plumbing-laval");
+    expect(consentAcceptedAt).toBeTruthy();
+    // Delegated to the token-keyed core: membership + slug + records cleared.
+    expect(db.members).toHaveLength(1);
+    expect(db.orgs[0].slug).toBe("plumbing-laval");
+    expect(db.records.every((r) => r.deleted_at !== null)).toBe(true);
+    expect(db.claims[0].consumed_at).not.toBeNull();
+  });
+
+  it("matches the email case-insensitively", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    seedClaim(db, { token: "tok-case", email: "Owner@Example.CA" });
+
+    const { slug } = await finalizeClaimByEmail(
+      "owner@example.ca",
+      USER_ID,
+      asClient(db),
+    );
+    expect(slug).toBe("plumbing-laval");
+  });
+
+  it("picks the most-recent unconsumed+unexpired claim for the email", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    // An older claim and a newer one for the same email; the newer wins.
+    seedClaim(db, {
+      id: "claim-old",
+      token: "tok-old",
+      created_at: "2026-09-25T00:00:00.000Z",
+      slug_base: "old-base",
+    });
+    seedClaim(db, {
+      id: "claim-new",
+      token: "tok-new",
+      created_at: "2026-09-26T00:00:00.000Z",
+      slug_base: "plumbing-laval",
+    });
+
+    const { slug } = await finalizeClaimByEmail(
+      "owner@example.ca",
+      USER_ID,
+      asClient(db),
+    );
+    // The newer claim (plumbing-laval) is finalized and consumed.
+    expect(slug).toBe("plumbing-laval");
+    const consumed = db.claims.filter((c) => c.consumed_at !== null);
+    expect(consumed).toHaveLength(1);
+    expect(consumed[0].token).toBe("tok-new");
+  });
+
+  it("raises not-found when the email has no pending claim (login link, no org)", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+
+    await expect(
+      finalizeClaimByEmail("stranger@example.ca", USER_ID, asClient(db)),
+    ).rejects.toMatchObject({ kind: "not-found" });
+  });
+
+  it("raises not-found when the only matching claim is already consumed", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    seedClaim(db, {
+      token: "tok-consumed",
+      consumed_at: new Date().toISOString(),
+    });
+
+    await expect(
+      finalizeClaimByEmail("owner@example.ca", USER_ID, asClient(db)),
+    ).rejects.toMatchObject({ kind: "not-found" });
+  });
+
+  it("surfaces an expired most-recent claim as `expired` (delegated to finalizeClaim), not not-found", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    seedClaim(db, {
+      token: "tok-expired",
+      expires_at: new Date(Date.now() - 1000).toISOString(),
+    });
+
+    // Expiry is delegated to the token-keyed core, so the confirm route can land
+    // the claim re-request surface (/?claim=expired) per the frozen I/O matrix,
+    // instead of collapsing to not-found → /login?login=no-org.
+    await expect(
+      finalizeClaimByEmail("owner@example.ca", USER_ID, asClient(db)),
+    ).rejects.toMatchObject({ kind: "expired" });
+    // No partial bootstrap — finalizeClaim's expiry check runs before any insert.
+    expect(db.members).toHaveLength(0);
+    expect(db.claims[0].consumed_at).toBeNull();
+  });
+
+  it("excludes a foreign email's claim — a claim for A is never finalized for B", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    // A perfectly finalizable claim exists, but for a DIFFERENT email.
+    seedClaim(db, { token: "tok-a", email: "owner@example.ca" });
+
+    await expect(
+      finalizeClaimByEmail("stranger@example.ca", USER_ID, asClient(db)),
+    ).rejects.toMatchObject({ kind: "not-found" });
+    // The email predicate is the security-critical discriminator: no cross-tenant
+    // finalize, no partial bootstrap.
+    expect(db.members).toHaveLength(0);
+    expect(db.claims[0].consumed_at).toBeNull();
+  });
+
+  it("selects by email even when a foreign email has a newer claim", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    // Older claim for the verifying user; NEWER claim for a different email.
+    seedClaim(db, {
+      id: "claim-mine",
+      token: "tok-mine",
+      email: "owner@example.ca",
+      created_at: "2026-09-25T00:00:00.000Z",
+      slug_base: "plumbing-laval",
+    });
+    seedClaim(db, {
+      id: "claim-foreign",
+      token: "tok-foreign",
+      email: "stranger@example.ca",
+      created_at: "2026-09-26T00:00:00.000Z",
+      slug_base: "stranger-org",
+    });
+
+    const { slug } = await finalizeClaimByEmail(
+      "owner@example.ca",
+      USER_ID,
+      asClient(db),
+    );
+    // The email filter — not merely "newest" — decides: the user's own claim is
+    // finalized and consumed; the newer foreign claim is untouched.
+    expect(slug).toBe("plumbing-laval");
+    const consumed = db.claims.filter((c) => c.consumed_at !== null);
+    expect(consumed).toHaveLength(1);
+    expect(consumed[0].token).toBe("tok-mine");
   });
 });

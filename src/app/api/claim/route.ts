@@ -24,13 +24,12 @@ import { reportError } from "@/lib/observability/report";
  * verify the signed `sb_gen_session` cookie → org id → hard-block if consent is
  * not literally `true` → persist the overridden schema + a `pending_claims` row
  * (service-role, bootstrap) → `signInWithOtp` (delivered via Supabase→Resend
- * SMTP) with the claim token embedded in `emailRedirectTo` → return the
- * `{ data:{ sent:true }, error }` envelope.
+ * SMTP) → return the `{ data:{ sent:true }, error }` envelope.
  *
- * PKCE is same-browser: `signInWithOtp` runs through the RLS-scoped SERVER
- * client so the PKCE verifier cookie is written onto THIS response (the same
- * browser that will later exchange the code on the callback). Opening the link
- * on a different device is the accepted, out-of-scope MVP constraint.
+ * The email link is a SiteURL `token_hash` link (set by the Confirm-signup
+ * template) that lands cross-device on `/auth/confirm`, which resolves the claim
+ * server-side by the verified email — no `claim_token` in the link, no PKCE
+ * verifier, no same-browser constraint.
  *
  * Never leaks stacks/SQL/provider output — every failure resolves to a
  * translated user message via the `{ data, error }` envelope.
@@ -136,9 +135,11 @@ export async function POST(
       city: body.intent?.city ?? "",
     });
 
-    let token: string;
+    // The pending claim is persisted (schema override + token row keyed by email);
+    // the returned token is NOT embedded in the link — `/auth/confirm` resolves
+    // the claim server-side from the verified email (locked decision).
     try {
-      const created = await createPendingClaim(
+      await createPendingClaim(
         {
           sessionOrgId: orgId,
           email: body.email,
@@ -149,7 +150,6 @@ export async function POST(
         },
         admin,
       );
-      token = created.token;
     } catch (err) {
       if (err instanceof ClaimError) {
         reportError(err, { route: "/api/claim", stage: "createPendingClaim" });
@@ -158,14 +158,20 @@ export async function POST(
       throw err;
     }
 
-    // 4. Dispatch the magic link via the RLS-scoped SERVER client so the PKCE
-    // verifier cookie lands on THIS response (same-browser exchange). The link
-    // itself is sent by Supabase Auth over the project's Resend SMTP.
+    // 4. Dispatch the magic link via the RLS-scoped SERVER client. The link is
+    // sent by Supabase Auth over the project's Resend SMTP, and the actual auth
+    // URL (SiteURL `/auth/confirm?token_hash=...&type=signup&next=claim`) is set
+    // by the Confirm-signup email template — see the spec's Implementation Notes.
+    //
+    // NO `claim_token` is threaded through the link: the confirm route resolves
+    // claim vs login server-side by the verified email (locked decision), so the
+    // `emailRedirectTo` fallback here is just the confirm path carrying the
+    // per-flow `next=claim` re-request marker.
     const cookieStore = await cookies();
     const supabase = createServerSupabaseClient(cookieStore);
 
     const origin = req.nextUrl.origin;
-    const redirectTo = `${origin}/auth/callback?claim_token=${encodeURIComponent(token)}`;
+    const redirectTo = `${origin}/auth/confirm?next=claim`;
 
     const { error: otpError } = await supabase.auth.signInWithOtp({
       email: body.email,

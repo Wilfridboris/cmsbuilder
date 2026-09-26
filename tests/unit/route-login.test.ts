@@ -6,8 +6,8 @@ import type { NextRequest } from "next/server";
  * auth provider. Locks the login endpoint contract — the frozen anti-enumeration
  * decision especially:
  *   - valid email       → dispatches `signInWithOtp` with `shouldCreateUser:false`,
- *                         NO `claim_token` in emailRedirectTo, NO `data.role`;
- *                         returns 200 { sent:true };
+ *                         emailRedirectTo → /auth/confirm, NO `claim_token`, NO
+ *                         `data.role`; returns 200 { sent:true };
  *   - invalid email     → 400 invalidEmail (never dispatches);
  *   - unknown email / no-user provider outcome → STILL 200 { sent:true } (the
  *                         provider error is logged + swallowed into success), so
@@ -61,8 +61,9 @@ describe("POST /api/login", () => {
     // Anti-enumeration + no-clobber: login must never create a user or set role.
     expect(otpArg.options.shouldCreateUser).toBe(false);
     expect(otpArg.options.data).toBeUndefined();
-    // Login lands on the bare callback — the claim_token path is claim-only.
-    expect(otpArg.options.emailRedirectTo).toContain("/auth/callback");
+    // Login lands cross-device on /auth/confirm — no claim_token (claim-only).
+    expect(otpArg.options.emailRedirectTo).toContain("/auth/confirm");
+    expect(otpArg.options.emailRedirectTo).not.toContain("/auth/callback");
     expect(otpArg.options.emailRedirectTo).not.toContain("claim_token");
   });
 

@@ -9,8 +9,9 @@ import type { NextRequest } from "next/server";
  *   - invalid email      → 400 invalidEmail;
  *   - missing session    → 400 noSession;
  *   - valid submit       → persists the claim (createPendingClaim) and dispatches
- *                          the magic link (signInWithOtp) with the token in
- *                          emailRedirectTo, returning 200 { sent:true }.
+ *                          the magic link (signInWithOtp) landing on /auth/confirm
+ *                          (no claim_token — resolved server-side by verified
+ *                          email), returning 200 { sent:true }.
  *
  * `session.ts` is REAL so the signed-cookie round-trip is exercised; the admin
  * client, server (RLS-scoped) client, claim bootstrap, and reporter are mocked.
@@ -150,13 +151,15 @@ describe("POST /api/claim", () => {
       expect.anything(),
     );
 
-    // The magic link is dispatched with the claim token in emailRedirectTo.
+    // The magic link lands on /auth/confirm and carries NO claim_token — the
+    // confirm route resolves claim vs login server-side by the verified email.
     expect(signInWithOtp).toHaveBeenCalledTimes(1);
     const otpArg = signInWithOtp.mock.calls[0][0];
     expect(otpArg.email).toBe("owner@example.ca");
     expect(otpArg.options.shouldCreateUser).toBe(true);
-    expect(otpArg.options.emailRedirectTo).toContain("/auth/callback");
-    expect(otpArg.options.emailRedirectTo).toContain("claim_token=tok-123");
+    expect(otpArg.options.emailRedirectTo).toContain("/auth/confirm");
+    expect(otpArg.options.emailRedirectTo).not.toContain("/auth/callback");
+    expect(otpArg.options.emailRedirectTo).not.toContain("claim_token");
     // No role is seeded into user metadata: the authoritative role is recorded in
     // org_members at finalizeClaim; RBAC never reads a metadata role scalar.
     expect(otpArg.options.data?.role).toBeUndefined();
