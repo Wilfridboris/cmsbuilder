@@ -45,7 +45,7 @@
 # Epics 9 (Growth) & 10 (Phase 3) are DEFERRED and intentionally unstoried (out of MVP scope).
 
 generated: 2026-09-23
-last_updated: 09-26-2026 (3.1 review)
+last_updated: 09-26-2026 (3.1 done; auth email-link migration to /auth/confirm)
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -76,7 +76,7 @@ development_status:
 
   # ── Epic 3: Core Data Management (Daily Driver) ──────────────────────────
   epic-3: in-progress
-  3-1-responsive-table-card-views: review
+  3-1-responsive-table-card-views: done
   3-2-add-delete-records: backlog
   3-3-inline-edit-with-optimistic-ui: backlog
   3-4-filter-sort-records: backlog

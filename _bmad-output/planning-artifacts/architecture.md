@@ -353,7 +353,7 @@ table can be **projected** into a materialized typed view without changing the w
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Auth provider | Supabase Auth (magic links) | Passwordless, included in Supabase free tier, PKCE flow for security |
+| Auth provider | Supabase Auth (magic links) | Passwordless, included in Supabase free tier. Auth email links (login, claim, invite) land on our own SiteURL at `/auth/confirm` via the token_hash `verifyOtp` flow — cross-device, no supabase.co verify hop and no PKCE `code_verifier` cookie; see `../implementation-artifacts/spec-auth-email-links-own-domain.md`. |
 | Pre-claim session | `localStorage` + `sessionStorage` for generation state | Anonymous users get a temporary session ID; schema + synthetic data stored in Supabase under `anonymous_sessions` table with 24h TTL |
 | Post-claim session | Supabase JWT session (cookie-based via `@supabase/ssr`) | Server-side session refresh via Next.js middleware |
 | RBAC | Two hardcoded roles: `admin` \| `member` on Supabase Auth user metadata | PRD requirement; custom RBAC deferred post-MVP |
