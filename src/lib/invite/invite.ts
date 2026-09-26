@@ -3,9 +3,11 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { User } from "@supabase/supabase-js";
+
 import { AppError } from "@/types/api";
 import type { MemberRole } from "@/types/db";
-import { resolveUserOrgMembership } from "@/lib/auth/org";
+import { requireAdmin } from "@/lib/auth/rbac";
 
 /**
  * Core invite bootstrap (Story 2.3) — the narrow, service-role membership
@@ -100,13 +102,15 @@ async function isMemberOfOrg(
 export async function inviteMember(input: InviteMemberInput): Promise<void> {
   const { inviterUserId, email, role, adminClient, origin } = input;
 
-  // 1. Resolve the caller's org + role, and assert Admin. A non-member resolves
-  // to null; a Member resolves with role 'member'. Both are 403 — the invite
-  // action is admin-only and server-enforced.
-  const membership = await resolveUserOrgMembership(inviterUserId, adminClient);
-  if (!membership || membership.role !== "admin") {
-    throw new AppError(403, "forbidden");
-  }
+  // 1. Assert the caller is an Admin of their org via the shared RBAC guard
+  // (Story 2.4) — the single reusable enforcement primitive. A non-member or a
+  // Member is rejected with a 403 before any create/send; the invite action is
+  // admin-only and server-enforced (frontend hiding is never the sole gate).
+  // The route already 401s a null caller, so `inviterUserId` is always present.
+  const membership = await requireAdmin(
+    { id: inviterUserId } as User,
+    adminClient,
+  );
   const { orgId } = membership;
 
   // 2. If the email already has a Scheza account, branch on membership: an

@@ -166,6 +166,11 @@
       "genericError": "Something went wrong. Please try again."
     }
   },
+  "DashboardNav": {
+    "label": "Dashboard navigation",
+    "dashboard": "Dashboard",
+    "settings": "Settings"
+  },
   "Legal": {
     "privacyTitle": "Privacy Policy",
     "termsTitle": "Terms of Service",

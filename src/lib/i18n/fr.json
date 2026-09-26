@@ -166,6 +166,11 @@
       "genericError": "Une erreur est survenue. Veuillez réessayer."
     }
   },
+  "DashboardNav": {
+    "label": "Navigation du tableau de bord",
+    "dashboard": "Tableau de bord",
+    "settings": "Paramètres"
+  },
   "Legal": {
     "privacyTitle": "Politique de confidentialité",
     "termsTitle": "Conditions d'utilisation",

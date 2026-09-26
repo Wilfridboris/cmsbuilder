@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 
+import { AppError } from "@/types/api";
+import type { ResolvedMembership } from "@/lib/auth/org";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resolveUserOrgMembership } from "@/lib/auth/org";
+import { requireAdmin } from "@/lib/auth/rbac";
 import { InviteForm } from "@/components/settings/InviteForm";
 
 /**
@@ -37,11 +39,23 @@ export default async function SettingsPage({
     redirect("/login?auth=required");
   }
 
-  // Resolve the caller's org + role. A non-member (null) or a Member is not an
-  // admin of this surface → bounce to the tenant dashboard. A slug mismatch (an
-  // admin of a DIFFERENT org) is likewise bounced to their own dashboard.
-  const membership = await resolveUserOrgMembership(user.id, createAdminClient());
-  if (!membership || membership.role !== "admin" || membership.slug !== slug) {
+  // Reuse the single RBAC guard for the admin resolution (Story 2.4). This is a
+  // UX GATE: the page keeps its redirect-to-`/{slug}` behavior rather than
+  // surfacing a raw 403, so a non-member / Member / cross-org admin bounces to
+  // the tenant dashboard. The invite ACTION is independently re-enforced by the
+  // same guard in `POST /api/invite` (frontend hiding is never the sole gate).
+  let membership: ResolvedMembership;
+  try {
+    membership = await requireAdmin(user, createAdminClient());
+  } catch (err) {
+    if (err instanceof AppError) {
+      redirect(`/${slug}`);
+    }
+    throw err;
+  }
+  // A slug mismatch (an admin of a DIFFERENT org) is likewise bounced to their
+  // own dashboard rather than shown another org's Settings.
+  if (membership.slug !== slug) {
     redirect(`/${slug}`);
   }
 
