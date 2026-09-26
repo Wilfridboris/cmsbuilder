@@ -179,6 +179,9 @@
   "SlugDashboard": {
     "subtitle": "Votre tableau de bord en direct. Ajoutez vos premiers enregistrements pour commencer.",
     "emptyDashboard": "Aucun tableau à afficher pour le moment.",
-    "emptyTable": "Aucun enregistrement pour le moment."
+    "emptyTable": "Aucun enregistrement pour le moment.",
+    "switcherLabel": "Vos tableaux",
+    "tableCaption": "Enregistrements pour {table}.",
+    "cardListLabel": "Enregistrements pour {table}."
   }
 }

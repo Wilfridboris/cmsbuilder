@@ -179,6 +179,9 @@
   "SlugDashboard": {
     "subtitle": "Your live dashboard. Add your first records to get started.",
     "emptyDashboard": "No tables to show yet.",
-    "emptyTable": "No records yet."
+    "emptyTable": "No records yet.",
+    "switcherLabel": "Your tables",
+    "tableCaption": "Records for {table}.",
+    "cardListLabel": "Records for {table}."
   }
 }
