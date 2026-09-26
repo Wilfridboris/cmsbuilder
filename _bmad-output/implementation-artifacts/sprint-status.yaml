@@ -45,7 +45,7 @@
 # Epics 9 (Growth) & 10 (Phase 3) are DEFERRED and intentionally unstoried (out of MVP scope).
 
 generated: 2026-09-23
-last_updated: 09-26-2026 (2.5 review)
+last_updated: 09-26-2026 (2.6 review)
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -71,7 +71,7 @@ development_status:
   2-4-role-based-access-enforcement: review
   # Carried from Epic 1 retrospective 2026-09-24 (F7/F8 hardening — see epic-1-retro-2026-09-24.md)
   2-5-schema-validator-keyword-false-reject: review
-  2-6-non-ascii-key-normalization: ready-for-dev
+  2-6-non-ascii-key-normalization: review
   epic-2-retrospective: optional
 
   # ── Epic 3: Core Data Management (Daily Driver) ──────────────────────────
