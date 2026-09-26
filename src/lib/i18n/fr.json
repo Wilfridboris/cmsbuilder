@@ -132,11 +132,37 @@
     "sentBody": "Si un compte existe pour {email}, nous avons envoyé un lien de connexion sécurisé. Ouvrez-le dans ce navigateur pour vous connecter.",
     "authRequired": "Veuillez vous connecter pour accéder à votre tableau de bord.",
     "noOrg": "Vous êtes connecté, mais vous n'avez pas encore de tableau de bord. Réclamez-en un pour commencer.",
+    "linkExpired": "Ce lien d'invitation a expiré ou a déjà été utilisé. Saisissez votre courriel ci-dessous et nous vous enverrons un nouveau lien de connexion.",
     "linkPrompt": "Vous avez déjà un compte?",
     "linkCta": "Se connecter",
     "error": {
       "invalidEmail": "Veuillez saisir une adresse courriel valide.",
       "sendFailed": "Nous n'avons pas pu envoyer votre lien pour le moment. Veuillez réessayer dans un instant.",
+      "genericError": "Une erreur est survenue. Veuillez réessayer."
+    }
+  },
+  "Settings": {
+    "title": "Invitez votre équipe",
+    "subtitle": "Ajoutez un coéquipier par courriel et choisissez ce qu'il peut faire. Il recevra un lien sécurisé pour se joindre — aucun mot de passe requis.",
+    "emailLabel": "Courriel du coéquipier",
+    "emailPlaceholder": "coequipier@votreentreprise.ca",
+    "roleLabel": "Rôle",
+    "rolePlaceholder": "Choisissez un rôle",
+    "roleMember": "Membre",
+    "roleAdmin": "Administrateur",
+    "roleMemberHint": "Peut consulter, ajouter et modifier des enregistrements.",
+    "roleAdminHint": "Accès complet, y compris l'invitation d'autres personnes.",
+    "submit": "Envoyer l'invitation",
+    "sentTitle": "Invitation envoyée",
+    "sentBody": "Nous avons envoyé une invitation à {email}. Il rejoindra votre équipe dès qu'il ouvrira le lien.",
+    "sendAnother": "Inviter quelqu'un d'autre",
+    "error": {
+      "invalidEmail": "Veuillez saisir une adresse courriel valide.",
+      "invalidRole": "Veuillez choisir un rôle valide.",
+      "forbidden": "Seuls les administrateurs peuvent inviter des coéquipiers.",
+      "accountExists": "Ce courriel appartient déjà à un compte Scheza d'une autre équipe; nous ne pouvons donc pas l'ajouter ici pour l'instant.",
+      "sendFailed": "Nous n'avons pas pu envoyer l'invitation pour le moment. Veuillez réessayer dans un instant.",
+      "unauthorized": "Votre session a expiré. Veuillez vous reconnecter.",
       "genericError": "Une erreur est survenue. Veuillez réessayer."
     }
   },

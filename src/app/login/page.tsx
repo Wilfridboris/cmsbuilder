@@ -41,6 +41,8 @@ function LoginNotice() {
   let message: string | null = null;
   if (auth === "required") message = t("authRequired");
   else if (login === "no-org") message = t("noOrg");
+  // Story 2.3: an expired/invalid invite confirm link lands here for a fresh link.
+  else if (login === "link-expired") message = t("linkExpired");
 
   if (!message) return null;
 

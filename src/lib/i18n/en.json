@@ -132,11 +132,37 @@
     "sentBody": "If an account exists for {email}, we've sent a secure sign-in link. Open it in this browser to sign in.",
     "authRequired": "Please log in to reach your dashboard.",
     "noOrg": "You're signed in, but you don't have a dashboard yet. Claim one to get started.",
+    "linkExpired": "That invitation link has expired or was already used. Enter your email below and we'll send you a fresh sign-in link.",
     "linkPrompt": "Already have an account?",
     "linkCta": "Log in",
     "error": {
       "invalidEmail": "Please enter a valid email address.",
       "sendFailed": "We couldn't send your link just now. Please try again in a moment.",
+      "genericError": "Something went wrong. Please try again."
+    }
+  },
+  "Settings": {
+    "title": "Invite your team",
+    "subtitle": "Add a teammate by email and choose what they can do. They'll get a secure link to join — no password needed.",
+    "emailLabel": "Teammate's email",
+    "emailPlaceholder": "teammate@yourbusiness.ca",
+    "roleLabel": "Role",
+    "rolePlaceholder": "Choose a role",
+    "roleMember": "Member",
+    "roleAdmin": "Admin",
+    "roleMemberHint": "Can view, add, and edit records.",
+    "roleAdminHint": "Full access, including inviting others.",
+    "submit": "Send invitation",
+    "sentTitle": "Invitation sent",
+    "sentBody": "We sent an invitation to {email}. They'll join your team as soon as they open the link.",
+    "sendAnother": "Invite someone else",
+    "error": {
+      "invalidEmail": "Please enter a valid email address.",
+      "invalidRole": "Please choose a valid role.",
+      "forbidden": "Only admins can invite teammates.",
+      "accountExists": "That email already belongs to a Scheza account on another team, so we can't add them here yet.",
+      "sendFailed": "We couldn't send the invitation just now. Please try again in a moment.",
+      "unauthorized": "Your session expired. Please sign in again.",
       "genericError": "Something went wrong. Please try again."
     }
   },

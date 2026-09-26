@@ -1,14 +1,26 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveUserPrimaryOrgSlug } from "@/lib/auth/org";
+import {
+  resolveUserPrimaryOrgSlug,
+  resolveUserOrgMembership,
+} from "@/lib/auth/org";
 
 /**
- * Unit coverage for `resolveUserPrimaryOrgSlug` (Story 2.2) against a mock admin
- * client — the user→org resolution that lands a returning user post-login:
+ * Unit coverage for the `@/lib/auth/org` resolvers against a mock admin client:
+ *
+ * `resolveUserPrimaryOrgSlug` (Story 2.2) — the user→org resolution that lands a
+ * returning user post-login:
  *   - most-recent membership resolves the org slug;
  *   - null when the user has no membership (routed to the no-org status);
  *   - null when the resolved org somehow has no slug;
  *   - throws on a membership read error (the callback maps this to ?claim=error).
+ *
+ * `resolveUserOrgMembership` (Story 2.3) — the admin-gating sibling that also
+ * carries `org_members.role`:
+ *   - returns { orgId, slug, role } for the most-recent membership (admin/member);
+ *   - null when the user has no membership;
+ *   - throws on a membership read error.
+ * (Kept here rather than in auth-confirm.test.ts, which must mock this module.)
  */
 
 /**
@@ -71,6 +83,52 @@ describe("resolveUserPrimaryOrgSlug", () => {
     ]);
 
     await expect(resolveUserPrimaryOrgSlug("u1", admin)).rejects.toThrow(
+      /membership/i,
+    );
+  });
+});
+
+describe("resolveUserOrgMembership", () => {
+  it("returns { orgId, slug, role } for the most-recent membership", async () => {
+    const admin = makeAdmin([
+      { data: { organization_id: "org-1", role: "admin" }, error: null },
+      { data: { slug: "mikes-plumbing-laval" }, error: null },
+    ]);
+
+    const result = await resolveUserOrgMembership("admin-1", admin);
+
+    expect(result).toEqual({
+      orgId: "org-1",
+      slug: "mikes-plumbing-laval",
+      role: "admin",
+    });
+  });
+
+  it("carries a member role through", async () => {
+    const admin = makeAdmin([
+      { data: { organization_id: "org-2", role: "member" }, error: null },
+      { data: { slug: "acme" }, error: null },
+    ]);
+
+    const result = await resolveUserOrgMembership("u2", admin);
+
+    expect(result).toEqual({ orgId: "org-2", slug: "acme", role: "member" });
+  });
+
+  it("returns null when the user has no membership", async () => {
+    const admin = makeAdmin([{ data: null, error: null }]);
+
+    const result = await resolveUserOrgMembership("nobody", admin);
+
+    expect(result).toBeNull();
+  });
+
+  it("throws on a membership read error", async () => {
+    const admin = makeAdmin([
+      { data: null, error: { message: "permission denied" } },
+    ]);
+
+    await expect(resolveUserOrgMembership("u1", admin)).rejects.toThrow(
       /membership/i,
     );
   });
