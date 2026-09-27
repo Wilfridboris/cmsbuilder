@@ -49,7 +49,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: 09-27-2026 14:09
+last_updated: 09-27-2026 14:25
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -257,7 +257,7 @@ action_items:
     action: "Add import server-only to src/lib/data/records.ts and move REFERENCE_COUNT_CAP
       to records-client.ts so no client component imports the server data layer. [A4]"
     owner: "Dev"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
   - id: "epic-3-retro-item-17-add-an-application-level-size-field-coun"
     epic: 3
@@ -299,7 +299,7 @@ action_items:
     action: "Reconcile epic-3-context never-\">>\" rule to allow the typeahead display-field
       ILIKE/ORDER path, and confirm the pg_trgm scale index is in deferred-work. [S1]"
     owner: "Boris"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
   - id: "epic-3-retro-item-23-decide-whether-multi-org-membership-is-i"
     epic: 3
