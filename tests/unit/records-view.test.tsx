@@ -19,8 +19,12 @@ import type { RecordData, TableDefinition } from "@/types/db";
  */
 
 vi.mock("next-intl", () => ({
-  useTranslations: () => (key: string, vars?: Record<string, unknown>) =>
-    vars?.table !== undefined ? `${key}:${String(vars.table)}` : key,
+  useTranslations: () => (key: string, vars?: Record<string, unknown>) => {
+    if (vars?.table !== undefined) return `${key}:${String(vars.table)}`;
+    // Inline-edit trigger names interpolate `{field}` (Story 3.3).
+    if (vars?.field !== undefined) return `${key}:${String(vars.field)}`;
+    return key;
+  },
 }));
 vi.mock("react-swipeable", () => ({ useSwipeable: () => ({}) }));
 
@@ -131,6 +135,55 @@ describe("RecordsView rendering (I/O matrix)", () => {
 
     expect(html).toContain("emptyTable");
     expect(html).not.toContain("<table");
+  });
+});
+
+describe("RecordsView inline-edit affordances (Story 3.3)", () => {
+  // A table mixing an editable scalar with a read-only relation field, so we can
+  // assert the `editable = ... && field.type !== "relation"` gate from markup.
+  const tickets: TableDefinition = {
+    key: "tickets",
+    label: "Tickets",
+    fields: [
+      { key: "title", label: "Title", type: "text" },
+      {
+        key: "client",
+        label: "Client",
+        type: "relation",
+        relationConfig: { targetTable: "customers", cardinality: "one" },
+      },
+    ],
+  };
+  const ticketRows: RecordData[] = [
+    { id: "t1", version: 1, data: { title: "Fix sink", client: "cust-1" } },
+  ];
+
+  it("renders an edit trigger for an editable field's read cell", () => {
+    const html = render([tickets], { tickets: ticketRows });
+
+    // The editValueLabel aria-label marks the click-to-edit trigger (present in
+    // both the desktop table cell and the mobile card value).
+    expect(html).toContain('aria-label="editValueLabel:Title"');
+  });
+
+  it("renders relation fields read-only, with no edit trigger", () => {
+    const html = render([tickets], { tickets: ticketRows });
+
+    // The relation cell shows its (raw, unresolved) value but exposes no edit
+    // affordance — the record picker is Story 3.7.
+    expect(html).not.toContain('aria-label="editValueLabel:Client"');
+    expect(html).toContain("cust-1");
+  });
+
+  it("gives an un-settled optimistic row no edit trigger", () => {
+    const optimisticRows: RecordData[] = [
+      { id: "optimistic-abc", version: 1, data: { title: "Pending", client: "cust-2" } },
+    ];
+    const html = render([tickets], { tickets: optimisticRows });
+
+    // Neither field is editable while the add is un-settled (temp id).
+    expect(html).not.toContain('aria-label="editValueLabel:Title"');
+    expect(html).toContain("Pending");
   });
 });
 

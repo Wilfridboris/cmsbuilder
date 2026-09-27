@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyOptimisticAdd,
   applyOptimisticDelete,
+  applyOptimisticUpdate,
   blankDraftForFields,
   coerceAddValue,
   inputModeFor,
@@ -138,5 +139,47 @@ describe("applyOptimisticDelete", () => {
     const next = applyOptimisticDelete(list, "missing");
     expect(next).toEqual(list);
     expect(next).not.toBe(list);
+  });
+});
+
+describe("applyOptimisticUpdate", () => {
+  it("replaces the matching row's data, leaving version untouched when none given", () => {
+    const list: RecordData[] = [
+      { id: "a", version: 1, data: { name: "Ada" } },
+      { id: "b", version: 2, data: { name: "Bo" } },
+    ];
+    const next = applyOptimisticUpdate(list, "a", { name: "Grace" });
+    expect(next).toEqual([
+      { id: "a", version: 1, data: { name: "Grace" } },
+      { id: "b", version: 2, data: { name: "Bo" } },
+    ]);
+  });
+
+  it("sets the version when one is given (server reconcile on success)", () => {
+    const list: RecordData[] = [{ id: "a", version: 1, data: { name: "Ada" } }];
+    const next = applyOptimisticUpdate(list, "a", { name: "Grace" }, 2);
+    expect(next).toEqual([{ id: "a", version: 2, data: { name: "Grace" } }]);
+  });
+
+  it("is a no-op for a missing id (returns a new array, unchanged rows)", () => {
+    const list: RecordData[] = [{ id: "a", version: 1, data: { name: "Ada" } }];
+    const next = applyOptimisticUpdate(list, "missing", { name: "X" }, 9);
+    expect(next).toEqual(list);
+    expect(next).not.toBe(list);
+  });
+
+  it("does not mutate the input list or the untouched rows", () => {
+    const rowA: RecordData = { id: "a", version: 1, data: { name: "Ada" } };
+    const rowB: RecordData = { id: "b", version: 2, data: { name: "Bo" } };
+    const list = [rowA, rowB];
+    const next = applyOptimisticUpdate(list, "a", { name: "Grace" }, 2);
+    expect(next).not.toBe(list);
+    expect(list).toEqual([
+      { id: "a", version: 1, data: { name: "Ada" } },
+      { id: "b", version: 2, data: { name: "Bo" } },
+    ]);
+    // The edited row is a new object; the untouched row is the same reference.
+    expect(next[0]).not.toBe(rowA);
+    expect(next[1]).toBe(rowB);
   });
 });

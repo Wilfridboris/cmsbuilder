@@ -61,6 +61,26 @@ export async function createRecord(
   return parseEnvelope<RecordData>(res);
 }
 
+/**
+ * PATCH a record's full merged `data`, gated on its current version; returns the
+ * row reconciled to its server id/version (Story 3.3 inline edit). The route
+ * echoes `{ id, version, data }`, which is exactly a `RecordData`.
+ */
+export async function updateRecord(
+  slug: string,
+  id: string,
+  table: string,
+  data: Record<string, unknown>,
+  expectedVersion: number,
+): Promise<RecordData> {
+  const res = await fetch(`/api/records/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ slug, table, data, expectedVersion }),
+  });
+  return parseEnvelope<RecordData>(res);
+}
+
 /** DELETE (soft) a record by id, gated on its current version. */
 export async function deleteRecord(
   slug: string,

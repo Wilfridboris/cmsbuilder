@@ -196,6 +196,7 @@
     "boolTrue": "Yes",
     "boolFalse": "No",
     "invalidNumber": "Please enter a valid number.",
+    "editValueLabel": "Edit {field}",
     "deleteRecord": "Delete record",
     "deleteTitle": "Delete this record?",
     "deleteBody": "This removes the record from your {table} table. This can't be undone here.",

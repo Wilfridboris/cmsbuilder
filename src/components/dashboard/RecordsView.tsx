@@ -7,8 +7,12 @@ import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Maximize2, Trash2 } from "lucide-react";
 
-import type { RecordData, TableDefinition } from "@/types/db";
-import { formatCell, type CellStrings } from "@/lib/format";
+import type {
+  FieldDefinition,
+  RecordData,
+  TableDefinition,
+} from "@/types/db";
+import { type CellStrings } from "@/lib/format";
 import {
   Table,
   TableBody,
@@ -32,9 +36,14 @@ import { blankDraftForFields, type Draft } from "@/lib/forms/field-input";
 import { AddRecordForm } from "@/components/dashboard/AddRecordForm";
 import { DeleteConfirmDialog } from "@/components/dashboard/DeleteConfirmDialog";
 import {
+  InlineEditCell,
+  type InlineCommit,
+} from "@/components/dashboard/InlineEditCell";
+import {
   isOptimisticId,
   useAddRecord,
   useDeleteRecord,
+  useUpdateRecord,
 } from "@/components/dashboard/useRecordMutations";
 
 /**
@@ -108,6 +117,7 @@ export function RecordsView({
 
   const addRecord = useAddRecord(slug, tableKey);
   const deleteRecord = useDeleteRecord(slug, tableKey);
+  const updateRecord = useUpdateRecord(slug, tableKey);
 
   // ONE lifted add-draft. When the active table changes we reset the draft (and
   // close the modal) DURING render via the "adjust state on prop change" pattern
@@ -190,6 +200,31 @@ export function RecordsView({
       },
     );
     setPendingDelete(null);
+  };
+
+  // Commit one inline cell edit: build the FULL merged row `data` (a cleared
+  // value drops the key), then run the optimistic PATCH gated on the row's
+  // current version. An un-settled optimistic row has a temp id/version that
+  // matches no server row, so its cells are non-editable and never reach here.
+  const handleCellCommit = (
+    row: RecordData,
+    field: FieldDefinition,
+    result: InlineCommit,
+  ) => {
+    if (isOptimisticId(row.id)) return;
+    setMessage(null);
+    const data: Record<string, unknown> = { ...row.data };
+    if (result.kind === "omit") {
+      delete data[field.key];
+    } else {
+      data[field.key] = result.value;
+    }
+    updateRecord.mutate(
+      { id: row.id, data, expectedVersion: row.version },
+      {
+        onError: (err) => setMessage(resolveError(err)),
+      },
+    );
   };
 
   const goTo = (index: number) => {
@@ -312,6 +347,8 @@ export function RecordsView({
               actionsHeader={t("actionsHeader")}
               deleteLabel={t("deleteRecord")}
               onDelete={requestDelete}
+              onCellCommit={handleCellCommit}
+              editPending={updateRecord.isPending}
             />
           )}
         </div>
@@ -331,6 +368,8 @@ export function RecordsView({
                 cellStrings={cellStrings}
                 deleteLabel={t("deleteRecord")}
                 onDelete={requestDelete}
+                onCellCommit={handleCellCommit}
+                editPending={updateRecord.isPending}
               />
             </ul>
           )}
@@ -412,6 +451,8 @@ function RecordsTable({
   actionsHeader,
   deleteLabel,
   onDelete,
+  onCellCommit,
+  editPending,
 }: {
   table: TableDefinition;
   rows: RecordData[];
@@ -420,6 +461,12 @@ function RecordsTable({
   actionsHeader: string;
   deleteLabel: string;
   onDelete: (record: RecordData) => void;
+  onCellCommit: (
+    row: RecordData,
+    field: FieldDefinition,
+    result: InlineCommit,
+  ) => void;
+  editPending: boolean;
 }) {
   const fields = table.fields.filter((field) => !field.hidden);
 
@@ -440,11 +487,20 @@ function RecordsTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((row) => (
+          {rows.map((row) => {
+            const editableRow = !isOptimisticId(row.id);
+            return (
             <TableRow key={row.id}>
               {fields.map((field) => (
                 <TableCell key={field.key}>
-                  {formatCell(row.data[field.key], field.type, cellStrings)}
+                  <InlineEditCell
+                    field={field}
+                    value={row.data[field.key]}
+                    cellStrings={cellStrings}
+                    editable={editableRow && field.type !== "relation"}
+                    pending={editPending}
+                    onCommit={(result) => onCellCommit(row, field, result)}
+                  />
                 </TableCell>
               ))}
               <TableCell className="text-right">
@@ -460,7 +516,8 @@ function RecordsTable({
                 </Button>
               </TableCell>
             </TableRow>
-          ))}
+            );
+          })}
         </TableBody>
       </Table>
     </div>
@@ -474,75 +531,107 @@ function RecordsCards({
   cellStrings,
   deleteLabel,
   onDelete,
+  onCellCommit,
+  editPending,
 }: {
   table: TableDefinition;
   rows: RecordData[];
   cellStrings: CellStrings;
   deleteLabel: string;
   onDelete: (record: RecordData) => void;
+  onCellCommit: (
+    row: RecordData,
+    field: FieldDefinition,
+    result: InlineCommit,
+  ) => void;
+  editPending: boolean;
 }) {
   const fields = table.fields.filter((field) => !field.hidden);
   const [primaryField, secondaryField, ...restFields] = fields;
 
   return (
     <>
-      {rows.map((row) => (
-        <li key={row.id}>
-          <Card className="gap-0 py-4">
-            <CardContent className="flex flex-col gap-2 px-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1 flex flex-col gap-2">
-                  {primaryField ? (
-                    <p className="text-base font-medium text-foreground text-pretty">
-                      {formatCell(
-                        row.data[primaryField.key],
-                        primaryField.type,
-                        cellStrings,
-                      )}
-                    </p>
-                  ) : null}
-                  {secondaryField ? (
-                    <p className="text-sm text-muted-foreground text-pretty">
-                      {formatCell(
-                        row.data[secondaryField.key],
-                        secondaryField.type,
-                        cellStrings,
-                      )}
-                    </p>
-                  ) : null}
+      {rows.map((row) => {
+        const editableRow = !isOptimisticId(row.id);
+        const cellEditable = (field: FieldDefinition) =>
+          editableRow && field.type !== "relation";
+        return (
+          <li key={row.id}>
+            <Card className="gap-0 py-4">
+              <CardContent className="flex flex-col gap-2 px-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1 flex flex-col gap-2">
+                    {primaryField ? (
+                      <div className="text-base font-medium text-foreground text-pretty">
+                        <InlineEditCell
+                          field={primaryField}
+                          value={row.data[primaryField.key]}
+                          cellStrings={cellStrings}
+                          editable={cellEditable(primaryField)}
+                          pending={editPending}
+                          onCommit={(result) =>
+                            onCellCommit(row, primaryField, result)
+                          }
+                        />
+                      </div>
+                    ) : null}
+                    {secondaryField ? (
+                      <div className="text-sm text-muted-foreground text-pretty">
+                        <InlineEditCell
+                          field={secondaryField}
+                          value={row.data[secondaryField.key]}
+                          cellStrings={cellStrings}
+                          editable={cellEditable(secondaryField)}
+                          pending={editPending}
+                          onCommit={(result) =>
+                            onCellCommit(row, secondaryField, result)
+                          }
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-12 shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => onDelete(row)}
+                    aria-label={deleteLabel}
+                  >
+                    <Trash2 aria-hidden="true" className="size-4" />
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-12 shrink-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => onDelete(row)}
-                  aria-label={deleteLabel}
-                >
-                  <Trash2 aria-hidden="true" className="size-4" />
-                </Button>
-              </div>
-              {restFields.length > 0 ? (
-                <dl className="mt-1 flex flex-col gap-1">
-                  {restFields.map((field) => (
-                    <div
-                      key={field.key}
-                      className="flex items-baseline justify-between gap-3 text-sm"
-                    >
-                      <dt className="shrink-0 text-muted-foreground">
-                        {field.label}
-                      </dt>
-                      <dd className="min-w-0 break-words text-right text-foreground">
-                        {formatCell(row.data[field.key], field.type, cellStrings)}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              ) : null}
-            </CardContent>
-          </Card>
-        </li>
-      ))}
+                {restFields.length > 0 ? (
+                  <dl className="mt-1 flex flex-col gap-1">
+                    {restFields.map((field) => (
+                      <div
+                        key={field.key}
+                        className="flex items-baseline justify-between gap-3 text-sm"
+                      >
+                        <dt className="shrink-0 text-muted-foreground">
+                          {field.label}
+                        </dt>
+                        <dd className="min-w-0 flex-1 text-right text-foreground">
+                          <InlineEditCell
+                            field={field}
+                            value={row.data[field.key]}
+                            cellStrings={cellStrings}
+                            editable={cellEditable(field)}
+                            pending={editPending}
+                            onCommit={(result) =>
+                              onCellCommit(row, field, result)
+                            }
+                          />
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : null}
+              </CardContent>
+            </Card>
+          </li>
+        );
+      })}
     </>
   );
 }

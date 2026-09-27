@@ -6,11 +6,13 @@ import type { RecordData } from "@/types/db";
 import {
   createRecord,
   deleteRecord,
+  updateRecord,
   RecordApiError,
 } from "@/lib/data/records-client";
 import {
   applyOptimisticAdd,
   applyOptimisticDelete,
+  applyOptimisticUpdate,
 } from "@/lib/forms/field-input";
 
 /**
@@ -75,6 +77,58 @@ export function useAddRecord(slug: string, tableKey: string) {
     },
     onSettled: () => {
       // Authoritative refetch reconciles the temp row to the server id/version.
+      void queryClient.invalidateQueries({ queryKey: key });
+    },
+  });
+}
+
+type UpdateContext = { previous: RecordData[] | undefined };
+
+type UpdateVars = {
+  /** The target row's id (a real server id — optimistic rows are guarded out). */
+  id: string;
+  /** The full merged row `data` (`{ ...row.data, [key]: value }`, cleared key omitted). */
+  data: Record<string, unknown>;
+  /** The version last read, gating the write (409 on a concurrent foreign edit). */
+  expectedVersion: number;
+};
+
+/**
+ * `useUpdateRecord(slug, tableKey)` — optimistic inline edit. Sends the FULL
+ * merged `data` (like POST): `mutate`'s update replaces `records.data` wholesale
+ * and `expectedVersion` gating turns a concurrent foreign edit into a clean 409
+ * rather than a silent clobber. Runs the mandatory optimistic sequence and
+ * reconciles the row's `version` from the server result on success.
+ */
+export function useUpdateRecord(slug: string, tableKey: string) {
+  const queryClient = useQueryClient();
+  const key = recordsKey(slug, tableKey);
+
+  return useMutation<RecordData, RecordApiError, UpdateVars, UpdateContext>({
+    mutationFn: ({ id, data, expectedVersion }) =>
+      updateRecord(slug, id, tableKey, data, expectedVersion),
+    onMutate: async ({ id, data }) => {
+      await queryClient.cancelQueries({ queryKey: key });
+      const previous = queryClient.getQueryData<RecordData[]>(key);
+      queryClient.setQueryData<RecordData[]>(key, (list) =>
+        applyOptimisticUpdate(list ?? [], id, data),
+      );
+      return { previous };
+    },
+    onSuccess: (server) => {
+      // Reconcile the edited row's version (and data) from the server result so
+      // a follow-up edit gates on the fresh version without waiting for the
+      // invalidate refetch.
+      queryClient.setQueryData<RecordData[]>(key, (list) =>
+        applyOptimisticUpdate(list ?? [], server.id, server.data, server.version),
+      );
+    },
+    onError: (_err, _vars, context) => {
+      if (context) {
+        queryClient.setQueryData<RecordData[]>(key, context.previous);
+      }
+    },
+    onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: key });
     },
   });

@@ -23,3 +23,10 @@ export const deleteQuerySchema = z.object({
   slug: z.string().trim().min(1),
   expectedVersion: z.coerce.number().int().nonnegative(),
 });
+
+export const updateBodySchema = z.object({
+  slug: z.string().trim().min(1),
+  table: z.string().trim().min(1),
+  data: z.record(z.string(), z.unknown()),
+  expectedVersion: z.coerce.number().int().nonnegative(),
+});

@@ -196,6 +196,7 @@
     "boolTrue": "Oui",
     "boolFalse": "Non",
     "invalidNumber": "Veuillez saisir un nombre valide.",
+    "editValueLabel": "Modifier {field}",
     "deleteRecord": "Supprimer l'enregistrement",
     "deleteTitle": "Supprimer cet enregistrement ?",
     "deleteBody": "Cela retire l'enregistrement de votre tableau {table}. Cette action est irréversible ici.",

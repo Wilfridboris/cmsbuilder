@@ -112,3 +112,27 @@ export function applyOptimisticDelete(
 ): RecordData[] {
   return list.filter((record) => record.id !== id);
 }
+
+/**
+ * Optimistic update: replace the `data` of the record with `id` — and its
+ * `version` when a new one is given (used to reconcile to the server row on
+ * settle) — leaving every other row and the list order untouched. Returns a NEW
+ * array and NEW row object, never mutating the input. A missing id is a no-op
+ * (returns a new array so callers can treat the result uniformly).
+ */
+export function applyOptimisticUpdate(
+  list: RecordData[],
+  id: string,
+  data: Record<string, unknown>,
+  version?: number,
+): RecordData[] {
+  return list.map((record) =>
+    record.id === id
+      ? {
+          ...record,
+          data,
+          ...(version !== undefined ? { version } : {}),
+        }
+      : record,
+  );
+}

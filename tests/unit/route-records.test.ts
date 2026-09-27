@@ -66,7 +66,12 @@ function deleteReq(query: Record<string, string>): NextRequest {
   return { nextUrl: url } as unknown as NextRequest;
 }
 
+function patchReq(body: unknown): NextRequest {
+  return { json: async () => body } as unknown as NextRequest;
+}
+
 const deleteParams = { params: Promise.resolve({ id: "rec-1" }) };
+const patchParams = { params: Promise.resolve({ id: "rec-1" }) };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -276,6 +281,100 @@ describe("DELETE /api/records/[id]", () => {
     const res = await DELETE(
       deleteReq({ slug: "acme", expectedVersion: "3" }),
       deleteParams,
+    );
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("writeFailed");
+  });
+});
+
+describe("PATCH /api/records/[id]", () => {
+  it("updates via mutate and returns the reconciled { id, version, data }", async () => {
+    const { PATCH } = await import("@/app/api/records/[id]/route");
+    // mutate's update returns the bumped { id, version }; the route echoes the
+    // merged `data` it sent (mutate replaces records.data wholesale).
+    mutate.mockResolvedValue({ data: { id: "rec-1", version: 4 }, error: null });
+    const data = { name: "Ada", amount: 12 };
+
+    const res = await PATCH(
+      patchReq({ slug: "acme", table: "clients", data, expectedVersion: 3 }),
+      patchParams,
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data).toEqual({ id: "rec-1", version: 4, data });
+    // Guarded update: op, table, merged payload, and the version-gated target.
+    const call = mutate.mock.calls[0];
+    expect(call[1]).toBe("update");
+    expect(call[2]).toBe("clients");
+    expect(call[3]).toEqual(data);
+    expect(call[4]).toEqual({ recordId: "rec-1", expectedVersion: 3 });
+  });
+
+  it("401 unauthorized when there is no session", async () => {
+    const { PATCH } = await import("@/app/api/records/[id]/route");
+    getCurrentUser.mockResolvedValue(null);
+
+    const res = await PATCH(
+      patchReq({ slug: "acme", table: "clients", data: {}, expectedVersion: 3 }),
+      patchParams,
+    );
+
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("unauthorized");
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("403 forbidden for a non-member slug", async () => {
+    const { PATCH } = await import("@/app/api/records/[id]/route");
+    orgRead = { data: null, error: null };
+
+    const res = await PATCH(
+      patchReq({ slug: "x", table: "clients", data: {}, expectedVersion: 3 }),
+      patchParams,
+    );
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("forbidden");
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("400 on a malformed body (missing table)", async () => {
+    const { PATCH } = await import("@/app/api/records/[id]/route");
+
+    const res = await PATCH(
+      patchReq({ slug: "acme", data: {}, expectedVersion: 3 }),
+      patchParams,
+    );
+
+    expect(res.status).toBe(400);
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("409 versionConflict when mutate resolves the concurrency message", async () => {
+    const { PATCH } = await import("@/app/api/records/[id]/route");
+    mutate.mockResolvedValue({ data: null, error: CONCURRENCY_MESSAGE });
+
+    const res = await PATCH(
+      patchReq({ slug: "acme", table: "clients", data: {}, expectedVersion: 3 }),
+      patchParams,
+    );
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.data).toBeNull();
+    expect(body.error).toBe("versionConflict");
+  });
+
+  it("500 writeFailed for any other mutate error", async () => {
+    const { PATCH } = await import("@/app/api/records/[id]/route");
+    mutate.mockResolvedValue({ data: null, error: "The write could not be completed." });
+
+    const res = await PATCH(
+      patchReq({ slug: "acme", table: "clients", data: {}, expectedVersion: 3 }),
+      patchParams,
     );
 
     expect(res.status).toBe(500);
