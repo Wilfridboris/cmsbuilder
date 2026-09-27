@@ -18,7 +18,11 @@
  * claim) and Story 3.5 (column hide).
  */
 
-import type { SchemaDefinition, TableDefinition } from "@/types/db";
+import type {
+  FieldDefinition,
+  SchemaDefinition,
+  TableDefinition,
+} from "@/types/db";
 
 /** The tables the dashboard should render — hidden ones dropped. */
 export function visibleTables(schema: SchemaDefinition): TableDefinition[] {
@@ -134,6 +138,29 @@ export function showField(
               field.key === fieldKey ? { ...field, hidden: false } : field,
             ),
           }
+        : table,
+    ),
+  };
+}
+
+/**
+ * Append a (validated) relation field to a table's `fields` (Story 3.7). Pure and
+ * immutable — returns a NEW `SchemaDefinition` with a NEW `fields` array for the
+ * target table; the input schema and every other table are never mutated. No-op
+ * for an unknown table key (returns an equivalent new schema). Callers MUST pass
+ * a field already sanitized by `validateRelationField` — this transform does no
+ * validation of its own (mirrors `hideField`/`showField`).
+ */
+export function addRelationField(
+  schema: SchemaDefinition,
+  tableKey: string,
+  field: FieldDefinition,
+): SchemaDefinition {
+  return {
+    ...schema,
+    tables: schema.tables.map((table) =>
+      table.key === tableKey
+        ? { ...table, fields: [...table.fields, field] }
         : table,
     ),
   };

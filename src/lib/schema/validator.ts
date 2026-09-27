@@ -367,6 +367,109 @@ export function validateGeneratedSchema(
 }
 
 /**
+ * Focused, targeted relation-field validator (Story 3.7) — the Admin
+ * "add relationship field" gate.
+ *
+ * This is DELIBERATELY separate from `validateGeneratedSchema`. That validator
+ * sanitizes the whole-schema *generation* output and, in doing so, strips
+ * post-generation metadata such as the Story 3.5 `hidden` flag (it never carries
+ * `hidden` onto the sanitized fields). Re-running it against a live claimed-org
+ * schema would silently un-hide those columns. So 3.7 validates ONE new relation
+ * field against the current stored schema, reusing the same rule primitives
+ * (`normalizeTableName`, `keyIsBlockedVerb`, `RESERVED_KEYS`, target-exists) and
+ * returns the sanitized field to append — the generation gate is untouched.
+ *
+ * Accepts only when, against the stored `schema`:
+ *   - `tableKey` names an existing table (the table the field is added to);
+ *   - `targetTable` (normalized) names an existing, non-hidden table in the org;
+ *   - the derived key (from `label`) normalizes non-empty, is unique within the
+ *     table, is not a reserved key, and is not a blocked SQL verb;
+ *   - `label` is a non-empty string.
+ * `cardinality` is forced to `"one"` (no multi-select at MVP — the `growth` gate
+ * stays with the generation path). Returns a reject `reason` (an error CODE the
+ * caller maps to a translated message) on any failure — never a raw detail.
+ */
+export type RelationFieldInput = {
+  label: string;
+  targetTable: string;
+};
+
+export type ValidateRelationFieldResult =
+  | {
+      valid: true;
+      field: {
+        key: string;
+        label: string;
+        type: "relation";
+        relationConfig: { targetTable: string; cardinality: "one" };
+      };
+    }
+  | { valid: false; reason: "addFieldFailed" };
+
+export function validateRelationField(
+  schema: SchemaDefinition,
+  tableKey: string,
+  input: RelationFieldInput,
+): ValidateRelationFieldResult {
+  const reject = (): ValidateRelationFieldResult => ({
+    valid: false,
+    reason: "addFieldFailed",
+  });
+
+  const tables = schema.tables ?? [];
+
+  // The table the field is being added to must exist (and be visible).
+  const table = tables.find((t) => t.key === tableKey && !t.hidden);
+  if (!table) {
+    return reject();
+  }
+
+  // Label must be a non-empty string.
+  if (!isNonEmptyString(input.label)) {
+    return reject();
+  }
+  const label = input.label.trim();
+
+  // The target table must exist in the same org schema and be visible.
+  if (!isNonEmptyString(input.targetTable)) {
+    return reject();
+  }
+  const targetTable = normalizeTableName(String(input.targetTable));
+  const target = tables.find((t) => t.key === targetTable && !t.hidden);
+  if (!target) {
+    return reject();
+  }
+
+  // Derive the field key from the label (mirrors how generation derives keys)
+  // and run it through every key protection.
+  const key = normalizeTableName(label);
+  if (!key) {
+    return reject();
+  }
+  if (keyIsBlockedVerb(key)) {
+    return reject();
+  }
+  if (RESERVED_KEYS.includes(key)) {
+    return reject();
+  }
+  // Unique within the table — a derived key colliding with an existing field is
+  // rejected (never silently overwrite an existing column's definition).
+  if (table.fields.some((f) => f.key === key)) {
+    return reject();
+  }
+
+  return {
+    valid: true,
+    field: {
+      key,
+      label,
+      type: "relation",
+      relationConfig: { targetTable, cardinality: "one" },
+    },
+  };
+}
+
+/**
  * Filter the LLM's `seedRows` for a validated table down to well-formed rows.
  * A malformed `seedRows` section must NOT invalidate a valid schema — bad rows
  * are silently dropped (FR: "persist the schema, skip bad rows, proceed").

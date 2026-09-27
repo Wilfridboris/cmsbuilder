@@ -48,8 +48,13 @@ import {
   useUpdateRecord,
 } from "@/components/dashboard/useRecordMutations";
 import { useRealtimeRecords } from "@/components/dashboard/useRealtimeRecords";
+import {
+  useRelationLabels,
+  type RelationResolution,
+} from "@/components/dashboard/useRelationLabels";
 import { RecordsToolbar } from "@/components/dashboard/RecordsToolbar";
 import { ColumnVisibilityControl } from "@/components/dashboard/ColumnVisibilityControl";
+import { AddRelationFieldControl } from "@/components/dashboard/AddRelationFieldControl";
 import {
   applyFilterSort,
   eligibleFields,
@@ -200,6 +205,15 @@ export function RecordsView({
     () => applyFilterSort(rows, filters, sort, activeTable.fields),
     [rows, filters, sort, activeTable],
   );
+
+  // Story 3.7: batched read-time relation-label resolution for the active table.
+  // Collects the distinct target ids referenced on this page and resolves them in
+  // one `id IN (...)` fetch per target table. `resolveRelation(field, value)` →
+  // `{ label } | { archived } | null` (null = still loading → skeleton). Both a
+  // mutation settle and 3.6 real-time invalidate `["relation-labels", slug]`, so
+  // an edited target's new label refetches (AC4). Resolve over the full `rows`
+  // (not just the filtered page) so labels are ready regardless of filter/sort.
+  const resolveRelation = useRelationLabels({ slug, table: activeTable, rows });
 
   const hasFilters = filters.length > 0;
 
@@ -413,15 +427,27 @@ export function RecordsView({
             onClearFilters={clearFilters}
           />
           {role === "admin" ? (
-            <ColumnVisibilityControl
-              slug={slug}
-              activeTable={activeTable}
-              onToggled={() => {
-                setMessage(null);
-                router.refresh();
-              }}
-              onError={(msg) => setMessage(msg)}
-            />
+            <div className="flex flex-wrap items-center gap-2">
+              <AddRelationFieldControl
+                slug={slug}
+                activeTable={activeTable}
+                tables={tables}
+                onSuccess={() => {
+                  setMessage(null);
+                  router.refresh();
+                }}
+                onError={(msg) => setMessage(msg)}
+              />
+              <ColumnVisibilityControl
+                slug={slug}
+                activeTable={activeTable}
+                onToggled={() => {
+                  setMessage(null);
+                  router.refresh();
+                }}
+                onError={(msg) => setMessage(msg)}
+              />
+            </div>
           ) : null}
         </div>
 
@@ -431,6 +457,7 @@ export function RecordsView({
         <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
           <AddRecordForm
             key={`inline-${formResetKey}`}
+            slug={slug}
             table={activeTable}
             draft={draft}
             onDraftChange={setDraft}
@@ -467,9 +494,11 @@ export function RecordsView({
             )
           ) : (
             <RecordsTable
+              slug={slug}
               table={activeTable}
               rows={visibleRows}
               cellStrings={cellStrings}
+              resolveRelation={resolveRelation}
               caption={t("tableCaption", { table: activeTable.label })}
               actionsHeader={t("actionsHeader")}
               deleteLabel={t("deleteRecord")}
@@ -509,9 +538,11 @@ export function RecordsView({
               className="flex list-none flex-col gap-3 p-0"
             >
               <RecordsCards
+                slug={slug}
                 table={activeTable}
                 rows={visibleRows}
                 cellStrings={cellStrings}
+                resolveRelation={resolveRelation}
                 deleteLabel={t("deleteRecord")}
                 onDelete={requestDelete}
                 onCellCommit={handleCellCommit}
@@ -543,6 +574,7 @@ export function RecordsView({
           </DialogHeader>
           <AddRecordForm
             key={`modal-${formResetKey}`}
+            slug={slug}
             table={activeTable}
             draft={draft}
             onDraftChange={setDraft}
@@ -624,9 +656,11 @@ function FilteredEmpty({
 
 /** Desktop: every visible field is a column, plus a trailing actions column. */
 function RecordsTable({
+  slug,
   table,
   rows,
   cellStrings,
+  resolveRelation,
   caption,
   actionsHeader,
   deleteLabel,
@@ -638,9 +672,14 @@ function RecordsTable({
   onSort,
   sortAriaLabel,
 }: {
+  slug: string;
   table: TableDefinition;
   rows: RecordData[];
   cellStrings: CellStrings;
+  resolveRelation: (
+    field: FieldDefinition,
+    value: unknown,
+  ) => RelationResolution;
   caption: string;
   actionsHeader: string;
   deleteLabel: string;
@@ -727,8 +766,10 @@ function RecordsTable({
                     field={field}
                     value={row.data[field.key]}
                     cellStrings={cellStrings}
-                    editable={editableRow && field.type !== "relation"}
+                    editable={editableRow}
                     pending={editPending}
+                    slug={slug}
+                    resolveRelation={resolveRelation}
                     onCommit={(result) => onCellCommit(row, field, result)}
                   />
                 </TableCell>
@@ -756,17 +797,24 @@ function RecordsTable({
 
 /** Mobile: one card per record; first two visible fields headline it. */
 function RecordsCards({
+  slug,
   table,
   rows,
   cellStrings,
+  resolveRelation,
   deleteLabel,
   onDelete,
   onCellCommit,
   editPending,
 }: {
+  slug: string;
   table: TableDefinition;
   rows: RecordData[];
   cellStrings: CellStrings;
+  resolveRelation: (
+    field: FieldDefinition,
+    value: unknown,
+  ) => RelationResolution;
   deleteLabel: string;
   onDelete: (record: RecordData) => void;
   onCellCommit: (
@@ -783,8 +831,7 @@ function RecordsCards({
     <>
       {rows.map((row) => {
         const editableRow = !isOptimisticId(row.id);
-        const cellEditable = (field: FieldDefinition) =>
-          editableRow && field.type !== "relation";
+        const cellEditable = (_field: FieldDefinition) => editableRow;
         return (
           <li key={row.id}>
             <Card className="gap-0 py-4">
@@ -799,6 +846,8 @@ function RecordsCards({
                           cellStrings={cellStrings}
                           editable={cellEditable(primaryField)}
                           pending={editPending}
+                          slug={slug}
+                          resolveRelation={resolveRelation}
                           onCommit={(result) =>
                             onCellCommit(row, primaryField, result)
                           }
@@ -813,6 +862,8 @@ function RecordsCards({
                           cellStrings={cellStrings}
                           editable={cellEditable(secondaryField)}
                           pending={editPending}
+                          slug={slug}
+                          resolveRelation={resolveRelation}
                           onCommit={(result) =>
                             onCellCommit(row, secondaryField, result)
                           }
@@ -848,6 +899,8 @@ function RecordsCards({
                             cellStrings={cellStrings}
                             editable={cellEditable(field)}
                             pending={editPending}
+                            slug={slug}
+                            resolveRelation={resolveRelation}
                             onCommit={(result) =>
                               onCellCommit(row, field, result)
                             }

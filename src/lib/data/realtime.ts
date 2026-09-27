@@ -35,10 +35,18 @@ export function recordsChangeFilter(orgId: string): string {
  * is marked stale (refetched when next viewed). The Realtime handler MUST react
  * this way and never `setQueryData` / patch the cache from the event payload —
  * authoritative state always comes from the `GET /api/records` refetch.
+ *
+ * It ALSO invalidates the relation-label prefix `["relation-labels", slug]`
+ * (Story 3.7) so that when a referenced row's `displayField` value changes, every
+ * referencing view re-resolves and shows the new label (AC4). Both mutation-time
+ * invalidation (`useUpdateRecord.onSettled`) and this real-time (3.6) handler
+ * clear it, so an edited target's label always refetches at read time — the label
+ * is never copied into the referencing row.
  */
 export function invalidateOrgRecords(
   queryClient: QueryClient,
   slug: string,
 ): void {
   void queryClient.invalidateQueries({ queryKey: ["records", slug] });
+  void queryClient.invalidateQueries({ queryKey: ["relation-labels", slug] });
 }

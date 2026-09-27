@@ -34,21 +34,27 @@ describe("recordsChangeFilter", () => {
 });
 
 describe("invalidateOrgRecords", () => {
-  it("invalidates the org's records prefix key (never patches the cache)", () => {
+  it("invalidates the org's records AND relation-label prefix keys (never patches the cache)", () => {
     const invalidateQueries = vi.fn();
     const queryClient = { invalidateQueries } as unknown as QueryClient;
 
     invalidateOrgRecords(queryClient, "acme");
 
-    expect(invalidateQueries).toHaveBeenCalledTimes(1);
+    // Story 3.7 extends this to also invalidate the relation-label prefix so an
+    // edited target's new label re-resolves at read time (AC4).
+    expect(invalidateQueries).toHaveBeenCalledTimes(2);
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["records", "acme"],
     });
-    // The prefix key (no tableKey) matches every ["records", slug, tableKey]
-    // query, so one call reconciles every logical table cached for the org.
-    const call = invalidateQueries.mock.calls[0][0] as {
-      queryKey: unknown[];
-    };
-    expect(call.queryKey).toHaveLength(2);
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["relation-labels", "acme"],
+    });
+    // The prefix keys (no tableKey / targetTable) match every nested query, so
+    // one call each reconciles every logical table + relation-label cached for
+    // the org.
+    for (const call of invalidateQueries.mock.calls) {
+      const arg = call[0] as { queryKey: unknown[] };
+      expect(arg.queryKey).toHaveLength(2);
+    }
   });
 });

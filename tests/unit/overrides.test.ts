@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addRelationField,
   canHideTable,
   hideField,
   hideTable,
@@ -9,7 +10,7 @@ import {
   showField,
   visibleTables,
 } from "@/lib/schema/overrides";
-import type { SchemaDefinition } from "@/types/db";
+import type { FieldDefinition, SchemaDefinition } from "@/types/db";
 
 /**
  * Unit coverage for the pure schema-override transforms (Story 1.7). Covers the
@@ -215,6 +216,55 @@ describe("showField", () => {
   it("is a no-op for an unknown field", () => {
     const schema = makeSchema();
     const next = showField(schema, "clients", "nope");
+    expect(snapshot(next)).toBe(snapshot(schema));
+  });
+});
+
+describe("addRelationField (Story 3.7)", () => {
+  const relationField: FieldDefinition = {
+    key: "client",
+    label: "Client",
+    type: "relation",
+    relationConfig: { targetTable: "clients", cardinality: "one" },
+  };
+
+  it("appends the relation field to the target table's fields", () => {
+    const next = addRelationField(makeSchema(), "jobs", relationField);
+    const jobs = next.tables.find((t) => t.key === "jobs");
+    expect(jobs?.fields.map((f) => f.key)).toEqual(["title", "price", "client"]);
+    const added = jobs?.fields.find((f) => f.key === "client");
+    expect(added).toMatchObject({
+      key: "client",
+      type: "relation",
+      relationConfig: { targetTable: "clients", cardinality: "one" },
+    });
+  });
+
+  it("forces cardinality 'one' (no multi-select at MVP)", () => {
+    const next = addRelationField(makeSchema(), "jobs", relationField);
+    const added = next.tables
+      .find((t) => t.key === "jobs")
+      ?.fields.find((f) => f.key === "client");
+    expect(added?.relationConfig?.cardinality).toBe("one");
+  });
+
+  it("leaves other tables untouched", () => {
+    const next = addRelationField(makeSchema(), "jobs", relationField);
+    expect(next.tables.find((t) => t.key === "clients")?.fields).toEqual(
+      makeSchema().tables.find((t) => t.key === "clients")?.fields,
+    );
+  });
+
+  it("does not mutate the input schema", () => {
+    const schema = makeSchema();
+    const before = snapshot(schema);
+    addRelationField(schema, "jobs", relationField);
+    expect(snapshot(schema)).toBe(before);
+  });
+
+  it("is a no-op for an unknown table key", () => {
+    const schema = makeSchema();
+    const next = addRelationField(schema, "nope", relationField);
     expect(snapshot(next)).toBe(snapshot(schema));
   });
 });

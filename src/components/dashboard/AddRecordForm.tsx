@@ -14,6 +14,7 @@ import {
   inputModeFor,
   type Draft,
 } from "@/lib/forms/field-input";
+import { RelationPicker } from "@/components/dashboard/RelationPicker";
 
 /**
  * AddRecordForm (Story 3.2) — the presentation-agnostic, schema-typed form body
@@ -42,6 +43,8 @@ const HTML_INPUT_TYPE: Partial<Record<FieldDefinition["type"], string>> = {
 };
 
 type AddRecordFormProps = {
+  /** Route slug — the relation picker needs it to scope its search/label calls. */
+  slug: string;
   table: TableDefinition;
   draft: Draft;
   onDraftChange: (draft: Draft) => void;
@@ -58,6 +61,7 @@ type AddRecordFormProps = {
 };
 
 export function AddRecordForm({
+  slug,
   table,
   draft,
   onDraftChange,
@@ -89,6 +93,15 @@ export function AddRecordForm({
         // The toggle always holds a defined "true"/"false"; write it as a real
         // boolean (booleans are never "blank").
         data[field.key] = draft[field.key] === "true";
+        continue;
+      }
+      if (field.type === "relation") {
+        // A relation draft value is the target id string; blank → omitted (the
+        // schema has no `required` concept, exactly like scalar fields).
+        const id = (draft[field.key] ?? "").trim();
+        if (id !== "") {
+          data[field.key] = id;
+        }
         continue;
       }
       const result = coerceAddValue(field.type, draft[field.key] ?? "");
@@ -142,6 +155,16 @@ export function AddRecordForm({
                 onChange={(next) => setValue(field.key, next ? "true" : "false")}
                 trueLabel={t("boolTrue")}
                 falseLabel={t("boolFalse")}
+                disabled={pending}
+              />
+            ) : field.type === "relation" && field.relationConfig ? (
+              <RelationPicker
+                id={fieldId}
+                slug={slug}
+                targetTable={field.relationConfig.targetTable}
+                value={draft[field.key] ? draft[field.key] : null}
+                onChange={(next) => setValue(field.key, next ?? "")}
+                ariaLabel={field.label}
                 disabled={pending}
               />
             ) : (

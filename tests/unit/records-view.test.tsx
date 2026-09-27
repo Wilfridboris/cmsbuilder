@@ -190,13 +190,15 @@ describe("RecordsView inline-edit affordances (Story 3.3)", () => {
     expect(html).toContain('aria-label="editValueLabel:Title"');
   });
 
-  it("renders relation fields read-only, with no edit trigger", () => {
+  it("renders relation fields with an edit trigger and never the raw id (Story 3.7)", () => {
     const html = render([tickets], { tickets: ticketRows });
 
-    // The relation cell shows its (raw, unresolved) value but exposes no edit
-    // affordance — the record picker is Story 3.7.
-    expect(html).not.toContain('aria-label="editValueLabel:Client"');
-    expect(html).toContain("cust-1");
+    // Story 3.7 makes relation cells editable (the searchable record picker opens
+    // from the read trigger) and resolves the label at read time — so the trigger
+    // is present and the raw target id is NEVER rendered (labels come from the
+    // batched `/api/records/labels` query, which shows a skeleton until resolved).
+    expect(html).toContain('aria-label="editValueLabel:Client"');
+    expect(html).not.toContain("cust-1");
   });
 
   it("gives an un-settled optimistic row no edit trigger", () => {

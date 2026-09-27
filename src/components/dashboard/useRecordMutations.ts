@@ -130,6 +130,13 @@ export function useUpdateRecord(slug: string, tableKey: string) {
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: key });
+      // A row edit may have changed a `displayField` value, so any view that
+      // resolves this row as a relation reference must re-resolve its label
+      // (Story 3.7 AC4). Clear the relation-label prefix for the org — the label
+      // is resolved at read time, never copied into the referencing row.
+      void queryClient.invalidateQueries({
+        queryKey: ["relation-labels", slug],
+      });
     },
   });
 }

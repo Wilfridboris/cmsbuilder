@@ -6,8 +6,11 @@ import { useTranslations } from "next-intl";
 import type { FieldDefinition } from "@/types/db";
 import { formatCell, type CellStrings } from "@/lib/format";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { coerceAddValue, inputModeFor } from "@/lib/forms/field-input";
+import { RelationPicker } from "@/components/dashboard/RelationPicker";
+import type { RelationResolution } from "@/components/dashboard/useRelationLabels";
 
 /**
  * InlineEditCell (Story 3.3) — one click-to-edit value on the authenticated
@@ -60,8 +63,19 @@ type InlineEditCellProps = {
   onCommit: (result: InlineCommit) => void;
   /** True while a save is in flight for this row — the trigger is inert. */
   pending: boolean;
-  /** False for relation/hidden/optimistic — render read-only, no affordance. */
+  /** False for hidden/optimistic — render read-only, no affordance. */
   editable: boolean;
+  /**
+   * Route slug — required to render the relation picker's server-side typeahead
+   * (Story 3.7). Only used when `field.type === "relation"`.
+   */
+  slug?: string;
+  /**
+   * Read-time relation-label resolver (Story 3.7) from `useRelationLabels`.
+   * `{ label }` → show the label; `{ archived }` → the "archived" placeholder;
+   * `null` → still resolving (skeleton). Only used for `relation` fields.
+   */
+  resolveRelation?: (field: FieldDefinition, value: unknown) => RelationResolution;
 };
 
 /** Stringify a stored value for a text input (booleans handled separately). */
@@ -79,6 +93,8 @@ export function InlineEditCell({
   onCommit,
   pending,
   editable,
+  slug,
+  resolveRelation,
 }: InlineEditCellProps) {
   const t = useTranslations("SlugDashboard");
   const [editing, setEditing] = useState(false);
@@ -103,8 +119,74 @@ export function InlineEditCell({
     setEditing(false);
   };
 
-  // Read-only cells (relation, hidden, or an un-settled optimistic row) show the
-  // formatted value with no interactive affordance.
+  // Relation cells (Story 3.7): the display is the resolver-provided LABEL (never
+  // the raw id), an "archived" placeholder for an unresolvable/soft-deleted
+  // target, or a skeleton while resolving. When editable, the read trigger swaps
+  // in the searchable `RelationPicker`; the picker writes the target id (or null
+  // to clear → the parent drops the key).
+  if (field.type === "relation") {
+    const resolution = resolveRelation?.(field, value) ?? null;
+
+    const labelNode =
+      value === null || value === undefined || String(value).trim() === "" ? (
+        <span className="text-muted-foreground">{cellStrings.empty}</span>
+      ) : resolution === null ? (
+        <Skeleton className="h-4 w-24" />
+      ) : "archived" in resolution ? (
+        <span className="text-muted-foreground italic">
+          {t("relationArchived")}
+        </span>
+      ) : (
+        <span className="min-w-0 break-words text-pretty">{resolution.label}</span>
+      );
+
+    if (!editable || !slug || !field.relationConfig) {
+      return <span className="flex min-w-0 items-center">{labelNode}</span>;
+    }
+
+    const accessibleName = t("editValueLabel", { field: field.label });
+
+    if (!editing) {
+      return (
+        <button
+          ref={triggerRef}
+          type="button"
+          aria-busy={pending || undefined}
+          onClick={() => setEditing(true)}
+          aria-label={accessibleName}
+          className={cn(
+            "flex min-h-12 w-full items-center rounded-md px-2 py-1 text-left transition-colors",
+            "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            pending && "opacity-60",
+          )}
+        >
+          {labelNode}
+        </button>
+      );
+    }
+
+    const currentId =
+      value === null || value === undefined ? null : String(value);
+    return (
+      <RelationPicker
+        slug={slug}
+        targetTable={field.relationConfig.targetTable}
+        value={currentId}
+        ariaLabel={accessibleName}
+        onChange={(next) => {
+          leaveEditing();
+          if (next === null) {
+            onCommit({ kind: "omit" });
+          } else {
+            onCommit({ kind: "ok", value: next });
+          }
+        }}
+      />
+    );
+  }
+
+  // Read-only cells (hidden or an un-settled optimistic row) show the formatted
+  // value with no interactive affordance.
   if (!editable) {
     return (
       <span className="min-w-0 break-words text-pretty">

@@ -20,7 +20,9 @@ const getSchema = vi.fn();
 vi.mock("@/lib/data/records", () => ({ getSchema }));
 
 // Imported AFTER the mock so the layer picks up the stubbed getSchema.
-const { setFieldVisibility } = await import("@/lib/data/schema-mutate");
+const { setFieldVisibility, addRelationField } = await import(
+  "@/lib/data/schema-mutate"
+);
 
 function baseSchema(): SchemaDefinition {
   return {
@@ -32,6 +34,23 @@ function baseSchema(): SchemaDefinition {
           { key: "name", label: "Name", type: "text" },
           { key: "email", label: "Email", type: "email" },
         ],
+      },
+    ],
+  };
+}
+
+function twoTableSchema(): SchemaDefinition {
+  return {
+    tables: [
+      {
+        key: "clients",
+        label: "Clients",
+        fields: [{ key: "name", label: "Name", type: "text" }],
+      },
+      {
+        key: "jobs",
+        label: "Jobs",
+        fields: [{ key: "service", label: "Service", type: "text" }],
       },
     ],
   };
@@ -149,6 +168,87 @@ describe("setFieldVisibility", () => {
       "email",
       true,
     ).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
+    expect((err as { userMessage: string }).userMessage).not.toContain("boom");
+  });
+});
+
+describe("addRelationField (Story 3.7)", () => {
+  it("appends a validated relation field and writes the re-derived definition scoped to the org", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+
+    const res = await addRelationField(identity(), "jobs", {
+      label: "Client",
+      targetTable: "clients",
+    });
+
+    expect(res.error).toBeNull();
+    expect(res.data).toEqual({
+      tableKey: "jobs",
+      fieldKey: "client",
+      targetTable: "clients",
+    });
+
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    expect(eqArgs).toEqual(["organization_id", "org-1"]);
+
+    const def = updatePayload?.definition as SchemaDefinition;
+    const jobs = def.tables.find((t) => t.key === "jobs");
+    const added = jobs?.fields.find((f) => f.key === "client");
+    expect(added).toMatchObject({
+      key: "client",
+      type: "relation",
+      relationConfig: { targetTable: "clients", cardinality: "one" },
+    });
+    // The referenced table is untouched — a re-derived definition, not client input.
+    expect(def.tables.find((t) => t.key === "clients")?.fields).toHaveLength(1);
+  });
+
+  it("400 addFieldFailed with NO write when the target table is unknown", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+
+    await expect(
+      addRelationField(identity(), "jobs", {
+        label: "Vendor",
+        targetTable: "vendors",
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "addFieldFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("400 addFieldFailed with NO write when the derived key collides", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+
+    await expect(
+      addRelationField(identity(), "jobs", {
+        label: "Service", // normalizes to the existing "service" key
+        targetTable: "clients",
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "addFieldFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("500 writeFailed with NO write when the schema read fails", async () => {
+    getSchema.mockResolvedValue({ data: null, error: "read boom" });
+
+    await expect(
+      addRelationField(identity(), "jobs", {
+        label: "Client",
+        targetTable: "clients",
+      }),
+    ).rejects.toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("500 writeFailed when the UPDATE errors, never leaking the raw message", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+    dbError = { message: "constraint boom" };
+
+    const err = await addRelationField(identity(), "jobs", {
+      label: "Client",
+      targetTable: "clients",
+    }).catch((e: unknown) => e);
 
     expect(err).toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
     expect((err as { userMessage: string }).userMessage).not.toContain("boom");

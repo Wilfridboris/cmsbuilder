@@ -3,7 +3,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { getSchema } from "@/lib/data/records";
-import { hideField, showField } from "@/lib/schema/overrides";
+import {
+  addRelationField as addRelationFieldTransform,
+  hideField,
+  showField,
+} from "@/lib/schema/overrides";
+import { validateRelationField } from "@/lib/schema/validator";
+import { normalizeTableName } from "@/lib/utils";
 
 /**
  * Guarded schema-visibility write layer (Story 3.5) — the single, targeted path
@@ -84,6 +90,78 @@ export async function setFieldVisibility(
     }
 
     return { data: { tableKey, fieldKey, hidden }, error: null };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/**
+ * Append an Admin-added single-reference relation field to a table (Story 3.7).
+ *
+ * Mirrors `setFieldVisibility`'s guarded read-modify-write contract exactly:
+ *   - read the org's CURRENT authoritative definition under the RLS client;
+ *   - run the focused `validateRelationField` against the stored schema (NOT the
+ *     whole-schema generation validator, which strips `hidden`) → 400 on reject,
+ *     no write;
+ *   - apply the pure `addRelationField` transform (append-only, cardinality
+ *     forced to `"one"`);
+ *   - write the full definition back under the RLS client (tenant-isolation
+ *     policy scopes the UPDATE to the caller's own org).
+ *
+ * A client can never post an arbitrary schema — the definition is always
+ * re-derived from the stored one and only a validated relation field is added.
+ * Returns the created field's `{ key, targetTable }`; raw SQL is never leaked.
+ */
+export async function addRelationField(
+  identity: SchemaMutateIdentity,
+  tableKey: string,
+  input: { label: string; targetTable: string },
+): Promise<ApiResponse<{ tableKey: string; fieldKey: string; targetTable: string }>> {
+  try {
+    const { client, orgId } = identity;
+
+    // 1. Read the org's CURRENT authoritative definition under the RLS client.
+    const current = await getSchema(client, orgId);
+    if (current.error || !current.data) {
+      throw new AppError(500, "writeFailed");
+    }
+    const schema = current.data;
+
+    // Normalize the incoming table key on read, mirroring the read layer, so an
+    // un-normalized key (e.g. "Clients") still matches the stored table key.
+    const normalizedTableKey = normalizeTableName(tableKey);
+
+    // 2. Focused validation against the stored schema. A bad target, colliding/
+    //    reserved/blocked key, or empty label → 400 with NO write.
+    const result = validateRelationField(schema, normalizedTableKey, input);
+    if (!result.valid) {
+      throw new AppError(400, result.reason);
+    }
+
+    // 3. Apply the pure, immutable append (only the target table's fields grow).
+    const next = addRelationFieldTransform(schema, normalizedTableKey, result.field);
+
+    // 4. Persist the full definition back under the RLS client.
+    const { error } = await client
+      .from("org_schemas")
+      .update({ definition: next, updated_at: new Date().toISOString() })
+      .eq("organization_id", orgId);
+
+    if (error) {
+      throw new AppError(500, "writeFailed", error.message);
+    }
+
+    return {
+      data: {
+        tableKey: normalizedTableKey,
+        fieldKey: result.field.key,
+        targetTable: result.field.relationConfig.targetTable,
+      },
+      error: null,
+    };
   } catch (err) {
     if (err instanceof AppError) {
       throw err;
