@@ -40,6 +40,14 @@ async function parseEnvelope<T>(res: Response): Promise<T> {
 export type RelationFilter = { field: string; targetId: string };
 
 /**
+ * The default cap on the delete-guard reference count (Story 3.8). Counting stops
+ * once this many referencing rows are found; the caller renders "500+". Lives in
+ * this client-safe module so the confirm dialog can import it without pulling in
+ * the server-only `records.ts` data layer.
+ */
+export const REFERENCE_COUNT_CAP = 500;
+
+/**
  * GET the authoritative non-deleted rows for a logical table. When
  * `relationFilters` are supplied (Story 3.8) they are serialized as repeatable
  * `rel=field:id` params so the server narrows the set via JSONB containment before

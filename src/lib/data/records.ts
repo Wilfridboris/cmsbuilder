@@ -1,12 +1,19 @@
+import "server-only";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ApiResponse } from "@/types/api";
 import type { RecordData, SchemaDefinition } from "@/types/db";
 import { normalizeTableName } from "@/lib/utils";
+import { REFERENCE_COUNT_CAP } from "@/lib/data/records-client";
 import {
   enumerateInboundRelations,
   type InboundRelation,
 } from "@/lib/data/relations";
+
+// Re-export so existing server importers keep resolving the cap from `records.ts`;
+// the constant itself lives in the client-safe `records-client.ts`.
+export { REFERENCE_COUNT_CAP };
 
 // Re-export the pure relation enumeration (extracted to the client-safe
 // `relations.ts` in Story 3.9) so existing importers — `countReferencingRecords`
@@ -229,12 +236,6 @@ export async function resolveRecordLabels(
 
   return { data: labels, error: null };
 }
-
-/**
- * The default cap on the delete-guard reference count (Story 3.8). Counting stops
- * once this many referencing rows are found; the caller renders "500+".
- */
-export const REFERENCE_COUNT_CAP = 500;
 
 /**
  * Count the non-deleted rows across the org that reference `targetId` (Story 3.8

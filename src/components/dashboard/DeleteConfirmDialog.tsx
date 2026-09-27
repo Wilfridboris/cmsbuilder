@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { REFERENCE_COUNT_CAP } from "@/lib/data/records";
+import { REFERENCE_COUNT_CAP } from "@/lib/data/records-client";
 
 /**
  * DeleteConfirmDialog (Story 3.2, extended by Story 3.8) — the Radix `Dialog`
