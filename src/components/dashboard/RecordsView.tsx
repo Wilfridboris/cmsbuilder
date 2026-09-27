@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import { useSwipeable } from "react-swipeable";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { Maximize2, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Maximize2, Trash2 } from "lucide-react";
 
 import type {
   FieldDefinition,
@@ -45,6 +45,13 @@ import {
   useDeleteRecord,
   useUpdateRecord,
 } from "@/components/dashboard/useRecordMutations";
+import { RecordsToolbar } from "@/components/dashboard/RecordsToolbar";
+import {
+  applyFilterSort,
+  eligibleFields,
+  type FilterState,
+  type SortState,
+} from "@/lib/data/filter-sort";
 
 /**
  * RecordsView (Story 3.1 + 3.2) — the responsive records surface for the
@@ -133,13 +140,69 @@ export function RecordsView({
   // per-field validation error state remounts fresh — otherwise a stale
   // "invalid" alert can linger on a now-emptied field after a reset.
   const [formResetKey, setFormResetKey] = useState(0);
+  // Ephemeral, per-table filter/sort view state (Story 3.4). Reset on active-
+  // table change via the same render-time "adjust state on prop change" pattern
+  // as the draft — not persisted to URL, storage, or the server.
+  const [sort, setSort] = useState<SortState>(null);
+  const [filters, setFilters] = useState<FilterState[]>([]);
+
   const [draftTableKey, setDraftTableKey] = useState(tableKey);
   if (draftTableKey !== tableKey) {
     setDraftTableKey(tableKey);
     setDraft(blankDraftForFields(visibleFields));
     setModalOpen(false);
     setFormResetKey((k) => k + 1);
+    setSort(null);
+    setFilters([]);
   }
+
+  // The fields the toolbar and header sort affordances may target: visible,
+  // non-relation. Sorting/filtering runs against `activeTable.fields` so the
+  // comparators/predicates see each field's declared type.
+  const sortableFields = useMemo(
+    () => eligibleFields(activeTable.fields),
+    [activeTable],
+  );
+  const sortableKeys = useMemo(
+    () => new Set(sortableFields.map((field) => field.key)),
+    [sortableFields],
+  );
+
+  // The rendered array: filters (ANDed) then the single-column sort applied to
+  // the cached rows. Never mutates the cache; the same result feeds both the
+  // desktop table and the mobile cards.
+  const visibleRows = useMemo(
+    () => applyFilterSort(rows, filters, sort, activeTable.fields),
+    [rows, filters, sort, activeTable],
+  );
+
+  const hasFilters = filters.length > 0;
+
+  // Sort field select: pick a field (defaults ascending) or clear.
+  const handleSortFieldChange = (field: string | null) => {
+    setSort(field ? { field, direction: "asc" } : null);
+  };
+
+  // Cycle sort on a field: unsorted → asc → desc → unsorted (created_at order).
+  const cycleSort = (field: string) => {
+    setSort((current) => {
+      if (!current || current.field !== field) {
+        return { field, direction: "asc" };
+      }
+      if (current.direction === "asc") {
+        return { field, direction: "desc" };
+      }
+      return null;
+    });
+  };
+
+  const addFilter = (filter: FilterState) => {
+    setFilters((current) => [...current, filter]);
+  };
+  const removeFilter = (index: number) => {
+    setFilters((current) => current.filter((_, i) => i !== index));
+  };
+  const clearFilters = () => setFilters([]);
 
   // The record queued for deletion (drives the confirm dialog).
   const [pendingDelete, setPendingDelete] = useState<RecordData | null>(null);
@@ -307,6 +370,20 @@ export function RecordsView({
         {/* Rollback / error line for the whole surface. */}
         <StatusMessage message={message} />
 
+        {/* Filter & sort toolbar — governs both the table and the cards. */}
+        <RecordsToolbar
+          fields={activeTable.fields}
+          filters={filters}
+          sort={sort}
+          onSortFieldChange={handleSortFieldChange}
+          onSortToggle={() => {
+            if (sort) cycleSort(sort.field);
+          }}
+          onAddFilter={addFilter}
+          onRemoveFilter={removeFilter}
+          onClearFilters={clearFilters}
+        />
+
         {/* Inline quick-add: a bordered adder at the top of the active table,
             sharing the lifted draft with the modal. The expand control reopens
             the same form in the modal. */}
@@ -336,12 +413,21 @@ export function RecordsView({
 
         {/* Desktop: semantic table with a trailing actions column. */}
         <div className="hidden md:block">
-          {rows.length === 0 ? (
-            <EmptyTable message={t("emptyTable")} />
+          {visibleRows.length === 0 ? (
+            hasFilters ? (
+              <FilteredEmpty
+                title={t("noRecordsFound")}
+                body={t("noRecordsFoundBody")}
+                clearLabel={t("clearFilters")}
+                onClear={clearFilters}
+              />
+            ) : (
+              <EmptyTable message={t("emptyTable")} />
+            )
           ) : (
             <RecordsTable
               table={activeTable}
-              rows={rows}
+              rows={visibleRows}
               cellStrings={cellStrings}
               caption={t("tableCaption", { table: activeTable.label })}
               actionsHeader={t("actionsHeader")}
@@ -349,14 +435,33 @@ export function RecordsView({
               onDelete={requestDelete}
               onCellCommit={handleCellCommit}
               editPending={updateRecord.isPending}
+              sort={sort}
+              sortableKeys={sortableKeys}
+              onSort={cycleSort}
+              sortAriaLabel={(fieldLabel, state) =>
+                state === "asc"
+                  ? t("sortAscending", { field: fieldLabel })
+                  : state === "desc"
+                    ? t("sortDescending", { field: fieldLabel })
+                    : t("sortUnsorted", { field: fieldLabel })
+              }
             />
           )}
         </div>
 
         {/* Mobile: card list, each card with a delete action. */}
         <div {...swipeHandlers} className="touch-pan-y md:hidden">
-          {rows.length === 0 ? (
-            <EmptyTable message={t("emptyTable")} />
+          {visibleRows.length === 0 ? (
+            hasFilters ? (
+              <FilteredEmpty
+                title={t("noRecordsFound")}
+                body={t("noRecordsFoundBody")}
+                clearLabel={t("clearFilters")}
+                onClear={clearFilters}
+              />
+            ) : (
+              <EmptyTable message={t("emptyTable")} />
+            )
           ) : (
             <ul
               aria-label={t("cardListLabel", { table: activeTable.label })}
@@ -364,7 +469,7 @@ export function RecordsView({
             >
               <RecordsCards
                 table={activeTable}
-                rows={rows}
+                rows={visibleRows}
                 cellStrings={cellStrings}
                 deleteLabel={t("deleteRecord")}
                 onDelete={requestDelete}
@@ -442,6 +547,40 @@ function EmptyTable({ message }: { message: string }) {
   return <p className="text-sm text-muted-foreground">{message}</p>;
 }
 
+/**
+ * The filters-produced empty state (Story 3.4): distinct from the empty-table
+ * state, never an error, with a control to clear the active filters.
+ */
+function FilteredEmpty({
+  title,
+  body,
+  clearLabel,
+  onClear,
+}: {
+  title: string;
+  body: string;
+  clearLabel: string;
+  onClear: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-border p-6"
+    >
+      <p className="text-sm font-medium text-foreground">{title}</p>
+      <p className="text-sm text-muted-foreground">{body}</p>
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-1 h-11 min-h-11"
+        onClick={onClear}
+      >
+        {clearLabel}
+      </Button>
+    </div>
+  );
+}
+
 /** Desktop: every visible field is a column, plus a trailing actions column. */
 function RecordsTable({
   table,
@@ -453,6 +592,10 @@ function RecordsTable({
   onDelete,
   onCellCommit,
   editPending,
+  sort,
+  sortableKeys,
+  onSort,
+  sortAriaLabel,
 }: {
   table: TableDefinition;
   rows: RecordData[];
@@ -467,6 +610,10 @@ function RecordsTable({
     result: InlineCommit,
   ) => void;
   editPending: boolean;
+  sort: SortState;
+  sortableKeys: Set<string>;
+  onSort: (field: string) => void;
+  sortAriaLabel: (fieldLabel: string, state: "none" | "asc" | "desc") => string;
 }) {
   const fields = table.fields.filter((field) => !field.hidden);
 
@@ -476,11 +623,53 @@ function RecordsTable({
         <caption className="sr-only">{caption}</caption>
         <TableHeader>
           <TableRow>
-            {fields.map((field) => (
-              <TableHead key={field.key} scope="col">
-                {field.label}
-              </TableHead>
-            ))}
+            {fields.map((field) => {
+              const sortable = sortableKeys.has(field.key);
+              const active = sort?.field === field.key;
+              const ariaSort: "ascending" | "descending" | "none" = active
+                ? sort!.direction === "asc"
+                  ? "ascending"
+                  : "descending"
+                : "none";
+              return (
+                <TableHead
+                  key={field.key}
+                  scope="col"
+                  className="p-0"
+                  aria-sort={sortable ? ariaSort : undefined}
+                >
+                  {sortable ? (
+                    <button
+                      type="button"
+                      onClick={() => onSort(field.key)}
+                      aria-label={sortAriaLabel(
+                        field.label,
+                        active ? sort!.direction : "none",
+                      )}
+                      className="flex min-h-12 w-full items-center gap-1.5 px-2 text-left font-medium transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                    >
+                      <span className="truncate">{field.label}</span>
+                      {active ? (
+                        sort!.direction === "asc" ? (
+                          <ArrowUp aria-hidden="true" className="size-3.5 shrink-0" />
+                        ) : (
+                          <ArrowDown aria-hidden="true" className="size-3.5 shrink-0" />
+                        )
+                      ) : (
+                        <ArrowUpDown
+                          aria-hidden="true"
+                          className="size-3.5 shrink-0 text-muted-foreground/50"
+                        />
+                      )}
+                    </button>
+                  ) : (
+                    <span className="flex min-h-12 items-center px-2">
+                      {field.label}
+                    </span>
+                  )}
+                </TableHead>
+              );
+            })}
             <TableHead scope="col" className="text-right">
               <span className="sr-only">{actionsHeader}</span>
             </TableHead>
