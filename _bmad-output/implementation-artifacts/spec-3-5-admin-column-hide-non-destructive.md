@@ -141,6 +141,8 @@ Pass 1 (2026-09-27) — blind-hunter, edge-case-hunter, verification-gap:
 - **decision** — Concurrent-write last-writer-wins (edge #3): explicitly accepted in the frozen Boundaries/matrix (no version column). Not a defect.
 - **low → reject** — `page.tsx` role slug-mismatch fallback branch untested (verif "other"): the branch is unreachable today (single-org) and fail-safe (defaults to "member" = least privilege); the server route is the gate.
 
+**Manual review (Playwright, post-commit) — verified (no change).** On the authed admin fixture `/session-1f4fa453` (Clients table, 5 fields): the Admin-only Columns manager renders in the toolbar and lists every field with a `Switch` + correct ARIA ("Hide the … column"). Hiding "Phone Number" dropped it from the desktop table AND the add-record form for the org and persisted across the `router.refresh()` re-render (row refs changed); the manager showed the "Hidden" badge, the switch off, and the ARIA flipped to "Show the … column". Unhiding restored the column and its stored value (`613-555-0165`) unchanged, with the badge cleared and the switch back on. No console errors/warnings. The Member-not-rendered gate and the endpoint 401/403/400/500 paths are covered by `route-schema-columns.test.ts` (not re-exercised in-browser; the fixture is an Admin).
+
 ## Design Notes
 
 - **Read side is already done.** `[slug]/page.tsx` loads the schema server-side and `RecordsView`/`RecordsTable`/`RecordsCards`/`AddRecordForm`/`filter-sort` already drop `hidden` fields. 3.5 only adds the *write + Admin gate + refresh*; do not re-implement filtering.
