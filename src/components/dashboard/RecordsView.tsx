@@ -47,6 +47,7 @@ import {
   useDeleteRecord,
   useUpdateRecord,
 } from "@/components/dashboard/useRecordMutations";
+import { useRealtimeRecords } from "@/components/dashboard/useRealtimeRecords";
 import { RecordsToolbar } from "@/components/dashboard/RecordsToolbar";
 import { ColumnVisibilityControl } from "@/components/dashboard/ColumnVisibilityControl";
 import {
@@ -90,6 +91,12 @@ type RecordsViewProps = {
   /** Route slug — keys the record queries and scopes the API calls. */
   slug: string;
   /**
+   * The org's UUID (resolved server-side). Scopes the Story 3.6 Realtime
+   * channel (`organization_id=eq.<orgId>`). A tenant identifier, not a secret;
+   * RLS stays the security boundary.
+   */
+  orgId: string;
+  /**
    * The caller's role for this org (Story 3.5). The Admin-only column-hide
    * control renders only when `role === "admin"`; the server route's
    * `requireAdmin` is the real security boundary.
@@ -105,6 +112,7 @@ type RecordsViewProps = {
 
 export function RecordsView({
   slug,
+  orgId,
   role,
   tables,
   recordsByTable,
@@ -136,6 +144,12 @@ export function RecordsView({
   const addRecord = useAddRecord(slug, tableKey);
   const deleteRecord = useDeleteRecord(slug, tableKey);
   const updateRecord = useUpdateRecord(slug, tableKey);
+
+  // Story 3.6: subscribe this dashboard to the org's Realtime records channel.
+  // A side effect only — on any change event (or reconnect) it invalidates
+  // `["records", slug]` so the active table refetches authoritative state; it
+  // never patches the cache. Scoped per org via the channel filter + RLS.
+  useRealtimeRecords({ slug, orgId });
 
   // ONE lifted add-draft. When the active table changes we reset the draft (and
   // close the modal) DURING render via the "adjust state on prop change" pattern

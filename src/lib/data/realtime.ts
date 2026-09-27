@@ -1,0 +1,44 @@
+import type { QueryClient } from "@tanstack/react-query";
+
+/**
+ * Pure, socket-free helpers for the Story 3.6 Realtime records subscription.
+ *
+ * Kept out of the hook so the channel config (name, filter) and the invalidation
+ * behavior are node-testable without a WebSocket or a DOM. `useRealtimeRecords`
+ * composes these; the live subscribe/reconnect DOM behavior is verified by the
+ * post-commit Playwright manual review (this repo has no jsdom).
+ */
+
+/**
+ * The Realtime channel name for an org's records subscription. One channel per
+ * mounted dashboard, keyed by the org UUID so subscriptions never collide.
+ */
+export function recordsChannelName(orgId: string): string {
+  return `records-org-${orgId}`;
+}
+
+/**
+ * The `postgres_changes` filter string scoping delivered events to the caller's
+ * org. The org UUID is a tenant identifier, not a secret; RLS
+ * (`records_tenant_isolation`) stays the security boundary and this filter is a
+ * traffic optimization that avoids delivering-then-discarding other-org rows.
+ */
+export function recordsChangeFilter(orgId: string): string {
+  return `organization_id=eq.${orgId}`;
+}
+
+/**
+ * Invalidate every logical table cached for this org in one call.
+ *
+ * The prefix key `["records", slug]` matches every `["records", slug, tableKey]`
+ * query, so the currently-viewed table refetches now and any other cached table
+ * is marked stale (refetched when next viewed). The Realtime handler MUST react
+ * this way and never `setQueryData` / patch the cache from the event payload —
+ * authoritative state always comes from the `GET /api/records` refetch.
+ */
+export function invalidateOrgRecords(
+  queryClient: QueryClient,
+  slug: string,
+): void {
+  void queryClient.invalidateQueries({ queryKey: ["records", slug] });
+}

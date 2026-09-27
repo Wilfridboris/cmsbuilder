@@ -31,6 +31,12 @@ vi.mock("react-swipeable", () => ({ useSwipeable: () => ({}) }));
 // `router.refresh()` for the admin column toggle). Under the node SSR renderer
 // there is no Next router context, so mock it to a no-op.
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => {} }) }));
+// Story 3.6: the realtime subscription hook opens a Supabase socket via the
+// browser client (needs env + a WebSocket). It is a pure side effect with no
+// markup, so stub it to a no-op — its pure seams are covered in realtime.test.ts.
+vi.mock("@/components/dashboard/useRealtimeRecords", () => ({
+  useRealtimeRecords: () => {},
+}));
 
 // Story 3.2 layers TanStack Query + framer-motion onto the surface. Under the
 // node SSR renderer the query reads its seeded `initialData` (no fetch), so we
@@ -76,6 +82,7 @@ function render(
     <QueryClientProvider client={queryClient}>
       <RecordsView
         slug="test-org"
+        orgId="org-1"
         role={role}
         tables={tables}
         recordsByTable={recordsByTable}

@@ -107,6 +107,7 @@ export default async function SlugDashboardPage({
       ) : (
         <RecordsView
           slug={slug}
+          orgId={orgId}
           role={role}
           tables={tables}
           recordsByTable={recordsByTable}
