@@ -168,7 +168,7 @@ export function RelationPicker({
 
   return (
     <Popover open={open} onOpenChange={setOpenState}>
-      <div className="flex items-center gap-1">
+      <div className="flex w-full items-center gap-1">
         <PopoverTrigger asChild>
           <Button
             type="button"
@@ -180,7 +180,7 @@ export function RelationPicker({
             aria-controls={listboxId}
             aria-label={ariaLabel}
             className={cn(
-              "min-h-12 w-full min-w-[10rem] justify-between gap-2 font-normal",
+              "min-h-12 min-w-0 flex-1 justify-between gap-2 font-normal",
               value &&
               selectedLabel === null &&
               !selectedLabelQuery.isPending &&
