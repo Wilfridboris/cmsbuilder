@@ -32,14 +32,20 @@ function row(id: string, data: Record<string, unknown>): RecordData {
 }
 
 describe("eligibleFields", () => {
-  it("excludes hidden and relation fields, preserving order", () => {
+  it("excludes hidden fields but INCLUDES relation fields (Story 3.8), preserving order", () => {
     const fields = [
       field("name", "text"),
       field("secret", "text", { hidden: true }),
       field("owner", "relation"),
       field("amount", "currency"),
     ];
-    expect(eligibleFields(fields).map((f) => f.key)).toEqual(["name", "amount"]);
+    // Story 3.8: relation fields are now eligible filter/sort targets (relation
+    // filter is server-side; relation sort is by resolved label). Hidden stays out.
+    expect(eligibleFields(fields).map((f) => f.key)).toEqual([
+      "name",
+      "owner",
+      "amount",
+    ]);
   });
 });
 
@@ -62,7 +68,8 @@ describe("operatorsForType", () => {
       "between",
     ]);
     expect(operatorsForType("boolean")).toEqual(["is"]);
-    expect(operatorsForType("relation")).toEqual([]);
+    // Story 3.8: a relation is matched only by exact target ("is").
+    expect(operatorsForType("relation")).toEqual(["is"]);
   });
 });
 
@@ -222,5 +229,65 @@ describe("applyFilterSort", () => {
     );
     // Hidden-field filter ignored → all rows; hidden-field sort ignored → order kept.
     expect(out.map((r) => r.id)).toEqual(["a", "b", "c", "d"]);
+  });
+
+  // --- Story 3.8: relation filter is server-side; relation sort is by label ---
+
+  const relFields = [
+    field("title", "text"),
+    field("client", "relation", {
+      relationConfig: { targetTable: "clients", cardinality: "one" },
+    }),
+  ];
+  const relRows = [
+    row("r1", { title: "One", client: "c-charlie" }),
+    row("r2", { title: "Two", client: "c-alpha" }),
+    row("r3", { title: "Three", client: "c-bravo" }),
+    row("r4", { title: "Four", client: "c-archived" }), // unresolvable → sorts last
+    row("r5", { title: "Five" }), // no relation value → sorts last
+  ];
+  // Resolver: three live labels; the archived id resolves to null; missing → null.
+  const labels: Record<string, string> = {
+    "c-alpha": "Alpha",
+    "c-bravo": "Bravo",
+    "c-charlie": "Charlie",
+  };
+  const resolveRelationLabel = (
+    _f: FieldDefinition,
+    value: unknown,
+  ): string | null => labels[String(value)] ?? null;
+
+  it("ignores a relation filter client-side (applied server-side) — no rows dropped", () => {
+    const out = applyFilterSort(
+      relRows,
+      [{ field: "client", operator: "is", value: "c-alpha" }],
+      null,
+      relFields,
+      resolveRelationLabel,
+    );
+    // The relation filter is a no-op in `matchesFilter`; every row stays.
+    expect(out.map((r) => r.id)).toEqual(["r1", "r2", "r3", "r4", "r5"]);
+  });
+
+  it("sorts a relation column by the RESOLVED label; unresolved/archived sort last", () => {
+    const asc = applyFilterSort(
+      relRows,
+      [],
+      { field: "client", direction: "asc" },
+      relFields,
+      resolveRelationLabel,
+    );
+    // Alpha < Bravo < Charlie by label; the archived + missing rows trail (in order).
+    expect(asc.map((r) => r.id)).toEqual(["r2", "r3", "r1", "r4", "r5"]);
+
+    const desc = applyFilterSort(
+      relRows,
+      [],
+      { field: "client", direction: "desc" },
+      relFields,
+      resolveRelationLabel,
+    );
+    // Descending reorders only the resolved labels; blanks stay grouped last.
+    expect(desc.map((r) => r.id)).toEqual(["r1", "r3", "r2", "r4", "r5"]);
   });
 });

@@ -248,6 +248,13 @@
     "addRelationSubmit": "Ajouter le champ de lien",
     "addFieldForbidden": "Vous n'avez pas l'autorisation d'ajouter des champs.",
     "addFieldFailed": "Nous n'avons pas pu ajouter ce champ pour le moment. Veuillez réessayer dans un instant.",
+    "relationFilterValueLabel": "Enregistrement lié",
+    "deleteReferenceWarning": "{count, plural, one {# enregistrement est lié à celui-ci et l'affichera comme archivé.} other {# enregistrements sont liés à celui-ci et l'afficheront comme archivé.}}",
+    "deleteReferenceCapNote": "Affichage des {count} premiers; il pourrait y en avoir davantage.",
+    "deleteReferenceArchivedNote": "Ces enregistrements conservent leur lien et afficheront celui-ci comme archivé après sa suppression.",
+    "deleteReferenceCounting": "Vérification des enregistrements liés…",
+    "deleteReferenceUnavailable": "Nous n'avons pas pu vérifier les enregistrements liés, mais vous pouvez tout de même supprimer.",
+    "invalidReference": "Cet enregistrement lié n'existe plus. Veuillez en choisir un autre.",
     "op": {
       "contains": "contient",
       "equals": "égal à",

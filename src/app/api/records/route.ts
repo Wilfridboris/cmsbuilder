@@ -76,14 +76,16 @@ export async function GET(
     const parsed = listQuerySchema.safeParse({
       slug: req.nextUrl.searchParams.get("slug"),
       table: req.nextUrl.searchParams.get("table"),
+      // Repeatable `rel` params (`field:id`) → server-side relation filters.
+      rel: req.nextUrl.searchParams.getAll("rel"),
     });
     if (!parsed.success) {
       throw new AppError(400, "genericError");
     }
-    const { slug, table } = parsed.data;
+    const { slug, table, rel } = parsed.data;
 
     const identity = await resolveIdentity(slug, user.id);
-    const result = await listRecords(identity.client, identity.orgId, table);
+    const result = await listRecords(identity.client, identity.orgId, table, rel);
     if (result.error) {
       throw new AppError(500, "loadFailed");
     }
@@ -120,6 +122,12 @@ export async function POST(
       idempotencyKey,
     });
     if (result.error || !result.data) {
+      // A relation referential-integrity rejection (Story 3.8) surfaces its own
+      // translated code so the picker/UI can show "that link no longer exists"
+      // rather than the generic write failure.
+      if (result.error === "invalidReference") {
+        throw new AppError(400, "invalidReference");
+      }
       throw new AppError(500, "writeFailed");
     }
 

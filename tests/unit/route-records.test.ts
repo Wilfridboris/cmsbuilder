@@ -95,11 +95,13 @@ describe("GET /api/records", () => {
     const body = await res.json();
     expect(body.error).toBeNull();
     expect(body.data).toEqual([{ id: "r1", version: 1, data: { name: "Ada" } }]);
-    // Scoped to the RLS-resolved org id, never a client-supplied one.
+    // Scoped to the RLS-resolved org id, never a client-supplied one. The 4th arg
+    // is the (empty here) server-side relation-filter list (Story 3.8).
     expect(listRecords).toHaveBeenCalledWith(
       expect.anything(),
       "org-1",
       "clients",
+      [],
     );
   });
 
@@ -199,6 +201,27 @@ describe("POST /api/records", () => {
     expect(body.data).toBeNull();
     expect(body.error).toBe("writeFailed");
   });
+
+  it("400 invalidReference when mutate rejects a dangling relation id (Story 3.8)", async () => {
+    const { POST } = await import("@/app/api/records/route");
+    mutate.mockResolvedValue({ data: null, error: "invalidReference" });
+
+    const res = await POST(
+      postReq({
+        slug: "acme",
+        table: "jobs",
+        data: { client: "gone" },
+        idempotencyKey: "k",
+      }),
+    );
+
+    // The referential-integrity rejection surfaces its own translated code, not
+    // the generic 500 writeFailed.
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.data).toBeNull();
+    expect(body.error).toBe("invalidReference");
+  });
 });
 
 describe("DELETE /api/records/[id]", () => {
@@ -289,6 +312,28 @@ describe("DELETE /api/records/[id]", () => {
 });
 
 describe("PATCH /api/records/[id]", () => {
+  it("400 invalidReference when mutate rejects a dangling relation id (Story 3.8)", async () => {
+    const { PATCH } = await import("@/app/api/records/[id]/route");
+    mutate.mockResolvedValue({ data: null, error: "invalidReference" });
+
+    const res = await PATCH(
+      patchReq({
+        slug: "acme",
+        table: "jobs",
+        data: { client: "gone" },
+        expectedVersion: 3,
+      }),
+      patchParams,
+    );
+
+    // The referential-integrity rejection surfaces its own translated code, not
+    // the generic 500 writeFailed.
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.data).toBeNull();
+    expect(body.error).toBe("invalidReference");
+  });
+
   it("updates via mutate and returns the reconciled { id, version, data }", async () => {
     const { PATCH } = await import("@/app/api/records/[id]/route");
     // mutate's update returns the bumped { id, version }; the route echoes the

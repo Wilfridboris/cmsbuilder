@@ -1,13 +1,15 @@
 "use client";
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { RecordData } from "@/types/db";
 import {
   createRecord,
   deleteRecord,
+  fetchReferenceCount,
   updateRecord,
   RecordApiError,
+  type RelationFilter,
 } from "@/lib/data/records-client";
 import {
   applyOptimisticAdd,
@@ -26,8 +28,25 @@ import {
  * error is never exposed.
  */
 
-const recordsKey = (slug: string, tableKey: string) =>
-  ["records", slug, tableKey] as const;
+/**
+ * Serialize the active relation filters into a stable, order-independent key part
+ * (Story 3.8) so the records query key changes when a relation filter is added /
+ * removed and the mutation hooks write against the SAME key `RecordsView` reads.
+ * Sorted `field:id` strings — an empty list yields `[]`.
+ */
+export function relationFilterKeyPart(
+  relationFilters: RelationFilter[],
+): string[] {
+  return relationFilters
+    .map(({ field, targetId }) => `${field}:${targetId}`)
+    .sort();
+}
+
+const recordsKey = (
+  slug: string,
+  tableKey: string,
+  relationFilters: RelationFilter[] = [],
+) => ["records", slug, tableKey, relationFilterKeyPart(relationFilters)] as const;
 
 /** Prefix marking a client-only optimistic row that has no server row yet. */
 export const OPTIMISTIC_ID_PREFIX = "optimistic-";
@@ -48,9 +67,13 @@ type AddVars = {
 };
 
 /** `useAddRecord(slug, tableKey)` — optimistic insert at the top of the table. */
-export function useAddRecord(slug: string, tableKey: string) {
+export function useAddRecord(
+  slug: string,
+  tableKey: string,
+  relationFilters: RelationFilter[] = [],
+) {
   const queryClient = useQueryClient();
-  const key = recordsKey(slug, tableKey);
+  const key = recordsKey(slug, tableKey, relationFilters);
 
   return useMutation<RecordData, RecordApiError, AddVars, AddContext>({
     mutationFn: ({ data, idempotencyKey }) =>
@@ -100,9 +123,13 @@ type UpdateVars = {
  * rather than a silent clobber. Runs the mandatory optimistic sequence and
  * reconciles the row's `version` from the server result on success.
  */
-export function useUpdateRecord(slug: string, tableKey: string) {
+export function useUpdateRecord(
+  slug: string,
+  tableKey: string,
+  relationFilters: RelationFilter[] = [],
+) {
   const queryClient = useQueryClient();
-  const key = recordsKey(slug, tableKey);
+  const key = recordsKey(slug, tableKey, relationFilters);
 
   return useMutation<RecordData, RecordApiError, UpdateVars, UpdateContext>({
     mutationFn: ({ id, data, expectedVersion }) =>
@@ -144,9 +171,13 @@ export function useUpdateRecord(slug: string, tableKey: string) {
 type DeleteVars = { id: string; expectedVersion: number };
 
 /** `useDeleteRecord(slug, tableKey)` — optimistic soft-delete. */
-export function useDeleteRecord(slug: string, tableKey: string) {
+export function useDeleteRecord(
+  slug: string,
+  tableKey: string,
+  relationFilters: RelationFilter[] = [],
+) {
   const queryClient = useQueryClient();
-  const key = recordsKey(slug, tableKey);
+  const key = recordsKey(slug, tableKey, relationFilters);
 
   return useMutation<void, RecordApiError, DeleteVars, DeleteContext>({
     mutationFn: ({ id, expectedVersion }) =>
@@ -167,5 +198,28 @@ export function useDeleteRecord(slug: string, tableKey: string) {
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: key });
     },
+  });
+}
+
+/**
+ * `useReferenceCount(slug, table, id, { enabled })` (Story 3.8) — fetch how many
+ * non-deleted rows reference the record queued for deletion, so the confirm dialog
+ * can warn before a soft-delete. Keyed `["reference-count", slug, table, id]` and
+ * gated by `enabled` (the dialog fetches only while it is open). A fetch failure is
+ * left to the caller to surface as a neutral "couldn't verify" note — it never
+ * blocks the delete.
+ */
+export function useReferenceCount(
+  slug: string,
+  table: string,
+  id: string | null,
+  { enabled }: { enabled: boolean },
+) {
+  return useQuery<number, RecordApiError>({
+    queryKey: ["reference-count", slug, table, id],
+    queryFn: () => fetchReferenceCount(slug, table, id as string),
+    enabled: enabled && Boolean(id),
+    staleTime: 0,
+    retry: false,
   });
 }

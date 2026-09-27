@@ -158,6 +158,11 @@ export async function PATCH(
       if (result.error === CONCURRENCY_MESSAGE) {
         throw new AppError(409, "versionConflict");
       }
+      // A relation referential-integrity rejection (Story 3.8) surfaces its own
+      // translated code rather than the generic write failure.
+      if (result.error === "invalidReference") {
+        throw new AppError(400, "invalidReference");
+      }
       throw new AppError(500, "writeFailed");
     }
 

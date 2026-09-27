@@ -5,6 +5,13 @@ import type { RecordData, SchemaDefinition } from "@/types/db";
 import { normalizeTableName } from "@/lib/utils";
 
 /**
+ * A relation filter applied server-side to a `listRecords` query (Story 3.8):
+ * keep only rows whose `data[field]` equals `targetId`, evaluated as a JSONB
+ * containment (`data @> {field: targetId}`, GIN-indexed) — never `data->>field`.
+ */
+export type RelationFilter = { field: string; targetId: string };
+
+/**
  * JSONB read layer (Story 1.2).
  *
  * Identity-agnostic: the caller supplies the Supabase client, so the same
@@ -22,16 +29,28 @@ export async function listRecords(
   client: SupabaseClient,
   orgId: string,
   tableKey: string,
+  relationFilters: RelationFilter[] = [],
 ): Promise<ApiResponse<RecordData[]>> {
-  const { data, error } = await client
+  let builder = client
     .from("records")
     .select("id, version, data")
     .eq("organization_id", orgId)
     // Normalize on read as `mutate.ts` does on write, so a caller passing an
     // un-normalized key (e.g. "Clients") still matches the stored table_key.
     .eq("table_key", normalizeTableName(tableKey))
-    .is("deleted_at", null)
-    .order("created_at", { ascending: true });
+    .is("deleted_at", null);
+
+  // Filter-by-relationship (Story 3.8): each relation filter narrows the set to
+  // rows whose JSONB `data` CONTAINS `{ field: targetId }`. `.contains` emits the
+  // index-backed `@>` operator (served by the existing `records_data_gin_idx`),
+  // never a `data->>field` text extraction. Multiple filters chain (AND).
+  for (const { field, targetId } of relationFilters) {
+    builder = builder.contains("data", { [field]: targetId });
+  }
+
+  const { data, error } = await builder.order("created_at", {
+    ascending: true,
+  });
 
   if (error) {
     return { data: null, error: "Failed to load records." };
@@ -198,4 +217,89 @@ export async function resolveRecordLabels(
   }
 
   return { data: labels, error: null };
+}
+
+/** One `(table_key, field)` pair whose relation field targets a given table. */
+export type InboundRelation = { tableKey: string; fieldKey: string };
+
+/**
+ * The default cap on the delete-guard reference count (Story 3.8). Counting stops
+ * once this many referencing rows are found; the caller renders "500+".
+ */
+export const REFERENCE_COUNT_CAP = 500;
+
+/**
+ * Pure: enumerate every `(tableKey, fieldKey)` pair in the org schema whose
+ * `relation` field points at `targetTableKey` (Story 3.8 delete guard + reverse
+ * list foundation). A table that references the target through several relation
+ * fields yields one pair PER field; a self-referencing table is included (its own
+ * relation field can point back at it). `targetTableKey` is normalized so a caller
+ * passing an un-normalized key still matches the stored `relationConfig.targetTable`
+ * (which provisioning/`validateRelationField` store normalized).
+ */
+export function enumerateInboundRelations(
+  schema: SchemaDefinition,
+  targetTableKey: string,
+): InboundRelation[] {
+  const normalizedTarget = normalizeTableName(targetTableKey);
+  const pairs: InboundRelation[] = [];
+  for (const table of schema.tables) {
+    for (const field of table.fields) {
+      if (
+        field.type === "relation" &&
+        field.relationConfig &&
+        normalizeTableName(field.relationConfig.targetTable) === normalizedTarget
+      ) {
+        pairs.push({ tableKey: table.key, fieldKey: field.key });
+      }
+    }
+  }
+  return pairs;
+}
+
+/**
+ * Count the non-deleted rows across the org that reference `targetId` (Story 3.8
+ * safe-delete guard). Enumerates the schema's inbound `(table_key, field)` relation
+ * pairs and, for each, runs a `count: "exact", head: true` containment query
+ * (`org` + `table_key` + `deleted_at IS NULL` + `.contains("data", { field: id })`),
+ * summing the counts. Containment (`@>`) is served by the existing GIN index — never
+ * a `data->>field` text extraction.
+ *
+ * Short-circuits at `cap`: once the running total reaches the cap we stop issuing
+ * further queries and return `cap` (the caller renders "cap+"). Identity-agnostic
+ * (RLS-scoped client). Returns the `{ data, error }` envelope; raw SQL is never
+ * surfaced. A pair with no matching rows contributes 0; an unresolved target simply
+ * yields 0 total.
+ */
+export async function countReferencingRecords(
+  client: SupabaseClient,
+  orgId: string,
+  schema: SchemaDefinition,
+  targetTableKey: string,
+  targetId: string,
+  cap: number = REFERENCE_COUNT_CAP,
+): Promise<ApiResponse<number>> {
+  const pairs = enumerateInboundRelations(schema, targetTableKey);
+
+  let total = 0;
+  for (const { tableKey, fieldKey } of pairs) {
+    const { count, error } = await client
+      .from("records")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", orgId)
+      .eq("table_key", normalizeTableName(tableKey))
+      .is("deleted_at", null)
+      .contains("data", { [fieldKey]: targetId });
+
+    if (error) {
+      return { data: null, error: "Failed to count references." };
+    }
+
+    total += count ?? 0;
+    if (total >= cap) {
+      return { data: cap, error: null };
+    }
+  }
+
+  return { data: total, error: null };
 }

@@ -248,6 +248,13 @@
     "addRelationSubmit": "Add link field",
     "addFieldForbidden": "You don't have permission to add fields.",
     "addFieldFailed": "We couldn't add that field just now. Please try again in a moment.",
+    "relationFilterValueLabel": "Linked record",
+    "deleteReferenceWarning": "{count, plural, one {# record links to this and will show it as archived.} other {# records link to this and will show it as archived.}}",
+    "deleteReferenceCapNote": "Showing the first {count}; there may be more.",
+    "deleteReferenceArchivedNote": "Those records keep their link and will show this as archived after you delete it.",
+    "deleteReferenceCounting": "Checking for linked records…",
+    "deleteReferenceUnavailable": "We couldn't check for linked records, but you can still delete.",
+    "invalidReference": "That linked record no longer exists. Please pick another.",
     "op": {
       "contains": "contains",
       "equals": "equals",

@@ -33,12 +33,27 @@ async function parseEnvelope<T>(res: Response): Promise<T> {
   return body.data;
 }
 
-/** GET the authoritative non-deleted rows for a logical table. */
+/**
+ * One relation filter applied server-side (Story 3.8): keep rows where the given
+ * relation field equals the chosen target id (JSONB containment on the server).
+ */
+export type RelationFilter = { field: string; targetId: string };
+
+/**
+ * GET the authoritative non-deleted rows for a logical table. When
+ * `relationFilters` are supplied (Story 3.8) they are serialized as repeatable
+ * `rel=field:id` params so the server narrows the set via JSONB containment before
+ * returning; scalar filters/sort stay a client-side concern over the result.
+ */
 export async function fetchRecords(
   slug: string,
   tableKey: string,
+  relationFilters: RelationFilter[] = [],
 ): Promise<RecordData[]> {
   const params = new URLSearchParams({ slug, table: tableKey });
+  for (const { field, targetId } of relationFilters) {
+    params.append("rel", `${field}:${targetId}`);
+  }
   const res = await fetch(`/api/records?${params.toString()}`, {
     method: "GET",
     headers: { Accept: "application/json" },
@@ -148,6 +163,29 @@ export async function fetchRelationLabels(
   );
 
   return chunks.flat();
+}
+
+/**
+ * GET the count of non-deleted rows that reference `id` (Story 3.8 safe-delete
+ * guard). Parses `{ data: { count } }`; throws `RecordApiError(code)` on failure so
+ * the confirm dialog can show its neutral "couldn't verify references" fallback
+ * (a failure here never blocks the delete).
+ */
+export async function fetchReferenceCount(
+  slug: string,
+  table: string,
+  id: string,
+): Promise<number> {
+  const params = new URLSearchParams({ slug, table });
+  const res = await fetch(
+    `/api/records/${encodeURIComponent(id)}/references?${params.toString()}`,
+    {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    },
+  );
+  const body = await parseEnvelope<{ count: number }>(res);
+  return body.count;
 }
 
 /** DELETE (soft) a record by id, gated on its current version. */

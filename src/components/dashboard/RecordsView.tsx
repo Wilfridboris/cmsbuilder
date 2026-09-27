@@ -33,7 +33,11 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { fetchRecords, RecordApiError } from "@/lib/data/records-client";
+import {
+  fetchRecords,
+  RecordApiError,
+  type RelationFilter,
+} from "@/lib/data/records-client";
 import { blankDraftForFields, type Draft } from "@/lib/forms/field-input";
 import { AddRecordForm } from "@/components/dashboard/AddRecordForm";
 import { DeleteConfirmDialog } from "@/components/dashboard/DeleteConfirmDialog";
@@ -45,6 +49,7 @@ import {
   isOptimisticId,
   useAddRecord,
   useDeleteRecord,
+  useReferenceCount,
   useUpdateRecord,
 } from "@/components/dashboard/useRecordMutations";
 import { useRealtimeRecords } from "@/components/dashboard/useRealtimeRecords";
@@ -137,18 +142,13 @@ export function RecordsView({
     [activeTable],
   );
 
-  // Active table's rows via TanStack Query, seeded with server `initialData` so
-  // the first paint needs no fetch; invalidations after a mutation refetch the
-  // authoritative rows from GET /api/records.
-  const { data: rows = [] } = useQuery({
-    queryKey: ["records", slug, tableKey],
-    queryFn: () => fetchRecords(slug, tableKey),
-    initialData: recordsByTable[tableKey] ?? [],
-  });
-
-  const addRecord = useAddRecord(slug, tableKey);
-  const deleteRecord = useDeleteRecord(slug, tableKey);
-  const updateRecord = useUpdateRecord(slug, tableKey);
+  // A quick lookup of the active table's field types, so we can tell a relation
+  // filter (applied server-side) from a scalar filter (applied client-side).
+  const fieldByKey = useMemo(() => {
+    const map = new Map<string, FieldDefinition>();
+    for (const field of activeTable.fields) map.set(field.key, field);
+    return map;
+  }, [activeTable]);
 
   // Story 3.6: subscribe this dashboard to the org's Realtime records channel.
   // A side effect only — on any change event (or reconnect) it invalidates
@@ -186,9 +186,49 @@ export function RecordsView({
     setFilters([]);
   }
 
-  // The fields the toolbar and header sort affordances may target: visible,
-  // non-relation. Sorting/filtering runs against `activeTable.fields` so the
-  // comparators/predicates see each field's declared type.
+  // Story 3.8: partition the active filters. RELATION filters are applied
+  // SERVER-SIDE (JSONB containment) by riding in the records query key + params,
+  // so the server narrows the set before it returns; SCALAR filters stay in the
+  // client-side `applyFilterSort` pipeline over the returned rows — one coherent
+  // AND: server relation-narrowing, then client scalar filter + sort.
+  const relationFilters = useMemo<RelationFilter[]>(
+    () =>
+      filters
+        .filter((f) => fieldByKey.get(f.field)?.type === "relation")
+        .map((f) => ({ field: f.field, targetId: f.value })),
+    [filters, fieldByKey],
+  );
+  const scalarFilters = useMemo(
+    () => filters.filter((f) => fieldByKey.get(f.field)?.type !== "relation"),
+    [filters, fieldByKey],
+  );
+
+  // Active table's rows via TanStack Query, seeded with server `initialData` so
+  // the first paint needs no fetch; invalidations after a mutation refetch the
+  // authoritative rows from GET /api/records. The relation filters are part of the
+  // query key + request so a relation-filtered view is a distinct, server-narrowed
+  // cache entry (Story 3.8). `initialData` only seeds the unfiltered view.
+  const relationFilterKey = useMemo(
+    () =>
+      relationFilters.map((f) => `${f.field}:${f.targetId}`).sort(),
+    [relationFilters],
+  );
+  const { data: rows = [] } = useQuery({
+    queryKey: ["records", slug, tableKey, relationFilterKey],
+    queryFn: () => fetchRecords(slug, tableKey, relationFilters),
+    initialData:
+      relationFilters.length === 0
+        ? recordsByTable[tableKey] ?? []
+        : undefined,
+  });
+
+  const addRecord = useAddRecord(slug, tableKey, relationFilters);
+  const deleteRecord = useDeleteRecord(slug, tableKey, relationFilters);
+  const updateRecord = useUpdateRecord(slug, tableKey, relationFilters);
+
+  // The fields the toolbar and header sort affordances may target: visible
+  // (including relation — Story 3.8). Sorting/filtering runs against
+  // `activeTable.fields` so the comparators/predicates see each declared type.
   const sortableFields = useMemo(
     () => eligibleFields(activeTable.fields),
     [activeTable],
@@ -196,14 +236,6 @@ export function RecordsView({
   const sortableKeys = useMemo(
     () => new Set(sortableFields.map((field) => field.key)),
     [sortableFields],
-  );
-
-  // The rendered array: filters (ANDed) then the single-column sort applied to
-  // the cached rows. Never mutates the cache; the same result feeds both the
-  // desktop table and the mobile cards.
-  const visibleRows = useMemo(
-    () => applyFilterSort(rows, filters, sort, activeTable.fields),
-    [rows, filters, sort, activeTable],
   );
 
   // Story 3.7: batched read-time relation-label resolution for the active table.
@@ -214,6 +246,33 @@ export function RecordsView({
   // an edited target's new label refetches (AC4). Resolve over the full `rows`
   // (not just the filtered page) so labels are ready regardless of filter/sort.
   const resolveRelation = useRelationLabels({ slug, table: activeTable, rows });
+
+  // Story 3.8 relation SORT orders by the resolved display label. Adapt the
+  // `RelationResolution` resolver to the `(field, value) => string | null` shape
+  // `applyFilterSort` wants — an archived/loading value has no label (sorts last).
+  const resolveRelationLabel = useMemo(
+    () => (field: FieldDefinition, value: unknown): string | null => {
+      const resolution = resolveRelation(field, value);
+      if (resolution && "label" in resolution) return resolution.label;
+      return null;
+    },
+    [resolveRelation],
+  );
+
+  // The rendered array: SCALAR filters (ANDed) then the single-column sort applied
+  // to the (already server-relation-narrowed) rows. Relation sort orders by label
+  // via the resolver. Never mutates the cache; feeds both the table and the cards.
+  const visibleRows = useMemo(
+    () =>
+      applyFilterSort(
+        rows,
+        scalarFilters,
+        sort,
+        activeTable.fields,
+        resolveRelationLabel,
+      ),
+    [rows, scalarFilters, sort, activeTable, resolveRelationLabel],
+  );
 
   const hasFilters = filters.length > 0;
 
@@ -246,6 +305,16 @@ export function RecordsView({
   // The record queued for deletion (drives the confirm dialog).
   const [pendingDelete, setPendingDelete] = useState<RecordData | null>(null);
 
+  // Story 3.8: while the confirm dialog is open, fetch how many rows reference the
+  // queued record so the dialog can warn before the soft-delete. A fetch failure
+  // is surfaced as a neutral "couldn't verify" note (never blocks the delete).
+  const referenceCount = useReferenceCount(
+    slug,
+    tableKey,
+    pendingDelete?.id ?? null,
+    { enabled: pendingDelete !== null },
+  );
+
   // A single translated status/error line for the surface (rollback message).
   const [message, setMessage] = useState<string | null>(null);
 
@@ -258,6 +327,8 @@ export function RecordsView({
         return t("loadFailed");
       case "versionConflict":
         return t("versionConflict");
+      case "invalidReference":
+        return t("invalidReference");
       default:
         return t("genericError");
     }
@@ -416,6 +487,8 @@ export function RecordsView({
         <div className="flex flex-wrap items-start justify-between gap-2">
           <RecordsToolbar
             fields={activeTable.fields}
+            slug={slug}
+            resolveRelation={resolveRelation}
             filters={filters}
             sort={sort}
             onSortFieldChange={handleSortFieldChange}
@@ -591,6 +664,9 @@ export function RecordsView({
         onConfirm={handleConfirmDelete}
         onCancel={() => setPendingDelete(null)}
         pending={deleteRecord.isPending}
+        referenceCount={referenceCount.data ?? null}
+        referenceCountLoading={referenceCount.isPending}
+        referenceCountError={referenceCount.isError}
       />
     </div>
   );

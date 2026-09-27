@@ -55,12 +55,17 @@ export type FilterState = {
 };
 
 /**
- * The fields eligible as filter/sort targets: only VISIBLE (non-`hidden`) and
- * non-`relation` fields. Relations are Story 3.8; hidden fields are a display
- * concern and never offered. Preserves definition order.
+ * The fields eligible as filter/sort targets: every VISIBLE (non-`hidden`) field,
+ * INCLUDING `relation` fields (Story 3.8 — filter/sort by relationship). Hidden
+ * fields are a display concern and never offered. Preserves definition order.
+ *
+ * NOTE: relation filters are applied SERVER-SIDE (JSONB containment) in the records
+ * query, not by `matchesFilter`; relation sort is applied client-side by label via
+ * the resolver threaded into `applyFilterSort`. Both live alongside — not inside —
+ * the scalar client-side pipeline.
  */
 export function eligibleFields(fields: FieldDefinition[]): FieldDefinition[] {
-  return fields.filter((field) => !field.hidden && field.type !== "relation");
+  return fields.filter((field) => !field.hidden);
 }
 
 /**
@@ -78,6 +83,10 @@ export function operatorsForType(
     case "datetime":
       return ["before", "after", "on", "between"];
     case "boolean":
+      return ["is"];
+    case "relation":
+      // A relation is matched only by exact target ("is"); the value is a target
+      // id and the filter is applied server-side via containment (Story 3.8).
       return ["is"];
     case "text":
     case "email":
@@ -138,6 +147,13 @@ export function matchesFilter(
   type: FieldDefinition["type"],
 ): boolean {
   const { operator } = filter;
+
+  // Relation filters are applied SERVER-SIDE (JSONB containment in the records
+  // query), never here — the rows this function sees are already narrowed. Never
+  // re-filter a relation client-side (the cell holds an id, not the label).
+  if (type === "relation") {
+    return true;
+  }
 
   if (type === "boolean") {
     // "is": compare the cell's boolean to the chosen "true"/"false".
@@ -255,6 +271,18 @@ export function compareValues(
   });
 }
 
+/**
+ * Resolve a relation cell's stored value (a target id) to its display label, or
+ * `null` when it does not resolve (soft-deleted / archived / still loading). Used
+ * only for relation SORT (Story 3.8): the label lives in the target table and is
+ * already resolved on-page by `useRelationLabels`, so sorting matches what the
+ * user sees. Unresolved values sort last.
+ */
+export type RelationLabelResolver = (
+  field: FieldDefinition,
+  value: unknown,
+) => string | null;
+
 // --- The applied transform ---------------------------------------------------
 
 /**
@@ -270,13 +298,15 @@ export function applyFilterSort(
   filters: FilterState[],
   sort: SortState,
   fields: FieldDefinition[],
+  resolveRelationLabel?: RelationLabelResolver,
 ): RecordData[] {
   const byKey = new Map<string, FieldDefinition>();
   for (const field of eligibleFields(fields)) {
     byKey.set(field.key, field);
   }
 
-  // Filter (AND). Skip filters whose target is no longer eligible.
+  // Filter (AND). Skip filters whose target is no longer eligible. Relation
+  // filters are handled server-side and skipped by `matchesFilter`.
   let result = rows.filter((row) =>
     filters.every((filter) => {
       const field = byKey.get(filter.field);
@@ -291,10 +321,18 @@ export function applyFilterSort(
     const field = byKey.get(sort.field);
     if (field) {
       const dir = sort.direction === "desc" ? -1 : 1;
+      const isRelation = field.type === "relation";
       const indexed = result.map((row, index) => ({ row, index }));
       indexed.sort((x, y) => {
-        const xVal = x.row.data[sort.field];
-        const yVal = y.row.data[sort.field];
+        // Relation sort orders by the RESOLVED display label (Story 3.8), not the
+        // stored id. An unresolved/archived/loading value has no label → treated
+        // as blank and grouped last, exactly like a blank scalar.
+        const xVal = isRelation
+          ? resolveRelationLabel?.(field, x.row.data[sort.field]) ?? null
+          : x.row.data[sort.field];
+        const yVal = isRelation
+          ? resolveRelationLabel?.(field, y.row.data[sort.field]) ?? null
+          : y.row.data[sort.field];
         const xBlank = isBlank(xVal);
         const yBlank = isBlank(yVal);
         // Blanks are grouped deterministically at the SAME (trailing) end in
@@ -302,7 +340,10 @@ export function applyFilterSort(
         if (xBlank && yBlank) return x.index - y.index;
         if (xBlank) return 1;
         if (yBlank) return -1;
-        const cmp = compareValues(xVal, yVal, field.type);
+        // Relation labels compare as locale-aware text; scalars by their type.
+        const cmp = isRelation
+          ? compareValues(xVal, yVal, "text")
+          : compareValues(xVal, yVal, field.type);
         if (cmp !== 0) return cmp * dir;
         return x.index - y.index;
       });

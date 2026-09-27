@@ -26,6 +26,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { RelationPicker } from "@/components/dashboard/RelationPicker";
 import {
   eligibleFields,
   operatorsForType,
@@ -49,6 +50,17 @@ import { cn } from "@/lib/utils";
 type RecordsToolbarProps = {
   /** All fields of the active table (this component filters to eligible ones). */
   fields: FieldDefinition[];
+  /** Route slug — scopes the relation picker's typeahead in the filter popover. */
+  slug: string;
+  /**
+   * Resolve a relation filter's stored target id to its display label for the
+   * active-filter chip (Story 3.8). `{ label }` → show the label; `{ archived }` →
+   * the "archived" placeholder; `null` → still resolving (show a neutral dash).
+   */
+  resolveRelation: (
+    field: FieldDefinition,
+    value: unknown,
+  ) => { label: string } | { archived: true } | null;
   /** Active filters (ANDed). */
   filters: FilterState[];
   /** Active single-column sort, or `null` when unsorted. */
@@ -67,6 +79,8 @@ type RecordsToolbarProps = {
 
 export function RecordsToolbar({
   fields,
+  slug,
+  resolveRelation,
   filters,
   sort,
   onSortFieldChange,
@@ -150,6 +164,7 @@ export function RecordsToolbar({
       {/* Add-filter popover. */}
       <AddFilterPopover
         options={options}
+        slug={slug}
         onAdd={onAddFilter}
         operatorLabel={operatorLabel}
       />
@@ -158,26 +173,41 @@ export function RecordsToolbar({
       {filters.map((filter, index) => {
         const field = byKey.get(filter.field);
         const label = field ? field.label : filter.field;
+        // A relation filter's value is a stored target id — show its resolved
+        // display label (or the "archived" placeholder) rather than the raw id.
+        const relationValue = (() => {
+          if (!field || field.type !== "relation") return null;
+          const resolution = resolveRelation(field, filter.value);
+          if (resolution === null) return "…";
+          if ("archived" in resolution) return t("relationArchived");
+          return resolution.label;
+        })();
         const chip =
-          filter.operator === "between"
-            ? t("filterChipBetween", {
+          field?.type === "relation"
+            ? t("filterChip", {
                 field: label,
                 operator: operatorLabel(filter.operator),
-                value: filter.value,
-                value2: filter.value2 ?? "",
+                value: relationValue ?? "",
               })
-            : filter.operator === "is"
-              ? t("filterChip", {
-                  field: label,
-                  operator: operatorLabel(filter.operator),
-                  value:
-                    filter.value === "true" ? t("boolTrue") : t("boolFalse"),
-                })
-              : t("filterChip", {
+            : filter.operator === "between"
+              ? t("filterChipBetween", {
                   field: label,
                   operator: operatorLabel(filter.operator),
                   value: filter.value,
-                });
+                  value2: filter.value2 ?? "",
+                })
+              : filter.operator === "is"
+                ? t("filterChip", {
+                    field: label,
+                    operator: operatorLabel(filter.operator),
+                    value:
+                      filter.value === "true" ? t("boolTrue") : t("boolFalse"),
+                  })
+                : t("filterChip", {
+                    field: label,
+                    operator: operatorLabel(filter.operator),
+                    value: filter.value,
+                  });
         return (
           <span
             key={`${filter.field}-${index}`}
@@ -218,10 +248,12 @@ export function RecordsToolbar({
  */
 function AddFilterPopover({
   options,
+  slug,
   onAdd,
   operatorLabel,
 }: {
   options: FieldDefinition[];
+  slug: string;
   onAdd: (filter: FilterState) => void;
   operatorLabel: (op: FilterOperator) => string;
 }) {
@@ -235,6 +267,7 @@ function AddFilterPopover({
   const field = options.find((f) => f.key === fieldKey);
   const operators = field ? operatorsForType(field.type) : [];
   const isBoolean = field?.type === "boolean";
+  const isRelation = field?.type === "relation";
   const isBetween = operator === "between";
 
   const reset = () => {
@@ -256,6 +289,8 @@ function AddFilterPopover({
   const canApply = (() => {
     if (!field || !operator) return false;
     if (isBoolean) return value === "true" || value === "false";
+    // A relation filter's value is the chosen target id (via the picker).
+    if (isRelation) return value.trim() !== "";
     if (value.trim() === "") return false;
     if (isBetween && value2.trim() === "") return false;
     return true;
@@ -266,7 +301,7 @@ function AddFilterPopover({
     onAdd({
       field: field.key,
       operator,
-      value: isBoolean ? value : value.trim(),
+      value: isBoolean || isRelation ? value : value.trim(),
       ...(isBetween ? { value2: value2.trim() } : {}),
     });
     reset();
@@ -294,7 +329,12 @@ function AddFilterPopover({
             value={fieldKey}
             onValueChange={(next) => {
               setFieldKey(next);
-              setOperator("");
+              // A relation has a single operator ("is") — auto-select it so the
+              // user only needs to pick a target record.
+              const nextField = options.find((f) => f.key === next);
+              setOperator(
+                nextField?.type === "relation" ? "is" : "",
+              );
               setValue("");
               setValue2("");
             }}
@@ -340,8 +380,18 @@ function AddFilterPopover({
 
         {field && operator ? (
           <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">{t("filterValueLabel")}</label>
-            {isBoolean ? (
+            <label className="text-sm font-medium">
+              {isRelation ? t("relationFilterValueLabel") : t("filterValueLabel")}
+            </label>
+            {isRelation && field.relationConfig ? (
+              <RelationPicker
+                slug={slug}
+                targetTable={field.relationConfig.targetTable}
+                value={value === "" ? null : value}
+                ariaLabel={t("relationFilterValueLabel")}
+                onChange={(next) => setValue(next ?? "")}
+              />
+            ) : isBoolean ? (
               <Select value={value} onValueChange={setValue}>
                 <SelectTrigger
                   aria-label={t("filterValueLabel")}

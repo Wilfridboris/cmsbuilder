@@ -33,13 +33,22 @@ type Row = {
  */
 class FakeClient {
   rows: Row[];
+  /** Optional org schema returned by `getSchema` (referential-integrity guard). */
+  schema: unknown;
   private seq = 0;
 
-  constructor(initial: Row[] = []) {
+  constructor(initial: Row[] = [], schema: unknown = { tables: [] }) {
     this.rows = initial;
+    this.schema = schema;
   }
 
   from(table: string) {
+    if (table === "org_schemas") {
+      // Story 3.8 referential-integrity guard reads the org schema before a
+      // write. Return the configured definition so the guard can run (or no-op
+      // when the table has no relation fields).
+      return new FakeSchemaQuery(this);
+    }
     if (table !== "records") {
       throw new Error(`unexpected table: ${table}`);
     }
@@ -49,6 +58,23 @@ class FakeClient {
   nextId(): string {
     this.seq += 1;
     return `row-${this.seq}`;
+  }
+}
+
+/** Minimal `org_schemas` read: `.select().eq().maybeSingle()` → { definition }. */
+class FakeSchemaQuery {
+  constructor(private readonly client: FakeClient) {}
+  select() {
+    return this;
+  }
+  eq() {
+    return this;
+  }
+  maybeSingle() {
+    return Promise.resolve({
+      data: { definition: this.client.schema },
+      error: null,
+    });
   }
 }
 

@@ -7,9 +7,39 @@ import { z } from "zod";
  * pure schema-shape unit tests with no HTTP harness.
  */
 
+/**
+ * One relation filter from a repeatable `rel` query param (Story 3.8), encoded
+ * `"<fieldKey>:<uuid>"`. Split on the FIRST colon only (a field key never
+ * contains one; a UUID never does either, but be defensive). Both parts must be
+ * non-empty. Invalid entries reject the whole request (400) so a malformed
+ * filter never silently widens the result set.
+ */
+export const RELATION_FILTER_RE = /^([^:]+):(.+)$/;
+
+export const relationFilterSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .transform((raw, ctx) => {
+    const match = RELATION_FILTER_RE.exec(raw);
+    if (!match) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "bad rel param" });
+      return z.NEVER;
+    }
+    const field = match[1].trim();
+    const targetId = match[2].trim();
+    if (field === "" || targetId === "") {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "bad rel param" });
+      return z.NEVER;
+    }
+    return { field, targetId };
+  });
+
 export const listQuerySchema = z.object({
   slug: z.string().trim().min(1),
   table: z.string().trim().min(1),
+  // Repeatable `rel` params → relation filters. Absent → no relation filters.
+  rel: z.array(relationFilterSchema).optional().default([]),
 });
 
 export const createBodySchema = z.object({

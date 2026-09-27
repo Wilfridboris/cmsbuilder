@@ -86,6 +86,53 @@ describe("listQuerySchema (GET /api/records)", () => {
       false,
     );
   });
+
+  it("defaults rel to an empty list when absent (Story 3.8)", () => {
+    const parsed = listQuerySchema.safeParse({ slug: "s", table: "t" });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.rel).toEqual([]);
+  });
+
+  it("parses repeatable `field:id` rel params into relation filters", () => {
+    const parsed = listQuerySchema.safeParse({
+      slug: "s",
+      table: "jobs",
+      rel: ["client:c1", "lead:u9"],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.rel).toEqual([
+        { field: "client", targetId: "c1" },
+        { field: "lead", targetId: "u9" },
+      ]);
+    }
+  });
+
+  it("splits on the first colon so a colon in the id survives", () => {
+    const parsed = listQuerySchema.safeParse({
+      slug: "s",
+      table: "jobs",
+      rel: ["client:a:b"],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.rel).toEqual([{ field: "client", targetId: "a:b" }]);
+    }
+  });
+
+  it("rejects a malformed rel param (no colon, empty field, or empty id)", () => {
+    expect(
+      listQuerySchema.safeParse({ slug: "s", table: "t", rel: ["nocolon"] })
+        .success,
+    ).toBe(false);
+    expect(
+      listQuerySchema.safeParse({ slug: "s", table: "t", rel: [":c1"] }).success,
+    ).toBe(false);
+    expect(
+      listQuerySchema.safeParse({ slug: "s", table: "t", rel: ["client:"] })
+        .success,
+    ).toBe(false);
+  });
 });
 
 describe("deleteQuerySchema (DELETE /api/records/[id])", () => {

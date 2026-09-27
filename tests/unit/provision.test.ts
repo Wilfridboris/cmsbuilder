@@ -49,7 +49,15 @@ class FakeAdmin {
       return new UpsertQuery((payload) => this.orgUpserts.push(payload));
     }
     if (table === "org_schemas") {
-      return new UpsertQuery((payload) => this.schemaUpserts.push(payload));
+      // Story 3.8: the guarded insert reads back the org schema (referential
+      // integrity guard), so `org_schemas` must support upsert AND the
+      // `.select().eq().maybeSingle()` read that `getSchema` issues, returning
+      // the most recently upserted definition.
+      return new SchemaQuery((payload) => this.schemaUpserts.push(payload), () =>
+        this.schemaUpserts.length > 0
+          ? (this.schemaUpserts[this.schemaUpserts.length - 1].definition ?? null)
+          : null,
+      );
     }
     if (table === "records") {
       return new RecordsQuery(this);
@@ -71,12 +79,37 @@ class UpsertQuery {
   }
 }
 
+/** `org_schemas`: records upserts AND serves `getSchema`'s read (Story 3.8). */
+class SchemaQuery {
+  constructor(
+    private readonly record: (payload: Record<string, unknown>) => void,
+    private readonly readDefinition: () => unknown,
+  ) {}
+  upsert(payload: Record<string, unknown>) {
+    this.record(payload);
+    return Promise.resolve({ error: null });
+  }
+  select() {
+    return this;
+  }
+  eq() {
+    return this;
+  }
+  maybeSingle() {
+    return Promise.resolve({
+      data: { definition: this.readDefinition() },
+      error: null,
+    });
+  }
+}
+
 type Filter = { col: keyof RecordRow; val: unknown };
 
 class RecordsQuery {
   private mode: "select" | "insert" = "select";
   private filters: Filter[] = [];
   private insertPayload: Partial<RecordRow> | null = null;
+  private inFilter: { col: keyof RecordRow; vals: unknown[] } | null = null;
 
   constructor(private readonly admin: FakeAdmin) {}
 
@@ -95,12 +128,29 @@ class RecordsQuery {
   is() {
     return this;
   }
+  in(col: keyof RecordRow, vals: unknown[]) {
+    this.inFilter = { col, vals };
+    return this;
+  }
   order() {
     return this;
   }
 
   private matches(row: RecordRow): boolean {
-    return this.filters.every((f) => row[f.col] === f.val);
+    if (!this.filters.every((f) => row[f.col] === f.val)) return false;
+    if (this.inFilter && !this.inFilter.vals.includes(row[this.inFilter.col])) {
+      return false;
+    }
+    return true;
+  }
+
+  // The Story 3.8 referential-integrity guard terminates its verification query
+  // by awaiting after `.in("id", ids)`. Resolve the matching rows' ids.
+  then<T>(resolve: (value: { data: unknown[]; error: null }) => T) {
+    const data = this.admin.records
+      .filter((r) => this.matches(r))
+      .map((r) => ({ id: r.id }));
+    return Promise.resolve(resolve({ data, error: null }));
   }
 
   single() {
