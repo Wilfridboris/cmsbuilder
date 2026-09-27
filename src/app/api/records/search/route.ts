@@ -1,15 +1,13 @@
 import "server-only";
 
-import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { getCurrentUser } from "@/lib/auth/session";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getSchema, searchRelationRecords, type RecordLabel } from "@/lib/data/records";
 import { resolvedDisplayFieldKey } from "@/lib/schema/relations";
-import { reportError } from "@/lib/observability/report";
+import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
 import { searchQuerySchema } from "./schemas";
 
 /**
@@ -30,33 +28,6 @@ export const dynamic = "force-dynamic";
 
 type SearchResponse = { results: RecordLabel[] };
 
-function json<T>(
-  body: ApiResponse<T>,
-  status: number,
-): NextResponse<ApiResponse<T>> {
-  return NextResponse.json(body, { status });
-}
-
-async function resolveIdentity(slug: string, actorId: string) {
-  const cookieStore = await cookies();
-  const client = createServerSupabaseClient(cookieStore);
-
-  const { data: org, error } = await client
-    .from("organizations")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (error) {
-    throw new AppError(500, "genericError", error.message);
-  }
-  if (!org) {
-    throw new AppError(403, "forbidden");
-  }
-
-  return { client, actorId, orgId: org.id as string };
-}
-
 export async function GET(
   req: NextRequest,
 ): Promise<NextResponse<ApiResponse<SearchResponse>>> {
@@ -76,7 +47,7 @@ export async function GET(
     }
     const { slug, table, query } = parsed.data;
 
-    const identity = await resolveIdentity(slug, user.id);
+    const identity = await resolveOrgIdentity(slug, user.id);
 
     // Find the target table's resolved display field from the org schema.
     const schemaResult = await getSchema(identity.client, identity.orgId);
@@ -108,17 +79,6 @@ export async function GET(
 
     return json({ data: { results: result.data ?? [] }, error: null }, 200);
   } catch (err) {
-    return handleError<SearchResponse>(err);
+    return handleError<SearchResponse>(err, "/api/records/search");
   }
-}
-
-function handleError<T>(err: unknown): NextResponse<ApiResponse<T>> {
-  if (err instanceof AppError) {
-    if (err.statusCode >= 500) {
-      reportError(err, { route: "/api/records/search" });
-    }
-    return json<T>({ data: null, error: err.userMessage }, err.statusCode);
-  }
-  reportError(err, { route: "/api/records/search" });
-  return json<T>({ data: null, error: "genericError" }, 500);
 }

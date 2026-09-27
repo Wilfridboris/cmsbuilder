@@ -1,14 +1,12 @@
 import "server-only";
 
-import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { getCurrentUser } from "@/lib/auth/session";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getSchema, countReferencingRecords } from "@/lib/data/records";
-import { reportError } from "@/lib/observability/report";
+import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
 import { referencesQuerySchema } from "./schemas";
 
 /**
@@ -29,33 +27,6 @@ import { referencesQuerySchema } from "./schemas";
 export const dynamic = "force-dynamic";
 
 type ReferencesResponse = { count: number };
-
-function json<T>(
-  body: ApiResponse<T>,
-  status: number,
-): NextResponse<ApiResponse<T>> {
-  return NextResponse.json(body, { status });
-}
-
-async function resolveIdentity(slug: string, actorId: string) {
-  const cookieStore = await cookies();
-  const client = createServerSupabaseClient(cookieStore);
-
-  const { data: org, error } = await client
-    .from("organizations")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (error) {
-    throw new AppError(500, "genericError", error.message);
-  }
-  if (!org) {
-    throw new AppError(403, "forbidden");
-  }
-
-  return { client, actorId, orgId: org.id as string };
-}
 
 export async function GET(
   req: NextRequest,
@@ -81,7 +52,7 @@ export async function GET(
     }
     const { slug, table } = parsed.data;
 
-    const identity = await resolveIdentity(slug, user.id);
+    const identity = await resolveOrgIdentity(slug, user.id);
 
     const schemaResult = await getSchema(identity.client, identity.orgId);
     if (schemaResult.error || !schemaResult.data) {
@@ -101,17 +72,6 @@ export async function GET(
 
     return json({ data: { count: result.data }, error: null }, 200);
   } catch (err) {
-    return handleError<ReferencesResponse>(err);
+    return handleError<ReferencesResponse>(err, "/api/records/[id]/references");
   }
-}
-
-function handleError<T>(err: unknown): NextResponse<ApiResponse<T>> {
-  if (err instanceof AppError) {
-    if (err.statusCode >= 500) {
-      reportError(err, { route: "/api/records/[id]/references" });
-    }
-    return json<T>({ data: null, error: err.userMessage }, err.statusCode);
-  }
-  reportError(err, { route: "/api/records/[id]/references" });
-  return json<T>({ data: null, error: "genericError" }, 500);
 }

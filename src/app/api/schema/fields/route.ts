@@ -1,16 +1,14 @@
 import "server-only";
 
-import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { addRelationField } from "@/lib/data/schema-mutate";
-import { reportError } from "@/lib/observability/report";
+import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
 import { addRelationFieldSchema } from "./schemas";
 
 /**
@@ -42,33 +40,6 @@ type AddRelationFieldResponse = {
   fieldKey: string;
   targetTable: string;
 };
-
-function json<T>(
-  body: ApiResponse<T>,
-  status: number,
-): NextResponse<ApiResponse<T>> {
-  return NextResponse.json(body, { status });
-}
-
-async function resolveIdentity(slug: string, actorId: string) {
-  const cookieStore = await cookies();
-  const client = createServerSupabaseClient(cookieStore);
-
-  const { data: org, error } = await client
-    .from("organizations")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (error) {
-    throw new AppError(500, "genericError", error.message);
-  }
-  if (!org) {
-    throw new AppError(403, "forbidden");
-  }
-
-  return { client, actorId, orgId: org.id as string };
-}
 
 export async function POST(
   req: NextRequest,
@@ -104,7 +75,7 @@ export async function POST(
     }
 
     // 4. Build the caller's RLS-scoped identity for the org.
-    const identity = await resolveIdentity(slug, user.id);
+    const identity = await resolveOrgIdentity(slug, user.id);
 
     // 5. Guarded read-validate-write on `org_schemas` under the RLS client.
     const result = await addRelationField(identity, tableKey, {
@@ -114,17 +85,6 @@ export async function POST(
 
     return json({ data: result.data, error: null }, 200);
   } catch (err) {
-    return handleError<AddRelationFieldResponse>(err);
+    return handleError<AddRelationFieldResponse>(err, "/api/schema/fields");
   }
-}
-
-function handleError<T>(err: unknown): NextResponse<ApiResponse<T>> {
-  if (err instanceof AppError) {
-    if (err.statusCode >= 500) {
-      reportError(err, { route: "/api/schema/fields" });
-    }
-    return json<T>({ data: null, error: err.userMessage }, err.statusCode);
-  }
-  reportError(err, { route: "/api/schema/fields" });
-  return json<T>({ data: null, error: "genericError" }, 500);
 }

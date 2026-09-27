@@ -1,15 +1,13 @@
 import "server-only";
 
-import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import type { RecordData } from "@/types/db";
 import { getCurrentUser } from "@/lib/auth/session";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { mutate } from "@/lib/data/mutate";
-import { reportError } from "@/lib/observability/report";
+import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
 import { deleteQuerySchema, updateBodySchema } from "../schemas";
 
 /**
@@ -35,13 +33,6 @@ export type UpdateResponse = { id: string; version: number; data: RecordData["da
 // code — not a prose message — to remap to a 409 rather than a generic write error.
 const CONCURRENCY_CODE = "versionConflict";
 
-function json<T>(
-  body: ApiResponse<T>,
-  status: number,
-): NextResponse<ApiResponse<T>> {
-  return NextResponse.json(body, { status });
-}
-
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -66,23 +57,7 @@ export async function DELETE(
     }
     const { slug, expectedVersion } = parsed.data;
 
-    // Resolve the org UNDER the caller's RLS client (member-only) — mirrors the
-    // collection route. A non-member / bad slug → forbidden.
-    const cookieStore = await cookies();
-    const client = createServerSupabaseClient(cookieStore);
-    const { data: org, error: orgError } = await client
-      .from("organizations")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
-    if (orgError) {
-      throw new AppError(500, "genericError", orgError.message);
-    }
-    if (!org) {
-      throw new AppError(403, "forbidden");
-    }
-
-    const identity = { client, actorId: user.id, orgId: org.id as string };
+    const identity = await resolveOrgIdentity(slug, user.id);
     // `tableKey` is irrelevant to a delete — `mutate`'s delete branch targets
     // the row by id + org + version and never reads it. Pass a non-empty
     // placeholder so the shared "valid table required" guard is satisfied.
@@ -100,7 +75,7 @@ export async function DELETE(
 
     return json({ data: { deleted: true }, error: null }, 200);
   } catch (err) {
-    return handleError<DeleteResponse>(err);
+    return handleError<DeleteResponse>(err, "/api/records/[id]");
   }
 }
 
@@ -131,23 +106,7 @@ export async function PATCH(
     }
     const { slug, table, data, expectedVersion } = parsed.data;
 
-    // Resolve the org UNDER the caller's RLS client (member-only) — mirrors the
-    // collection route and the DELETE sibling. A non-member / bad slug → 403.
-    const cookieStore = await cookies();
-    const client = createServerSupabaseClient(cookieStore);
-    const { data: org, error: orgError } = await client
-      .from("organizations")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
-    if (orgError) {
-      throw new AppError(500, "genericError", orgError.message);
-    }
-    if (!org) {
-      throw new AppError(403, "forbidden");
-    }
-
-    const identity = { client, actorId: user.id, orgId: org.id as string };
+    const identity = await resolveOrgIdentity(slug, user.id);
     const result = await mutate(identity, "update", table, data, {
       recordId: id,
       expectedVersion,
@@ -175,17 +134,6 @@ export async function PATCH(
       200,
     );
   } catch (err) {
-    return handleError<UpdateResponse>(err);
+    return handleError<UpdateResponse>(err, "/api/records/[id]");
   }
-}
-
-function handleError<T>(err: unknown): NextResponse<ApiResponse<T>> {
-  if (err instanceof AppError) {
-    if (err.statusCode >= 500) {
-      reportError(err, { route: "/api/records/[id]" });
-    }
-    return json<T>({ data: null, error: err.userMessage }, err.statusCode);
-  }
-  reportError(err, { route: "/api/records/[id]" });
-  return json<T>({ data: null, error: "genericError" }, 500);
 }

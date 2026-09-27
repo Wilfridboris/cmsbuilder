@@ -1,16 +1,14 @@
 import "server-only";
 
-import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { setFieldVisibility } from "@/lib/data/schema-mutate";
-import { reportError } from "@/lib/observability/report";
+import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
 import { setColumnVisibilitySchema } from "./schemas";
 
 /**
@@ -41,39 +39,6 @@ type SetColumnVisibilityResponse = {
   fieldKey: string;
   hidden: boolean;
 };
-
-function json<T>(
-  body: ApiResponse<T>,
-  status: number,
-): NextResponse<ApiResponse<T>> {
-  return NextResponse.json(body, { status });
-}
-
-/**
- * Resolve the org id for `slug` under the caller's RLS-scoped client. RLS returns
- * the row only for a member, so a non-member (or bad slug) yields nothing → a
- * `forbidden` AppError. Mirrors `api/records/route.ts`.
- */
-async function resolveIdentity(slug: string, actorId: string) {
-  const cookieStore = await cookies();
-  const client = createServerSupabaseClient(cookieStore);
-
-  const { data: org, error } = await client
-    .from("organizations")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (error) {
-    throw new AppError(500, "genericError", error.message);
-  }
-  if (!org) {
-    // RLS hid the org (non-member) or the slug does not exist — same outcome.
-    throw new AppError(403, "forbidden");
-  }
-
-  return { client, actorId, orgId: org.id as string };
-}
 
 export async function POST(
   req: NextRequest,
@@ -113,24 +78,13 @@ export async function POST(
     }
 
     // 4. Build the caller's RLS-scoped identity for the org.
-    const identity = await resolveIdentity(slug, user.id);
+    const identity = await resolveOrgIdentity(slug, user.id);
 
     // 5. Guarded read-modify-write on `org_schemas` under the RLS client.
     const result = await setFieldVisibility(identity, tableKey, fieldKey, hidden);
 
     return json({ data: result.data, error: null }, 200);
   } catch (err) {
-    return handleError<SetColumnVisibilityResponse>(err);
+    return handleError<SetColumnVisibilityResponse>(err, "/api/schema/columns");
   }
-}
-
-function handleError<T>(err: unknown): NextResponse<ApiResponse<T>> {
-  if (err instanceof AppError) {
-    if (err.statusCode >= 500) {
-      reportError(err, { route: "/api/schema/columns" });
-    }
-    return json<T>({ data: null, error: err.userMessage }, err.statusCode);
-  }
-  reportError(err, { route: "/api/schema/columns" });
-  return json<T>({ data: null, error: "genericError" }, 500);
 }

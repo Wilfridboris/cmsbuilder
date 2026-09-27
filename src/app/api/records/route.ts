@@ -1,16 +1,14 @@
 import "server-only";
 
-import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import type { RecordData } from "@/types/db";
 import { getCurrentUser } from "@/lib/auth/session";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { listRecords } from "@/lib/data/records";
 import { mutate } from "@/lib/data/mutate";
-import { reportError } from "@/lib/observability/report";
+import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
 import { createBodySchema, listQuerySchema } from "./schemas";
 
 /**
@@ -30,39 +28,6 @@ import { createBodySchema, listQuerySchema } from "./schemas";
  */
 
 export const dynamic = "force-dynamic";
-
-function json<T>(
-  body: ApiResponse<T>,
-  status: number,
-): NextResponse<ApiResponse<T>> {
-  return NextResponse.json(body, { status });
-}
-
-/**
- * Resolve the org id for `slug` under the caller's RLS-scoped client. RLS
- * returns the row only for a member, so a non-member (or bad slug) yields
- * nothing → a `forbidden` AppError. Mirrors `[slug]/page.tsx`.
- */
-async function resolveIdentity(slug: string, actorId: string) {
-  const cookieStore = await cookies();
-  const client = createServerSupabaseClient(cookieStore);
-
-  const { data: org, error } = await client
-    .from("organizations")
-    .select("id")
-    .eq("slug", slug)
-    .maybeSingle();
-
-  if (error) {
-    throw new AppError(500, "genericError", error.message);
-  }
-  if (!org) {
-    // RLS hid the org (non-member) or the slug does not exist — same outcome.
-    throw new AppError(403, "forbidden");
-  }
-
-  return { client, actorId, orgId: org.id as string };
-}
 
 export async function GET(
   req: NextRequest,
@@ -84,7 +49,7 @@ export async function GET(
     }
     const { slug, table, rel } = parsed.data;
 
-    const identity = await resolveIdentity(slug, user.id);
+    const identity = await resolveOrgIdentity(slug, user.id);
     const result = await listRecords(identity.client, identity.orgId, table, rel);
     if (result.error) {
       throw new AppError(500, "loadFailed");
@@ -92,7 +57,7 @@ export async function GET(
 
     return json({ data: result.data ?? [], error: null }, 200);
   } catch (err) {
-    return handleError(err);
+    return handleError(err, "/api/records");
   }
 }
 
@@ -117,7 +82,7 @@ export async function POST(
     }
     const { slug, table, data, idempotencyKey } = parsed.data;
 
-    const identity = await resolveIdentity(slug, user.id);
+    const identity = await resolveOrgIdentity(slug, user.id);
     const result = await mutate(identity, "insert", table, data, {
       idempotencyKey,
     });
@@ -140,17 +105,6 @@ export async function POST(
     };
     return json({ data: created, error: null }, 200);
   } catch (err) {
-    return handleError<RecordData>(err);
+    return handleError<RecordData>(err, "/api/records");
   }
-}
-
-function handleError<T>(err: unknown): NextResponse<ApiResponse<T>> {
-  if (err instanceof AppError) {
-    if (err.statusCode >= 500) {
-      reportError(err, { route: "/api/records" });
-    }
-    return json<T>({ data: null, error: err.userMessage }, err.statusCode);
-  }
-  reportError(err, { route: "/api/records" });
-  return json<T>({ data: null, error: "genericError" }, 500);
 }
