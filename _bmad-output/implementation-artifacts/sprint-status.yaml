@@ -49,7 +49,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: 09-27-2026 (3.9 done; epic-3 done)
+last_updated: 09-27-2026 13:02
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -87,7 +87,7 @@ development_status:
   3-7-relationship-lookup-field-record-picker: done
   3-8-filter-sort-by-relationship-safe-delete-of-referenced-record: done
   3-9-reverse-related-list: done
-  epic-3-retrospective: optional
+  epic-3-retrospective: done
 
   epic-4: backlog
   4-1-upload-parse-a-spreadsheet: backlog
@@ -214,3 +214,98 @@ action_items:
     owner: "Dev"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-26.md"
+  - id: "epic-3-retro-item-11-fix-the-on-date-filter-filter-sort-ts-19"
+    epic: 3
+    action: "Fix the \"on\" date filter (filter-sort.ts:197-198): compare calendar
+      date-parts not exact epoch-ms; broken for datetime fields. Add date+datetime
+      coverage. [D5]"
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-12-throw-a-stable-error-code-versionconflic"
+    epic: 3
+    action: "Throw a stable error code (versionConflict) from the concurrency path
+      in mutate.ts and match on it in records/[id]/route.ts; remove the English-sentence
+      CONCURRENCY_MESSAGE string compare. [A3]"
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-13-replace-the-em-dash-empty-cell-placehold"
+    epic: 3
+    action: "Replace the em-dash empty-cell placeholder (Generate.cellEmpty in en.json/fr.json:48)
+      per chosen alternative; also removes a no-em-dash-rule violation. [Dash]"
+    owner: "Dev+Boris"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-14-extract-shared-records-schema-route-help"
+    epic: 3
+    action: "Extract shared records/schema route helpers (resolveIdentity, json, handleError)
+      into src/app/api/records/_lib.ts and de-inline the two blocks in [id]/route.ts.
+      [A2]"
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-15-extract-recordsview-filter-sort-state-re"
+    epic: 3
+    action: "Extract RecordsView filter/sort state + relation-label adapter into shared
+      hooks reused by RelatedRecordsList; unify the cycleSort signature. [A1/A2]"
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-16-add-import-server-only-to-src-lib-data-r"
+    epic: 3
+    action: "Add import server-only to src/lib/data/records.ts and move REFERENCE_COUNT_CAP
+      to records-client.ts so no client component imports the server data layer. [A4]"
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-17-add-an-application-level-size-field-coun"
+    epic: 3
+    action: "Add an application-level size/field-count cap to the create/update records
+      data zod schemas (records/schemas.ts). [D10]"
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-18-parallelize-countreferencingrecords-prom"
+    epic: 3
+    action: "Parallelize countReferencingRecords (Promise.all) + add a timeout; validate
+      [id] path param as a UUID to return 400 not 500. [D8/D11]"
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-19-handle-channel_error-timed_out-in-the-re"
+    epic: 3
+    action: "Handle CHANNEL_ERROR/TIMED_OUT in the realtime subscription with a fallback/refresh
+      so a dropped socket does not silently stale the dashboard. [D6]"
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-20-add-a-dangling-reference-repair-cleanup"
+    epic: 3
+    action: "Add a dangling-reference repair/cleanup path for rows pointing at soft-deleted
+      relation targets. [D4]"
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-21-pass-the-resolved-schema-into-mutate-to"
+    epic: 3
+    action: "Pass the resolved schema into mutate() to drop the per-write getSchema
+      round-trip. [A5]"
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-22-reconcile-epic-3-context-never-rule-to-a"
+    epic: 3
+    action: "Reconcile epic-3-context never-\">>\" rule to allow the typeahead display-field
+      ILIKE/ORDER path, and confirm the pg_trgm scale index is in deferred-work. [S1]"
+    owner: "Boris"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-3-retro-item-23-decide-whether-multi-org-membership-is-i"
+    epic: 3
+    action: "Decide whether multi-org membership is in MVP scope; if yes, fix requireAdmin/resolveUserOrgMembership
+      to resolve membership by the addressed org (slug) instead of most-recent (org.ts:93-99).
+      [D2]"
+    owner: "Boris"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
