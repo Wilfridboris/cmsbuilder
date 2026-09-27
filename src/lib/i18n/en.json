@@ -45,7 +45,7 @@
     "fallbackBanner": "We used a starter template — you can customize it using the chat.",
     "failedTitle": "Let's try that again",
     "failedBody": "We couldn't finish building your dashboard just now. Head back and give it another try.",
-    "cellEmpty": "—",
+    "cellEmpty": "Empty",
     "cellYes": "Yes",
     "cellNo": "No"
   },

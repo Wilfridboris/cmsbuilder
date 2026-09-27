@@ -126,6 +126,19 @@ describe("matchesFilter", () => {
     ).toBe(false);
   });
 
+  it("datetime 'on': matches the whole calendar day, not an exact instant", () => {
+    // Regression: a datetime cell (a real timestamp) filtered "on" a date-only
+    // value must match the day. Exact-ms equality made this always false.
+    const at0923 = "2026-05-01T09:23:00Z";
+    expect(
+      matchesFilter(at0923, { field: "x", operator: "on", value: "2026-05-01" }, "datetime"),
+    ).toBe(true);
+    // A different UTC day does not match.
+    expect(
+      matchesFilter(at0923, { field: "x", operator: "on", value: "2026-05-02" }, "datetime"),
+    ).toBe(false);
+  });
+
   it("boolean: is, coercing string 'true'/'false'", () => {
     expect(matchesFilter(true, { field: "x", operator: "is", value: "true" }, "boolean")).toBe(true);
     expect(matchesFilter(false, { field: "x", operator: "is", value: "true" }, "boolean")).toBe(false);

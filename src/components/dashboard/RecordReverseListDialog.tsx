@@ -9,7 +9,8 @@ import type {
   SchemaDefinition,
   TableDefinition,
 } from "@/types/db";
-import { type CellStrings, formatCell } from "@/lib/format";
+import type { CellStrings } from "@/lib/format";
+import { CellText } from "@/components/dashboard/CellText";
 import {
   Dialog,
   DialogContent,
@@ -232,9 +233,12 @@ function OwnFieldsSummary({
                 onCommit={() => {}}
               />
             ) : (
-              <span className="min-w-0 break-words text-pretty">
-                {formatCell(record.data[field.key], field.type, cellStrings)}
-              </span>
+              <CellText
+                value={record.data[field.key]}
+                type={field.type}
+                strings={cellStrings}
+                className="min-w-0 break-words text-pretty"
+              />
             )}
           </dd>
         </div>

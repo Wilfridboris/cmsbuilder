@@ -6,7 +6,8 @@ import { Check, Pencil, X } from "lucide-react";
 
 import type { FieldDefinition, RecordData, TableDefinition } from "@/types/db";
 import type { ResolveRelation } from "@/components/dashboard/DemoDashboard";
-import { formatCell, type CellStrings } from "@/lib/format";
+import type { CellStrings } from "@/lib/format";
+import { CellText } from "@/components/dashboard/CellText";
 import {
   Dialog,
   DialogContent,
@@ -184,9 +185,15 @@ function FieldRow({
       <dd className="text-sm text-foreground">
         {isRelation ? (
           // Read-only: resolved target label, no edit affordance (Story 1.8).
-          <span className="min-w-0 break-words text-pretty">
-            {resolveRelation(field, value) ?? cellStrings.empty}
-          </span>
+          // An unresolvable/blank relation renders as a visually empty cell with
+          // a screen-reader-only label, never a placeholder glyph.
+          resolveRelation(field, value) ? (
+            <span className="min-w-0 break-words text-pretty">
+              {resolveRelation(field, value)}
+            </span>
+          ) : (
+            <span className="sr-only">{cellStrings.empty}</span>
+          )
         ) : editing ? (
           <FieldEditor
             field={field}
@@ -199,9 +206,12 @@ function FieldRow({
           />
         ) : (
           <div className="flex items-center justify-between gap-3">
-            <span className="min-w-0 break-words text-pretty">
-              {formatCell(value, field.type, cellStrings)}
-            </span>
+            <CellText
+              value={value}
+              type={field.type}
+              strings={cellStrings}
+              className="min-w-0 break-words text-pretty"
+            />
             <Button
               type="button"
               variant="ghost"

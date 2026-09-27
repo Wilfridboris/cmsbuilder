@@ -19,7 +19,12 @@ import type { FieldDefinition } from "@/types/db";
 
 /** The three locale-dependent strings the formatter needs, keyed by intent. */
 export type CellStrings = {
-  /** Shown for null / undefined / blank values (`Generate.cellEmpty`). */
+  /**
+   * Screen-reader-only label for a null / undefined / blank cell
+   * (`Generate.cellEmpty`). Blank cells render visually empty (the
+   * Airtable / Notion / Linear pattern) — this text is announced to assistive
+   * tech only and is never shown, so it must never be a glyph like an em-dash.
+   */
   empty: string;
   /** Boolean true (`Generate.cellYes`). */
   yes: string;
@@ -63,19 +68,24 @@ const DATETIME_FORMATTER = new Intl.DateTimeFormat("en-CA", {
  * - `boolean`  → i18n yes/no.
  * - `date` / `datetime` → locale-formatted when parseable, else the raw string.
  * - `email` / `phone` / `text` / `number` → plain text (no linkification here).
- * - null / undefined / empty-string → the `empty` placeholder.
+ * - null / undefined / empty-string → `""` (a visually empty cell; the
+ *   accessible `empty` label is rendered separately by `CellText`).
  */
+export function isBlankCellValue(value: unknown): boolean {
+  return (
+    value === null ||
+    value === undefined ||
+    (typeof value === "string" && value.trim() === "")
+  );
+}
+
 export function formatCell(
   value: unknown,
   type: FieldDefinition["type"],
   strings: CellStrings,
 ): string {
-  if (
-    value === null ||
-    value === undefined ||
-    (typeof value === "string" && value.trim() === "")
-  ) {
-    return strings.empty;
+  if (isBlankCellValue(value)) {
+    return "";
   }
 
   if (type === "boolean") {

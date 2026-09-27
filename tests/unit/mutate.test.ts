@@ -204,7 +204,7 @@ describe("mutate — optimistic concurrency", () => {
       expectedVersion: 2, // stale — row is at v3
     });
     expect(res.data).toBeNull();
-    expect(res.error).toMatch(/refresh/i);
+    expect(res.error).toBe("versionConflict");
   });
 
   it("succeeds and bumps version when expectedVersion matches", async () => {
@@ -265,7 +265,7 @@ describe("mutate — soft delete", () => {
       expectedVersion: 2, // stale — row is at v3
     });
     expect(del.data).toBeNull();
-    expect(del.error).toMatch(/refresh/i);
+    expect(del.error).toBe("versionConflict");
     // A stale delete must NOT soft-delete the row.
     expect(client.rows[0].deleted_at).toBeNull();
   });

@@ -30,11 +30,10 @@ export const dynamic = "force-dynamic";
 export type DeleteResponse = { deleted: true };
 export type UpdateResponse = { id: string; version: number; data: RecordData["data"] };
 
-// The guarded layer surfaces its 409 concurrency case as this exact message
-// (it collapses the thrown AppError into `userMessage`); match on it to remap
-// to the translated `versionConflict` code rather than the generic write error.
-const CONCURRENCY_MESSAGE =
-  "This record changed since you loaded it. Please refresh and try again.";
+// The guarded layer surfaces its 409 concurrency case as the stable
+// `versionConflict` code (collapsed into the envelope's `error`); match on the
+// code — not a prose message — to remap to a 409 rather than a generic write error.
+const CONCURRENCY_CODE = "versionConflict";
 
 function json<T>(
   body: ApiResponse<T>,
@@ -93,7 +92,7 @@ export async function DELETE(
     });
 
     if (result.error) {
-      if (result.error === CONCURRENCY_MESSAGE) {
+      if (result.error === CONCURRENCY_CODE) {
         throw new AppError(409, "versionConflict");
       }
       throw new AppError(500, "writeFailed");
@@ -155,7 +154,7 @@ export async function PATCH(
     });
 
     if (result.error || !result.data) {
-      if (result.error === CONCURRENCY_MESSAGE) {
+      if (result.error === CONCURRENCY_CODE) {
         throw new AppError(409, "versionConflict");
       }
       // A relation referential-integrity rejection (Story 3.8) surfaces its own

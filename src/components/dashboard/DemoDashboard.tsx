@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslations } from "next-intl";
 import { motion, useReducedMotion } from "framer-motion";
 import { Sparkles } from "lucide-react";
@@ -12,7 +12,8 @@ import type {
   TableDefinition,
 } from "@/types/db";
 import type { GenerateResponse } from "@/app/api/generate/route";
-import { formatCell, type CellStrings } from "@/lib/format";
+import type { CellStrings } from "@/lib/format";
+import { CellText } from "@/components/dashboard/CellText";
 import {
   canHideTable,
   hideField,
@@ -77,20 +78,25 @@ export type ResolveRelation = (
 ) => string | null;
 
 /**
- * Render one cell: a `relation` resolves to the target's display label (falling
- * back to the empty placeholder when the id does not resolve — read-only); every
- * other type goes through the scalar `formatCell`.
+ * Render one cell: a `relation` resolves to the target's display label; every
+ * other type goes through the scalar `CellText`. An unresolvable relation or a
+ * blank scalar renders as a visually empty cell carrying only a screen-reader
+ * label (`cellStrings.empty`), never a placeholder glyph.
  */
 function renderCell(
   field: FieldDefinition,
   value: unknown,
   cellStrings: CellStrings,
   resolveRelation: ResolveRelation,
-): string {
+): ReactNode {
   if (field.type === "relation") {
-    return resolveRelation(field, value) ?? cellStrings.empty;
+    return (
+      resolveRelation(field, value) ?? (
+        <span className="sr-only">{cellStrings.empty}</span>
+      )
+    );
   }
-  return formatCell(value, field.type, cellStrings);
+  return <CellText value={value} type={field.type} strings={cellStrings} />;
 }
 
 export function DemoDashboard({ response }: DemoDashboardProps) {

@@ -331,12 +331,14 @@ function requireVersioned(opts: MutateOptions): {
   return { recordId: opts.recordId, expectedVersion: opts.expectedVersion };
 }
 
-/** 409-style optimistic-concurrency error: the caller must re-read and retry. */
+/**
+ * 409-style optimistic-concurrency error: the caller must re-read and retry.
+ * Surfaces a STABLE code (`versionConflict`), not an English sentence — the API
+ * route matches on this to remap to a 409, mirroring the `invalidReference`
+ * code. Matching on prose would silently break the moment the wording changed.
+ */
 function concurrencyError(): AppError {
-  return new AppError(
-    409,
-    "This record changed since you loaded it. Please refresh and try again.",
-  );
+  return new AppError(409, "versionConflict");
 }
 
 function isUniqueViolation(code: string | undefined): boolean {

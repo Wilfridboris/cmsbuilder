@@ -24,10 +24,9 @@ const listRecords = vi.fn();
 type MaybeSingle = { data: unknown; error: unknown };
 let orgRead: MaybeSingle; // organizations lookup under the RLS client
 
-// The exact concurrency message the guarded layer surfaces (mutate.ts's
-// concurrencyError); the DELETE route remaps it to the `versionConflict` code.
-const CONCURRENCY_MESSAGE =
-  "This record changed since you loaded it. Please refresh and try again.";
+// The stable concurrency code the guarded layer surfaces (mutate.ts's
+// concurrencyError); the DELETE/PATCH routes remap it to a 409 `versionConflict`.
+const CONCURRENCY_MESSAGE = "versionConflict";
 
 function makeClient() {
   return {

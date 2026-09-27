@@ -10,24 +10,26 @@ import { formatCell, type CellStrings } from "@/lib/format";
  */
 
 const STRINGS: CellStrings = {
-  empty: "—",
+  empty: "Empty",
   yes: "Yes",
   no: "No",
 };
 
 describe("formatCell", () => {
-  describe("null / blank → empty placeholder", () => {
-    it("returns the empty string for null", () => {
-      expect(formatCell(null, "text", STRINGS)).toBe("—");
+  // Blank values format to "" (a visually empty cell); the accessible `empty`
+  // label lives at the render layer (`CellText`), not in the formatted string.
+  describe("null / blank → empty string", () => {
+    it("returns an empty string for null", () => {
+      expect(formatCell(null, "text", STRINGS)).toBe("");
     });
 
-    it("returns the empty string for undefined", () => {
-      expect(formatCell(undefined, "text", STRINGS)).toBe("—");
+    it("returns an empty string for undefined", () => {
+      expect(formatCell(undefined, "text", STRINGS)).toBe("");
     });
 
-    it("returns the empty string for a blank/whitespace string", () => {
-      expect(formatCell("", "text", STRINGS)).toBe("—");
-      expect(formatCell("   ", "text", STRINGS)).toBe("—");
+    it("returns an empty string for a blank/whitespace string", () => {
+      expect(formatCell("", "text", STRINGS)).toBe("");
+      expect(formatCell("   ", "text", STRINGS)).toBe("");
     });
 
     it("does not treat the number 0 or false as empty", () => {

@@ -45,7 +45,7 @@
     "fallbackBanner": "Nous avons utilisé un modèle de départ — vous pourrez le personnaliser à l'aide du clavardage.",
     "failedTitle": "Réessayons",
     "failedBody": "Nous n'avons pas pu terminer la création de votre tableau de bord pour le moment. Revenez en arrière et réessayez.",
-    "cellEmpty": "—",
+    "cellEmpty": "Vide",
     "cellYes": "Oui",
     "cellNo": "Non"
   },

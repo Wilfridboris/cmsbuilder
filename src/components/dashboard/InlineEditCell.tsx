@@ -4,7 +4,8 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 
 import type { FieldDefinition } from "@/types/db";
-import { formatCell, type CellStrings } from "@/lib/format";
+import type { CellStrings } from "@/lib/format";
+import { CellText } from "@/components/dashboard/CellText";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
@@ -129,7 +130,7 @@ export function InlineEditCell({
 
     const labelNode =
       value === null || value === undefined || String(value).trim() === "" ? (
-        <span className="text-muted-foreground">{cellStrings.empty}</span>
+        <span className="sr-only">{cellStrings.empty}</span>
       ) : resolution === null ? (
         <Skeleton className="h-4 w-24" />
       ) : "archived" in resolution ? (
@@ -189,9 +190,12 @@ export function InlineEditCell({
   // value with no interactive affordance.
   if (!editable) {
     return (
-      <span className="min-w-0 break-words text-pretty">
-        {formatCell(value, field.type, cellStrings)}
-      </span>
+      <CellText
+        value={value}
+        type={field.type}
+        strings={cellStrings}
+        className="min-w-0 break-words text-pretty"
+      />
     );
   }
 
@@ -211,9 +215,12 @@ export function InlineEditCell({
           pending && "opacity-60",
         )}
       >
-        <span className="min-w-0 break-words text-pretty">
-          {formatCell(value, field.type, cellStrings)}
-        </span>
+        <CellText
+          value={value}
+          type={field.type}
+          strings={cellStrings}
+          className="min-w-0 break-words text-pretty"
+        />
       </button>
     );
   }

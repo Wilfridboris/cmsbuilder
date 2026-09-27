@@ -194,8 +194,15 @@ export function matchesFilter(
         return cell < a;
       case "after":
         return cell > a;
-      case "on":
-        return cell === a;
+      case "on": {
+        // Match the whole calendar day (UTC), not an exact instant. Comparing
+        // raw ms means a `datetime` cell (a real timestamp) never equals a
+        // date-only filter value, and a `date` cell matches only by coincidence.
+        // UTC day index sidesteps DST (86.4M ms/day is constant in UTC) and
+        // mirrors how `date` values are parsed/formatted as UTC elsewhere.
+        const MS_PER_DAY = 86_400_000;
+        return Math.floor(cell / MS_PER_DAY) === Math.floor(a / MS_PER_DAY);
+      }
       case "between": {
         const b = toTime(filter.value2);
         if (b === null) return false;
