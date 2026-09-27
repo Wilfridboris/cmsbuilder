@@ -3,6 +3,17 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ApiResponse } from "@/types/api";
 import type { RecordData, SchemaDefinition } from "@/types/db";
 import { normalizeTableName } from "@/lib/utils";
+import {
+  enumerateInboundRelations,
+  type InboundRelation,
+} from "@/lib/data/relations";
+
+// Re-export the pure relation enumeration (extracted to the client-safe
+// `relations.ts` in Story 3.9) so existing importers — `countReferencingRecords`
+// below, the references route, and the safe-delete tests — keep resolving the
+// symbols from `records.ts` unchanged.
+export { enumerateInboundRelations };
+export type { InboundRelation };
 
 /**
  * A relation filter applied server-side to a `listRecords` query (Story 3.8):
@@ -219,43 +230,11 @@ export async function resolveRecordLabels(
   return { data: labels, error: null };
 }
 
-/** One `(table_key, field)` pair whose relation field targets a given table. */
-export type InboundRelation = { tableKey: string; fieldKey: string };
-
 /**
  * The default cap on the delete-guard reference count (Story 3.8). Counting stops
  * once this many referencing rows are found; the caller renders "500+".
  */
 export const REFERENCE_COUNT_CAP = 500;
-
-/**
- * Pure: enumerate every `(tableKey, fieldKey)` pair in the org schema whose
- * `relation` field points at `targetTableKey` (Story 3.8 delete guard + reverse
- * list foundation). A table that references the target through several relation
- * fields yields one pair PER field; a self-referencing table is included (its own
- * relation field can point back at it). `targetTableKey` is normalized so a caller
- * passing an un-normalized key still matches the stored `relationConfig.targetTable`
- * (which provisioning/`validateRelationField` store normalized).
- */
-export function enumerateInboundRelations(
-  schema: SchemaDefinition,
-  targetTableKey: string,
-): InboundRelation[] {
-  const normalizedTarget = normalizeTableName(targetTableKey);
-  const pairs: InboundRelation[] = [];
-  for (const table of schema.tables) {
-    for (const field of table.fields) {
-      if (
-        field.type === "relation" &&
-        field.relationConfig &&
-        normalizeTableName(field.relationConfig.targetTable) === normalizedTarget
-      ) {
-        pairs.push({ tableKey: table.key, fieldKey: field.key });
-      }
-    }
-  }
-  return pairs;
-}
 
 /**
  * Count the non-deleted rows across the org that reference `targetId` (Story 3.8

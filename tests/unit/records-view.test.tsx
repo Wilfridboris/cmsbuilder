@@ -190,6 +190,14 @@ describe("RecordsView inline-edit affordances (Story 3.3)", () => {
     expect(html).toContain('aria-label="editValueLabel:Title"');
   });
 
+  it("renders the open-record (reverse-list) trigger for a settled row (Story 3.9)", () => {
+    const html = render([tickets], { tickets: ticketRows });
+
+    // The Eye button opens the record's reverse-list "account"; it is present in
+    // both the desktop actions column and the mobile card for a settled row.
+    expect(html).toContain('aria-label="openRecord"');
+  });
+
   it("renders relation fields with an edit trigger and never the raw id (Story 3.7)", () => {
     const html = render([tickets], { tickets: ticketRows });
 
@@ -207,8 +215,11 @@ describe("RecordsView inline-edit affordances (Story 3.3)", () => {
     ];
     const html = render([tickets], { tickets: optimisticRows });
 
-    // Neither field is editable while the add is un-settled (temp id).
+    // Neither field is editable while the add is un-settled (temp id)...
     expect(html).not.toContain('aria-label="editValueLabel:Title"');
+    // ...and the open-record trigger is likewise suppressed (Story 3.9): opening a
+    // temp-id row would key reverse lists on a non-existent record.
+    expect(html).not.toContain('aria-label="openRecord"');
     expect(html).toContain("Pending");
   });
 });

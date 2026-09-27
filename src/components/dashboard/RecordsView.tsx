@@ -6,7 +6,14 @@ import { useTranslations } from "next-intl";
 import { useSwipeable } from "react-swipeable";
 import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
-import { ArrowDown, ArrowUp, ArrowUpDown, Maximize2, Trash2 } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Eye,
+  Maximize2,
+  Trash2,
+} from "lucide-react";
 
 import type {
   FieldDefinition,
@@ -41,6 +48,7 @@ import {
 import { blankDraftForFields, type Draft } from "@/lib/forms/field-input";
 import { AddRecordForm } from "@/components/dashboard/AddRecordForm";
 import { DeleteConfirmDialog } from "@/components/dashboard/DeleteConfirmDialog";
+import { RecordReverseListDialog } from "@/components/dashboard/RecordReverseListDialog";
 import {
   InlineEditCell,
   type InlineCommit,
@@ -175,6 +183,10 @@ export function RecordsView({
   // as the draft — not persisted to URL, storage, or the server.
   const [sort, setSort] = useState<SortState>(null);
   const [filters, setFilters] = useState<FilterState[]>([]);
+  // Story 3.9: the record being opened (drives the reverse-list dialog). Declared
+  // here (before the table-change reset block) so it can be reset alongside the
+  // other per-table view state below.
+  const [opened, setOpened] = useState<RecordData | null>(null);
 
   const [draftTableKey, setDraftTableKey] = useState(tableKey);
   if (draftTableKey !== tableKey) {
@@ -184,6 +196,7 @@ export function RecordsView({
     setFormResetKey((k) => k + 1);
     setSort(null);
     setFilters([]);
+    setOpened(null);
   }
 
   // Story 3.8: partition the active filters. RELATION filters are applied
@@ -360,6 +373,14 @@ export function RecordsView({
   const requestDelete = (record: RecordData) => {
     if (isOptimisticId(record.id)) return;
     setPendingDelete(record);
+  };
+
+  // Open a record's reverse-list "account" (Story 3.9). Like delete, an un-settled
+  // optimistic row has a temp id that references no real record, so opening it would
+  // show empty reverse lists keyed on a non-existent id — ignore it until it settles.
+  const requestOpen = (record: RecordData) => {
+    if (isOptimisticId(record.id)) return;
+    setOpened(record);
   };
 
   const handleConfirmDelete = () => {
@@ -574,7 +595,9 @@ export function RecordsView({
               resolveRelation={resolveRelation}
               caption={t("tableCaption", { table: activeTable.label })}
               actionsHeader={t("actionsHeader")}
+              openLabel={t("openRecord")}
               deleteLabel={t("deleteRecord")}
+              onOpen={requestOpen}
               onDelete={requestDelete}
               onCellCommit={handleCellCommit}
               editPending={updateRecord.isPending}
@@ -616,7 +639,9 @@ export function RecordsView({
                 rows={visibleRows}
                 cellStrings={cellStrings}
                 resolveRelation={resolveRelation}
+                openLabel={t("openRecord")}
                 deleteLabel={t("deleteRecord")}
+                onOpen={requestOpen}
                 onDelete={requestDelete}
                 onCellCommit={handleCellCommit}
                 editPending={updateRecord.isPending}
@@ -667,6 +692,16 @@ export function RecordsView({
         referenceCount={referenceCount.data ?? null}
         referenceCountLoading={referenceCount.isPending}
         referenceCountError={referenceCount.isError}
+      />
+
+      <RecordReverseListDialog
+        open={opened !== null}
+        table={activeTable}
+        record={opened}
+        tables={tables}
+        slug={slug}
+        cellStrings={cellStrings}
+        onClose={() => setOpened(null)}
       />
     </div>
   );
@@ -739,7 +774,9 @@ function RecordsTable({
   resolveRelation,
   caption,
   actionsHeader,
+  openLabel,
   deleteLabel,
+  onOpen,
   onDelete,
   onCellCommit,
   editPending,
@@ -758,7 +795,9 @@ function RecordsTable({
   ) => RelationResolution;
   caption: string;
   actionsHeader: string;
+  openLabel: string;
   deleteLabel: string;
+  onOpen: (record: RecordData) => void;
   onDelete: (record: RecordData) => void;
   onCellCommit: (
     row: RecordData,
@@ -851,16 +890,30 @@ function RecordsTable({
                 </TableCell>
               ))}
               <TableCell className="text-right">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="size-12 text-muted-foreground hover:text-destructive"
-                  onClick={() => onDelete(row)}
-                  aria-label={deleteLabel}
-                >
-                  <Trash2 aria-hidden="true" className="size-4" />
-                </Button>
+                <div className="flex items-center justify-end">
+                  {editableRow ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-12 text-muted-foreground hover:text-foreground"
+                      onClick={() => onOpen(row)}
+                      aria-label={openLabel}
+                    >
+                      <Eye aria-hidden="true" className="size-4" />
+                    </Button>
+                  ) : null}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="size-12 text-muted-foreground hover:text-destructive"
+                    onClick={() => onDelete(row)}
+                    aria-label={deleteLabel}
+                  >
+                    <Trash2 aria-hidden="true" className="size-4" />
+                  </Button>
+                </div>
               </TableCell>
             </TableRow>
             );
@@ -878,7 +931,9 @@ function RecordsCards({
   rows,
   cellStrings,
   resolveRelation,
+  openLabel,
   deleteLabel,
+  onOpen,
   onDelete,
   onCellCommit,
   editPending,
@@ -891,7 +946,9 @@ function RecordsCards({
     field: FieldDefinition,
     value: unknown,
   ) => RelationResolution;
+  openLabel: string;
   deleteLabel: string;
+  onOpen: (record: RecordData) => void;
   onDelete: (record: RecordData) => void;
   onCellCommit: (
     row: RecordData,
@@ -947,16 +1004,30 @@ function RecordsCards({
                       </div>
                     ) : null}
                   </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-12 shrink-0 text-muted-foreground hover:text-destructive"
-                    onClick={() => onDelete(row)}
-                    aria-label={deleteLabel}
-                  >
-                    <Trash2 aria-hidden="true" className="size-4" />
-                  </Button>
+                  <div className="flex shrink-0 items-center">
+                    {editableRow ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-12 text-muted-foreground hover:text-foreground"
+                        onClick={() => onOpen(row)}
+                        aria-label={openLabel}
+                      >
+                        <Eye aria-hidden="true" className="size-4" />
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-12 text-muted-foreground hover:text-destructive"
+                      onClick={() => onDelete(row)}
+                      aria-label={deleteLabel}
+                    >
+                      <Trash2 aria-hidden="true" className="size-4" />
+                    </Button>
+                  </div>
                 </div>
                 {restFields.length > 0 ? (
                   <dl className="mt-1 flex flex-col gap-1">

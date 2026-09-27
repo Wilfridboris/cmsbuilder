@@ -95,3 +95,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-7-relationship-lookup-field-record-picker.md`
   summary: Add a per-table pg_trgm GIN index on the display-field JSONB text to keep relation typeahead (searchRelationRecords ILIKE) under the p95 500ms budget for referenced tables beyond ~10k rows.
   evidence: 3.7 ships a bounded ILIKE + LIMIT which meets the target at MVP scale; the displayField varies per table so no generic expression index exists yet. The epic's GIN(data jsonb_path_ops) containment index is a separate 3.8/3.9 concern (filter/sort + reverse list), not the label-search path.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-9-reverse-related-list.md`
+  summary: The reverse related list (like every list surface) is unpaginated and uncapped, so a high-fan-in record (a client referenced by thousands of jobs/invoices) loads all referencing rows into the dialog.
+  evidence: `RelatedRecordsList` calls `fetchRecords(slug, refTable.key, serverFilters)` with no limit; pre-existing app-wide (spec-3-8 notes no pagination exists). A per-section limit + "showing first N" affordance, or shared pagination, is the scale fix.
