@@ -1,0 +1,22 @@
+-- ===========================================================================
+-- Story 3.6 follow-up — fix Realtime UPDATE/soft-delete propagation under RLS.
+--
+-- `records` has RLS (`records_tenant_isolation`, membership via `auth_org_ids()`),
+-- so Supabase Realtime evaluates that policy before delivering each change event.
+-- For an UPDATE (and DELETE), the policy is checked against the OLD row tuple.
+-- Under the default replica identity (primary key only), the old tuple carries
+-- just `id` — not `organization_id` — so the tenant policy cannot pass and
+-- Realtime silently DROPS the event. INSERT (new row only, all columns) passes
+-- and is delivered; UPDATE is not.
+--
+-- App "deletes" are soft (an UPDATE of `deleted_at`), so both edits and deletes
+-- are UPDATEs and were failing to propagate. `REPLICA IDENTITY FULL` puts every
+-- column in the old tuple so the RLS check (and the per-org channel filter) can
+-- evaluate `organization_id` on UPDATE/DELETE. The extra WAL cost is accepted:
+-- correct multi-user sync (Story 3.6 AC1) requires it.
+--
+-- Found by the post-commit two-session Playwright review: adds synced across
+-- tabs, edits did not, until this was applied.
+-- ===========================================================================
+
+alter table public.records replica identity full;
