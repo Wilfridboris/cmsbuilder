@@ -49,7 +49,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: 09-27-2026 (3.9 review)
+last_updated: 09-27-2026 (3.9 done; epic-3 done)
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -77,7 +77,7 @@ development_status:
   2-6-key-normalization-preserve-accented-non-ascii-names-french-p: done
   epic-2-retrospective: done
 
-  epic-3: in-progress
+  epic-3: done
   3-1-responsive-table-card-views: done
   3-2-add-delete-records: done
   3-3-inline-edit-with-optimistic-ui: done
@@ -86,7 +86,7 @@ development_status:
   3-6-real-time-multi-user-sync: done
   3-7-relationship-lookup-field-record-picker: done
   3-8-filter-sort-by-relationship-safe-delete-of-referenced-record: done
-  3-9-reverse-related-list: review
+  3-9-reverse-related-list: done
   epic-3-retrospective: optional
 
   epic-4: backlog
