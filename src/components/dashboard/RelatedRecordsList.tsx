@@ -10,14 +10,6 @@ import type {
   TableDefinition,
 } from "@/types/db";
 import { type CellStrings } from "@/lib/format";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -230,90 +222,25 @@ export function RelatedRecordsList({
           {hasFilters ? t("noRecordsFoundBody") : t("reverseSectionEmpty")}
         </p>
       ) : (
-        <>
-          {/* Desktop: read-only semantic table. */}
-          <div className="hidden md:block">
-            <ReverseTable
-              slug={slug}
-              fields={visibleFields}
-              rows={visibleRows}
-              cellStrings={cellStrings}
-              resolveRelation={resolveRelation}
-              caption={heading}
-            />
-          </div>
-
-          {/* Mobile: read-only card list. */}
-          <ul className="flex list-none flex-col gap-3 p-0 md:hidden">
-            <ReverseCards
-              slug={slug}
-              fields={visibleFields}
-              rows={visibleRows}
-              cellStrings={cellStrings}
-              resolveRelation={resolveRelation}
-            />
-          </ul>
-        </>
+        // Read-only card list at ALL breakpoints: the dialog is width-constrained,
+        // so a wide multi-column table would overflow and force horizontal scroll.
+        // Cards stack each field vertically, keeping every value readable with no
+        // sideways scrolling (the desktop tabular view lives on the main surface).
+        <ul className="flex list-none flex-col gap-3 p-0">
+          <ReverseCards
+            slug={slug}
+            fields={visibleFields}
+            rows={visibleRows}
+            cellStrings={cellStrings}
+            resolveRelation={resolveRelation}
+          />
+        </ul>
       )}
     </section>
   );
 }
 
-/** Desktop: every visible field is a read-only column (no actions column). */
-function ReverseTable({
-  slug,
-  fields,
-  rows,
-  cellStrings,
-  resolveRelation,
-  caption,
-}: {
-  slug: string;
-  fields: FieldDefinition[];
-  rows: RecordData[];
-  cellStrings: CellStrings;
-  resolveRelation: (field: FieldDefinition, value: unknown) => RelationResolution;
-  caption: string;
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg border">
-      <Table>
-        <caption className="sr-only">{caption}</caption>
-        <TableHeader>
-          <TableRow>
-            {fields.map((field) => (
-              <TableHead key={field.key} scope="col" className="px-2">
-                <span className="flex min-h-12 items-center">{field.label}</span>
-              </TableHead>
-            ))}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {rows.map((row) => (
-            <TableRow key={row.id}>
-              {fields.map((field) => (
-                <TableCell key={field.key}>
-                  <InlineEditCell
-                    field={field}
-                    value={row.data[field.key]}
-                    cellStrings={cellStrings}
-                    editable={false}
-                    pending={false}
-                    slug={slug}
-                    resolveRelation={resolveRelation}
-                    onCommit={() => {}}
-                  />
-                </TableCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-/** Mobile: one read-only card per referencing row; first two fields headline it. */
+/** One read-only card per referencing row; first two fields headline it. */
 function ReverseCards({
   slug,
   fields,
