@@ -88,6 +88,10 @@ export function InlineEditCell({
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const refocus = useRef(false);
   useEffect(() => {
+    // Return focus to the trigger when the cell closes edit mode. The trigger is
+    // NOT `disabled` during a save (that would blur it and make `.focus()` a
+    // no-op) — it uses `aria-busy` + dimming instead — so focus set here survives
+    // the in-flight save and its post-settle refetch.
     if (!editing && refocus.current) {
       refocus.current = false;
       triggerRef.current?.focus();
@@ -116,13 +120,13 @@ export function InlineEditCell({
       <button
         ref={triggerRef}
         type="button"
-        disabled={pending}
+        aria-busy={pending || undefined}
         onClick={() => setEditing(true)}
         aria-label={accessibleName}
         className={cn(
           "flex min-h-12 w-full items-center rounded-md px-2 py-1 text-left transition-colors",
           "hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          "disabled:pointer-events-none disabled:opacity-60",
+          pending && "opacity-60",
         )}
       >
         <span className="min-w-0 break-words text-pretty">
