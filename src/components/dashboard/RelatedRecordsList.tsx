@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 
@@ -23,11 +23,8 @@ import {
 } from "@/components/dashboard/useRelationLabels";
 import { relationFilterKeyPart } from "@/components/dashboard/useRecordMutations";
 import { RecordsToolbar } from "@/components/dashboard/RecordsToolbar";
-import {
-  applyFilterSort,
-  type FilterState,
-  type SortState,
-} from "@/lib/data/filter-sort";
+import { useFilterSortState } from "@/components/dashboard/useFilterSortState";
+import { applyFilterSort } from "@/lib/data/filter-sort";
 
 /**
  * RelatedRecordsList (Story 3.9) — ONE inbound reverse-relation section inside the
@@ -79,20 +76,16 @@ export function RelatedRecordsList({
 }: RelatedRecordsListProps) {
   const t = useTranslations("SlugDashboard");
 
-  // Local, per-section view state. Not persisted anywhere (mirrors RecordsView).
-  const [sort, setSort] = useState<SortState>(null);
-  const [filters, setFilters] = useState<FilterState[]>([]);
+  // Per-section filter/sort view state — the same shared hook the main records
+  // surface uses (partition of relation vs scalar filters, sort cycling). Not
+  // persisted; `refTable` is fixed for a section, so the hook's table-change reset
+  // never fires here.
+  const filterSort = useFilterSortState(refTable);
 
   const visibleFields = useMemo(
     () => refTable.fields.filter((field) => !field.hidden),
     [refTable],
   );
-
-  const fieldByKey = useMemo(() => {
-    const map = new Map<string, FieldDefinition>();
-    for (const field of refTable.fields) map.set(field.key, field);
-    return map;
-  }, [refTable]);
 
   // The FIXED base reverse-relation filter — always applied server-side so the
   // list only ever contains rows that reference the opened record.
@@ -101,23 +94,11 @@ export function RelatedRecordsList({
     [fieldKey, targetId],
   );
 
-  // Partition the user's filters exactly like RecordsView: RELATION filters chain
-  // server-side (onto the base filter), SCALAR filters stay client-side.
-  const userRelationFilters = useMemo<RelationFilter[]>(
-    () =>
-      filters
-        .filter((f) => fieldByKey.get(f.field)?.type === "relation")
-        .map((f) => ({ field: f.field, targetId: f.value })),
-    [filters, fieldByKey],
-  );
-  const scalarFilters = useMemo(
-    () => filters.filter((f) => fieldByKey.get(f.field)?.type !== "relation"),
-    [filters, fieldByKey],
-  );
-
+  // Chain the user's RELATION filters (from the shared hook) onto the base filter;
+  // SCALAR filters + sort apply client-side, exactly as on the main surface.
   const serverFilters = useMemo<RelationFilter[]>(
-    () => [baseFilter, ...userRelationFilters],
-    [baseFilter, userRelationFilters],
+    () => [baseFilter, ...filterSort.relationFilters],
+    [baseFilter, filterSort.relationFilters],
   );
 
   // Same key shape RecordsView + the mutation hooks use, so 3.6 real-time
@@ -156,35 +137,13 @@ export function RelatedRecordsList({
     () =>
       applyFilterSort(
         rows,
-        scalarFilters,
-        sort,
+        filterSort.scalarFilters,
+        filterSort.sort,
         refTable.fields,
         resolveRelationLabel,
       ),
-    [rows, scalarFilters, sort, refTable, resolveRelationLabel],
+    [rows, filterSort.scalarFilters, filterSort.sort, refTable, resolveRelationLabel],
   );
-
-  const hasFilters = filters.length > 0;
-
-  const handleSortFieldChange = (field: string | null) => {
-    setSort(field ? { field, direction: "asc" } : null);
-  };
-  const cycleSort = () => {
-    setSort((current) => {
-      if (!current) return current;
-      if (current.direction === "asc") {
-        return { field: current.field, direction: "desc" };
-      }
-      return null;
-    });
-  };
-  const addFilter = (filter: FilterState) => {
-    setFilters((current) => [...current, filter]);
-  };
-  const removeFilter = (index: number) => {
-    setFilters((current) => current.filter((_, i) => i !== index));
-  };
-  const clearFilters = () => setFilters([]);
 
   return (
     <section className="flex flex-col gap-3" aria-label={heading}>
@@ -196,13 +155,15 @@ export function RelatedRecordsList({
         fields={refTable.fields}
         slug={slug}
         resolveRelation={resolveRelation}
-        filters={filters}
-        sort={sort}
-        onSortFieldChange={handleSortFieldChange}
-        onSortToggle={cycleSort}
-        onAddFilter={addFilter}
-        onRemoveFilter={removeFilter}
-        onClearFilters={clearFilters}
+        filters={filterSort.filters}
+        sort={filterSort.sort}
+        onSortFieldChange={filterSort.handleSortFieldChange}
+        onSortToggle={() => {
+          if (filterSort.sort) filterSort.cycleSort(filterSort.sort.field);
+        }}
+        onAddFilter={filterSort.addFilter}
+        onRemoveFilter={filterSort.removeFilter}
+        onClearFilters={filterSort.clearFilters}
       />
 
       {recordsQuery.isError ? (
@@ -219,7 +180,7 @@ export function RelatedRecordsList({
         </div>
       ) : visibleRows.length === 0 ? (
         <p role="status" className="text-sm text-muted-foreground text-pretty">
-          {hasFilters ? t("noRecordsFoundBody") : t("reverseSectionEmpty")}
+          {filterSort.hasFilters ? t("noRecordsFoundBody") : t("reverseSectionEmpty")}
         </p>
       ) : (
         // Read-only card list at ALL breakpoints: the dialog is width-constrained,

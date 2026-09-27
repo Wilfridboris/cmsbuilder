@@ -40,12 +40,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  fetchRecords,
-  RecordApiError,
-  type RelationFilter,
-} from "@/lib/data/records-client";
-import { blankDraftForFields, type Draft } from "@/lib/forms/field-input";
+import { fetchRecords } from "@/lib/data/records-client";
 import { AddRecordForm } from "@/components/dashboard/AddRecordForm";
 import { DeleteConfirmDialog } from "@/components/dashboard/DeleteConfirmDialog";
 import { RecordReverseListDialog } from "@/components/dashboard/RecordReverseListDialog";
@@ -53,13 +48,7 @@ import {
   InlineEditCell,
   type InlineCommit,
 } from "@/components/dashboard/InlineEditCell";
-import {
-  isOptimisticId,
-  useAddRecord,
-  useDeleteRecord,
-  useReferenceCount,
-  useUpdateRecord,
-} from "@/components/dashboard/useRecordMutations";
+import { isOptimisticId } from "@/components/dashboard/useRecordMutations";
 import { useRealtimeRecords } from "@/components/dashboard/useRealtimeRecords";
 import {
   useRelationLabels,
@@ -68,12 +57,10 @@ import {
 import { RecordsToolbar } from "@/components/dashboard/RecordsToolbar";
 import { ColumnVisibilityControl } from "@/components/dashboard/ColumnVisibilityControl";
 import { AddRelationFieldControl } from "@/components/dashboard/AddRelationFieldControl";
-import {
-  applyFilterSort,
-  eligibleFields,
-  type FilterState,
-  type SortState,
-} from "@/lib/data/filter-sort";
+import { useFilterSortState } from "@/components/dashboard/useFilterSortState";
+import { useAddDraft } from "@/components/dashboard/useAddDraft";
+import { useRecordActions } from "@/components/dashboard/useRecordActions";
+import { applyFilterSort, eligibleFields, type SortState } from "@/lib/data/filter-sort";
 
 /**
  * RecordsView (Story 3.1 + 3.2) — the responsive records surface for the
@@ -92,9 +79,13 @@ import {
  *   - a per-record delete control (a desktop actions column, a mobile card
  *     action) opens a confirm dialog gating the optimistic soft-delete.
  *
- * All mutations run the mandatory TanStack optimistic sequence via the mutations
- * hook. Every failure rolls back and surfaces a translated, non-technical message
- * (never a raw error). Copy resolves through `SlugDashboard`.
+ * The component composes three per-table view-state hooks — `useFilterSortState`
+ * (3.4/3.8 filter+sort partition), `useAddDraft` (3.2 lifted draft/modal), and
+ * `useRecordActions` (3.2/3.3/3.9 mutations, delete/open queues, rollback message)
+ * — each of which resets its own state when the active table changes. All
+ * mutations run the mandatory TanStack optimistic sequence; every failure rolls
+ * back and surfaces a translated, non-technical message. Copy resolves through
+ * `SlugDashboard`.
  */
 
 /**
@@ -150,98 +141,45 @@ export function RecordsView({
     [activeTable],
   );
 
-  // A quick lookup of the active table's field types, so we can tell a relation
-  // filter (applied server-side) from a scalar filter (applied client-side).
-  const fieldByKey = useMemo(() => {
-    const map = new Map<string, FieldDefinition>();
-    for (const field of activeTable.fields) map.set(field.key, field);
-    return map;
-  }, [activeTable]);
-
   // Story 3.6: subscribe this dashboard to the org's Realtime records channel.
   // A side effect only — on any change event (or reconnect) it invalidates
   // `["records", slug]` so the active table refetches authoritative state; it
   // never patches the cache. Scoped per org via the channel filter + RLS.
   useRealtimeRecords({ slug, orgId });
 
-  // ONE lifted add-draft. When the active table changes we reset the draft (and
-  // close the modal) DURING render via the "adjust state on prop change" pattern
-  // (https://react.dev/reference/react/useState#storing-information-from-previous-renders)
-  // rather than an effect, so fields always match the current schema without a
-  // cascading render.
-  const [draft, setDraft] = useState<Draft>(() =>
-    blankDraftForFields(visibleFields),
-  );
-  const [modalOpen, setModalOpen] = useState(false);
-  // Bumped whenever the draft is reset externally (table change or add success)
-  // and passed as the `key` of the AddRecordForm instances, so their local
-  // per-field validation error state remounts fresh — otherwise a stale
-  // "invalid" alert can linger on a now-emptied field after a reset.
-  const [formResetKey, setFormResetKey] = useState(0);
-  // Ephemeral, per-table filter/sort view state (Story 3.4). Reset on active-
-  // table change via the same render-time "adjust state on prop change" pattern
-  // as the draft — not persisted to URL, storage, or the server.
-  const [sort, setSort] = useState<SortState>(null);
-  const [filters, setFilters] = useState<FilterState[]>([]);
-  // Story 3.9: the record being opened (drives the reverse-list dialog). Declared
-  // here (before the table-change reset block) so it can be reset alongside the
-  // other per-table view state below.
-  const [opened, setOpened] = useState<RecordData | null>(null);
-
-  const [draftTableKey, setDraftTableKey] = useState(tableKey);
-  if (draftTableKey !== tableKey) {
-    setDraftTableKey(tableKey);
-    setDraft(blankDraftForFields(visibleFields));
-    setModalOpen(false);
-    setFormResetKey((k) => k + 1);
-    setSort(null);
-    setFilters([]);
-    setOpened(null);
-  }
-
-  // Story 3.8: partition the active filters. RELATION filters are applied
-  // SERVER-SIDE (JSONB containment) by riding in the records query key + params,
-  // so the server narrows the set before it returns; SCALAR filters stay in the
-  // client-side `applyFilterSort` pipeline over the returned rows — one coherent
-  // AND: server relation-narrowing, then client scalar filter + sort.
-  const relationFilters = useMemo<RelationFilter[]>(
-    () =>
-      filters
-        .filter((f) => fieldByKey.get(f.field)?.type === "relation")
-        .map((f) => ({ field: f.field, targetId: f.value })),
-    [filters, fieldByKey],
-  );
-  const scalarFilters = useMemo(
-    () => filters.filter((f) => fieldByKey.get(f.field)?.type !== "relation"),
-    [filters, fieldByKey],
-  );
+  // Per-table view state. Each hook resets its own state on active-table change
+  // (render-time "adjust state on prop change", no effect): the filter/sort
+  // partition (3.4/3.8) and the lifted add-draft + modal (3.2).
+  const filterSort = useFilterSortState(activeTable);
+  const draftState = useAddDraft(tableKey, visibleFields);
 
   // Active table's rows via TanStack Query, seeded with server `initialData` so
   // the first paint needs no fetch; invalidations after a mutation refetch the
   // authoritative rows from GET /api/records. The relation filters are part of the
   // query key + request so a relation-filtered view is a distinct, server-narrowed
   // cache entry (Story 3.8). `initialData` only seeds the unfiltered view.
-  const relationFilterKey = useMemo(
-    () =>
-      relationFilters.map((f) => `${f.field}:${f.targetId}`).sort(),
-    [relationFilters],
-  );
   const { data: rows = [] } = useQuery({
-    queryKey: ["records", slug, tableKey, relationFilterKey],
-    queryFn: () => fetchRecords(slug, tableKey, relationFilters),
+    queryKey: ["records", slug, tableKey, filterSort.relationFilterKey],
+    queryFn: () => fetchRecords(slug, tableKey, filterSort.relationFilters),
     initialData:
-      relationFilters.length === 0
+      filterSort.relationFilters.length === 0
         ? recordsByTable[tableKey] ?? []
         : undefined,
   });
 
-  const addRecord = useAddRecord(slug, tableKey, relationFilters);
-  const deleteRecord = useDeleteRecord(slug, tableKey, relationFilters);
-  const updateRecord = useUpdateRecord(slug, tableKey, relationFilters);
+  // The write surface (mutations, delete/open queues, rollback message). Resets
+  // the open reverse-list record on table change; a successful add resets the
+  // lifted draft above.
+  const actions = useRecordActions({
+    slug,
+    tableKey,
+    relationFilters: filterSort.relationFilters,
+    onAddSuccess: draftState.reset,
+  });
 
-  // The fields the toolbar and header sort affordances may target: visible
-  // (including relation — Story 3.8). Sorting/filtering runs against
-  // `activeTable.fields` so the comparators/predicates see each declared type.
+  // The fields the header sort affordances may target: visible (incl. relation —
+  // Story 3.8). Sorting/filtering runs against `activeTable.fields` so the
+  // comparators/predicates see each declared type.
   const sortableFields = useMemo(
     () => eligibleFields(activeTable.fields),
     [activeTable],
@@ -252,12 +190,9 @@ export function RecordsView({
   );
 
   // Story 3.7: batched read-time relation-label resolution for the active table.
-  // Collects the distinct target ids referenced on this page and resolves them in
-  // one `id IN (...)` fetch per target table. `resolveRelation(field, value)` →
-  // `{ label } | { archived } | null` (null = still loading → skeleton). Both a
-  // mutation settle and 3.6 real-time invalidate `["relation-labels", slug]`, so
-  // an edited target's new label refetches (AC4). Resolve over the full `rows`
-  // (not just the filtered page) so labels are ready regardless of filter/sort.
+  // `resolveRelation(field, value)` → `{ label } | { archived } | null` (null =
+  // still loading → skeleton). Resolve over the full `rows` (not just the filtered
+  // page) so labels are ready regardless of filter/sort.
   const resolveRelation = useRelationLabels({ slug, table: activeTable, rows });
 
   // Story 3.8 relation SORT orders by the resolved display label. Adapt the
@@ -279,147 +214,13 @@ export function RecordsView({
     () =>
       applyFilterSort(
         rows,
-        scalarFilters,
-        sort,
+        filterSort.scalarFilters,
+        filterSort.sort,
         activeTable.fields,
         resolveRelationLabel,
       ),
-    [rows, scalarFilters, sort, activeTable, resolveRelationLabel],
+    [rows, filterSort.scalarFilters, filterSort.sort, activeTable, resolveRelationLabel],
   );
-
-  const hasFilters = filters.length > 0;
-
-  // Sort field select: pick a field (defaults ascending) or clear.
-  const handleSortFieldChange = (field: string | null) => {
-    setSort(field ? { field, direction: "asc" } : null);
-  };
-
-  // Cycle sort on a field: unsorted → asc → desc → unsorted (created_at order).
-  const cycleSort = (field: string) => {
-    setSort((current) => {
-      if (!current || current.field !== field) {
-        return { field, direction: "asc" };
-      }
-      if (current.direction === "asc") {
-        return { field, direction: "desc" };
-      }
-      return null;
-    });
-  };
-
-  const addFilter = (filter: FilterState) => {
-    setFilters((current) => [...current, filter]);
-  };
-  const removeFilter = (index: number) => {
-    setFilters((current) => current.filter((_, i) => i !== index));
-  };
-  const clearFilters = () => setFilters([]);
-
-  // The record queued for deletion (drives the confirm dialog).
-  const [pendingDelete, setPendingDelete] = useState<RecordData | null>(null);
-
-  // Story 3.8: while the confirm dialog is open, fetch how many rows reference the
-  // queued record so the dialog can warn before the soft-delete. A fetch failure
-  // is surfaced as a neutral "couldn't verify" note (never blocks the delete).
-  const referenceCount = useReferenceCount(
-    slug,
-    tableKey,
-    pendingDelete?.id ?? null,
-    { enabled: pendingDelete !== null },
-  );
-
-  // A single translated status/error line for the surface (rollback message).
-  const [message, setMessage] = useState<string | null>(null);
-
-  const resolveError = (err: unknown): string => {
-    const code = err instanceof RecordApiError ? err.code : "genericError";
-    switch (code) {
-      case "writeFailed":
-        return t("writeFailed");
-      case "loadFailed":
-        return t("loadFailed");
-      case "versionConflict":
-        return t("versionConflict");
-      case "invalidReference":
-        return t("invalidReference");
-      default:
-        return t("genericError");
-    }
-  };
-
-  const handleAdd = (data: Record<string, unknown>) => {
-    setMessage(null);
-    const idempotencyKey =
-      typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    addRecord.mutate(
-      { data, idempotencyKey },
-      {
-        onSuccess: () => {
-          setDraft(blankDraftForFields(visibleFields));
-          setModalOpen(false);
-          setFormResetKey((k) => k + 1);
-        },
-        onError: (err) => setMessage(resolveError(err)),
-      },
-    );
-  };
-
-  // Queue a record for deletion. A not-yet-settled optimistic row has a temp id
-  // that matches no server row, so deleting it would send that temp id and
-  // surface a misleading "record changed" message — ignore it until the add
-  // settles to a real row (a beat later the same control works).
-  const requestDelete = (record: RecordData) => {
-    if (isOptimisticId(record.id)) return;
-    setPendingDelete(record);
-  };
-
-  // Open a record's reverse-list "account" (Story 3.9). Like delete, an un-settled
-  // optimistic row has a temp id that references no real record, so opening it would
-  // show empty reverse lists keyed on a non-existent id — ignore it until it settles.
-  const requestOpen = (record: RecordData) => {
-    if (isOptimisticId(record.id)) return;
-    setOpened(record);
-  };
-
-  const handleConfirmDelete = () => {
-    if (!pendingDelete) return;
-    const target = pendingDelete;
-    setMessage(null);
-    deleteRecord.mutate(
-      { id: target.id, expectedVersion: target.version },
-      {
-        onError: (err) => setMessage(resolveError(err)),
-      },
-    );
-    setPendingDelete(null);
-  };
-
-  // Commit one inline cell edit: build the FULL merged row `data` (a cleared
-  // value drops the key), then run the optimistic PATCH gated on the row's
-  // current version. An un-settled optimistic row has a temp id/version that
-  // matches no server row, so its cells are non-editable and never reach here.
-  const handleCellCommit = (
-    row: RecordData,
-    field: FieldDefinition,
-    result: InlineCommit,
-  ) => {
-    if (isOptimisticId(row.id)) return;
-    setMessage(null);
-    const data: Record<string, unknown> = { ...row.data };
-    if (result.kind === "omit") {
-      delete data[field.key];
-    } else {
-      data[field.key] = result.value;
-    }
-    updateRecord.mutate(
-      { id: row.id, data, expectedVersion: row.version },
-      {
-        onError: (err) => setMessage(resolveError(err)),
-      },
-    );
-  };
 
   const goTo = (index: number) => {
     setActiveIndex(clampTableIndex(index, tables.length));
@@ -499,7 +300,7 @@ export function RecordsView({
         className="flex flex-col gap-4 focus-visible:outline-none"
       >
         {/* Rollback / error line for the whole surface. */}
-        <StatusMessage message={message} />
+        <StatusMessage message={actions.message} />
 
         {/* Filter & sort toolbar — governs both the table and the cards. The
             Admin-only Columns manager (Story 3.5) sits alongside it in the same
@@ -510,15 +311,15 @@ export function RecordsView({
             fields={activeTable.fields}
             slug={slug}
             resolveRelation={resolveRelation}
-            filters={filters}
-            sort={sort}
-            onSortFieldChange={handleSortFieldChange}
+            filters={filterSort.filters}
+            sort={filterSort.sort}
+            onSortFieldChange={filterSort.handleSortFieldChange}
             onSortToggle={() => {
-              if (sort) cycleSort(sort.field);
+              if (filterSort.sort) filterSort.cycleSort(filterSort.sort.field);
             }}
-            onAddFilter={addFilter}
-            onRemoveFilter={removeFilter}
-            onClearFilters={clearFilters}
+            onAddFilter={filterSort.addFilter}
+            onRemoveFilter={filterSort.removeFilter}
+            onClearFilters={filterSort.clearFilters}
           />
           {role === "admin" ? (
             <div className="flex flex-wrap items-center gap-2">
@@ -527,19 +328,19 @@ export function RecordsView({
                 activeTable={activeTable}
                 tables={tables}
                 onSuccess={() => {
-                  setMessage(null);
+                  actions.setMessage(null);
                   router.refresh();
                 }}
-                onError={(msg) => setMessage(msg)}
+                onError={(msg) => actions.setMessage(msg)}
               />
               <ColumnVisibilityControl
                 slug={slug}
                 activeTable={activeTable}
                 onToggled={() => {
-                  setMessage(null);
+                  actions.setMessage(null);
                   router.refresh();
                 }}
-                onError={(msg) => setMessage(msg)}
+                onError={(msg) => actions.setMessage(msg)}
               />
             </div>
           ) : null}
@@ -550,13 +351,13 @@ export function RecordsView({
             the same form in the modal. */}
         <div className="rounded-lg border border-dashed border-border bg-muted/30 p-4">
           <AddRecordForm
-            key={`inline-${formResetKey}`}
+            key={`inline-${draftState.formResetKey}`}
             slug={slug}
             table={activeTable}
-            draft={draft}
-            onDraftChange={setDraft}
-            onSubmit={handleAdd}
-            pending={addRecord.isPending}
+            draft={draftState.draft}
+            onDraftChange={draftState.setDraft}
+            onSubmit={actions.handleAdd}
+            pending={actions.addPending}
             variant="inline"
             trailing={
               <Button
@@ -564,7 +365,7 @@ export function RecordsView({
                 variant="outline"
                 size="icon"
                 className="size-12"
-                onClick={() => setModalOpen(true)}
+                onClick={() => draftState.setModalOpen(true)}
                 aria-label={t("expandForm")}
               >
                 <Maximize2 aria-hidden="true" className="size-4" />
@@ -576,12 +377,12 @@ export function RecordsView({
         {/* Desktop: semantic table with a trailing actions column. */}
         <div className="hidden md:block">
           {visibleRows.length === 0 ? (
-            hasFilters ? (
+            filterSort.hasFilters ? (
               <FilteredEmpty
                 title={t("noRecordsFound")}
                 body={t("noRecordsFoundBody")}
                 clearLabel={t("clearFilters")}
-                onClear={clearFilters}
+                onClear={filterSort.clearFilters}
               />
             ) : (
               <EmptyTable message={t("emptyTable")} />
@@ -597,13 +398,13 @@ export function RecordsView({
               actionsHeader={t("actionsHeader")}
               openLabel={t("openRecord")}
               deleteLabel={t("deleteRecord")}
-              onOpen={requestOpen}
-              onDelete={requestDelete}
-              onCellCommit={handleCellCommit}
-              editPending={updateRecord.isPending}
-              sort={sort}
+              onOpen={actions.requestOpen}
+              onDelete={actions.requestDelete}
+              onCellCommit={actions.commitCellEdit}
+              editPending={actions.updatePending}
+              sort={filterSort.sort}
               sortableKeys={sortableKeys}
-              onSort={cycleSort}
+              onSort={filterSort.cycleSort}
               sortAriaLabel={(fieldLabel, state) =>
                 state === "asc"
                   ? t("sortAscending", { field: fieldLabel })
@@ -618,12 +419,12 @@ export function RecordsView({
         {/* Mobile: card list, each card with a delete action. */}
         <div {...swipeHandlers} className="touch-pan-y md:hidden">
           {visibleRows.length === 0 ? (
-            hasFilters ? (
+            filterSort.hasFilters ? (
               <FilteredEmpty
                 title={t("noRecordsFound")}
                 body={t("noRecordsFoundBody")}
                 clearLabel={t("clearFilters")}
-                onClear={clearFilters}
+                onClear={filterSort.clearFilters}
               />
             ) : (
               <EmptyTable message={t("emptyTable")} />
@@ -641,10 +442,10 @@ export function RecordsView({
                 resolveRelation={resolveRelation}
                 openLabel={t("openRecord")}
                 deleteLabel={t("deleteRecord")}
-                onOpen={requestOpen}
-                onDelete={requestDelete}
-                onCellCommit={handleCellCommit}
-                editPending={updateRecord.isPending}
+                onOpen={actions.requestOpen}
+                onDelete={actions.requestDelete}
+                onCellCommit={actions.commitCellEdit}
+                editPending={actions.updatePending}
               />
             </ul>
           )}
@@ -653,9 +454,9 @@ export function RecordsView({
 
       {/* Full-form modal — the SAME AddRecordForm over the SAME lifted draft. */}
       <Dialog
-        open={modalOpen}
+        open={draftState.modalOpen}
         onOpenChange={(next) => {
-          if (!next && !addRecord.isPending) setModalOpen(false);
+          if (!next && !actions.addPending) draftState.setModalOpen(false);
         }}
       >
         <DialogContent
@@ -671,37 +472,37 @@ export function RecordsView({
             </DialogDescription>
           </DialogHeader>
           <AddRecordForm
-            key={`modal-${formResetKey}`}
+            key={`modal-${draftState.formResetKey}`}
             slug={slug}
             table={activeTable}
-            draft={draft}
-            onDraftChange={setDraft}
-            onSubmit={handleAdd}
-            pending={addRecord.isPending}
+            draft={draftState.draft}
+            onDraftChange={draftState.setDraft}
+            onSubmit={actions.handleAdd}
+            pending={actions.addPending}
             variant="modal"
           />
         </DialogContent>
       </Dialog>
 
       <DeleteConfirmDialog
-        open={pendingDelete !== null}
+        open={actions.pendingDelete !== null}
         tableLabel={activeTable.label}
-        onConfirm={handleConfirmDelete}
-        onCancel={() => setPendingDelete(null)}
-        pending={deleteRecord.isPending}
-        referenceCount={referenceCount.data ?? null}
-        referenceCountLoading={referenceCount.isPending}
-        referenceCountError={referenceCount.isError}
+        onConfirm={actions.confirmDelete}
+        onCancel={() => actions.setPendingDelete(null)}
+        pending={actions.deletePending}
+        referenceCount={actions.referenceCount.data ?? null}
+        referenceCountLoading={actions.referenceCount.isPending}
+        referenceCountError={actions.referenceCount.isError}
       />
 
       <RecordReverseListDialog
-        open={opened !== null}
+        open={actions.opened !== null}
         table={activeTable}
-        record={opened}
+        record={actions.opened}
         tables={tables}
         slug={slug}
         cellStrings={cellStrings}
-        onClose={() => setOpened(null)}
+        onClose={() => actions.setOpened(null)}
       />
     </div>
   );
