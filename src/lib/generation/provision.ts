@@ -6,8 +6,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { mutate, type MutateIdentity } from "@/lib/data/mutate";
 import { filterSeedRows } from "@/lib/schema/validator";
+import {
+  displayFieldKey,
+  orderTablesByRelations,
+  resolveSeedRelationRefs,
+} from "@/lib/schema/relations";
 import { normalizeTableName } from "@/lib/utils";
-import type { SchemaDefinition } from "@/types/db";
+import type { SchemaDefinition, TableDefinition } from "@/types/db";
 
 /**
  * Anonymous-generation provisioning (Story 1.4).
@@ -68,6 +73,25 @@ function seedRowsForTable(seedRows: unknown, tableKey: string): unknown {
   return undefined;
 }
 
+/**
+ * Default each table's `displayField` (Story 1.8) when generation omitted it:
+ * the first non-hidden `text` field, else the first non-hidden field. A
+ * `displayField` the validator already accepted (naming a visible field) is
+ * kept as-is. Returns a NEW schema; the input is not mutated.
+ */
+function withDefaultedDisplayFields(schema: SchemaDefinition): SchemaDefinition {
+  return {
+    ...schema,
+    tables: schema.tables.map((table): TableDefinition => {
+      if (table.displayField) {
+        return table;
+      }
+      const defaulted = displayFieldKey(table);
+      return defaulted ? { ...table, displayField: defaulted } : table;
+    }),
+  };
+}
+
 /** Mint a fresh anonymous org, or verify/reuse the one the session already has. */
 async function resolveOrg(
   admin: SupabaseClient,
@@ -119,9 +143,13 @@ export async function provisionGeneration(
   const orgId = await resolveOrg(admin, input.orgId);
   const keyPrefix = input.idempotencyPrefix ?? "gen-seed";
 
+  // Default any omitted `displayField` (Story 1.8) so the persisted schema (and
+  // the reveal) always names a canonical label field per table.
+  const schema = withDefaultedDisplayFields(input.schema);
+
   // Persist the schema BEFORE any rows — a bad seed batch must never prevent the
   // visitor from landing on a populated (or at least structured) view.
-  await upsertSchema(admin, orgId, input.schema);
+  await upsertSchema(admin, orgId, schema);
 
   const identity: MutateIdentity = {
     client: admin,
@@ -129,18 +157,53 @@ export async function provisionGeneration(
     orgId,
   };
 
-  for (const table of input.schema.tables) {
-    const rows = filterSeedRows(table, seedRowsForTable(input.seedRows, table.key));
+  // Insert referenced tables before referencing tables (Story 1.8) so a
+  // relation's target rows exist (with ids) before we resolve the referencing
+  // rows against them. As each table seeds, record its inserted ids keyed by
+  // that table's `displayField` value; later tables' relation seed values are
+  // rewritten to those ids via `resolveSeedRelationRefs` before the insert.
+  const orderedTables = orderTablesByRelations(schema.tables);
+  const insertedIdsByTable = new Map<string, Map<string, string>>();
+
+  for (const table of orderedTables) {
+    const filtered = filterSeedRows(
+      table,
+      seedRowsForTable(input.seedRows, table.key),
+    );
+    // Rewrite this table's relation cells (display value → target inserted id)
+    // using the ids recorded for already-seeded referenced tables.
+    const rows = resolveSeedRelationRefs(table, filtered, insertedIdsByTable);
+
+    const displayKey = table.displayField;
+    const idsForThisTable = new Map<string, string>();
+
     for (let i = 0; i < rows.length; i += 1) {
       const result = await mutate(identity, "insert", table.key, rows[i], {
         idempotencyKey: `${keyPrefix}-${table.key}-${i}`,
       });
       // A single bad row must not abort provisioning — skip and continue.
-      if (result.error) {
+      if (result.error || !result.data) {
         continue;
       }
+      // Record this row's inserted id under its display-field value so later
+      // tables can resolve relations that reference it. First match wins.
+      if (displayKey !== undefined) {
+        const displayValue = rows[i][displayKey];
+        if (
+          displayValue !== undefined &&
+          displayValue !== null &&
+          String(displayValue).trim() !== ""
+        ) {
+          const lookup = String(displayValue).trim();
+          if (!idsForThisTable.has(lookup)) {
+            idsForThisTable.set(lookup, result.data.id);
+          }
+        }
+      }
     }
+
+    insertedIdsByTable.set(table.key, idsForThisTable);
   }
 
-  return { orgId, schema: input.schema };
+  return { orgId, schema };
 }

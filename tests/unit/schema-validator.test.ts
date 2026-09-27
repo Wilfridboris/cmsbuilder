@@ -78,9 +78,18 @@ describe("validateGeneratedSchema — happy path", () => {
 });
 
 describe("validateGeneratedSchema — rejections", () => {
-  it("rejects the relation field type", () => {
+  it("rejects a relation whose targetTable does not resolve in the batch", () => {
+    // Story 1.8: relations are now ACCEPTED on the generation path, but only
+    // when the target resolves. A dangling target is rejected.
     const raw = validSchema();
-    raw.schema.tables[0].fields[0].type = "relation";
+    raw.schema.tables[0].fields[0] = {
+      key: "linked",
+      label: "Linked",
+      type: "relation",
+      reason: "Points nowhere.",
+      // @ts-expect-error — exercising the runtime relation path
+      relationConfig: { targetTable: "does_not_exist", cardinality: "one" },
+    };
     const result = validateGeneratedSchema(raw);
     expect(result.valid).toBe(false);
   });
@@ -212,6 +221,213 @@ describe("validateGeneratedSchema — Story 2.5: labels are not keyword-checked"
     const emptyLabel = validSchema();
     emptyLabel.schema.tables[0].fields[0].label = "";
     expect(validateGeneratedSchema(emptyLabel).valid).toBe(false);
+  });
+});
+
+describe("validateGeneratedSchema — Story 1.8: relation gate", () => {
+  // A two-table batch: `clients` and `jobs`, where jobs.client relates to clients.
+  function linkedSchema() {
+    return {
+      schema: {
+        tables: [
+          {
+            key: "clients",
+            label: "Clients",
+            reason: "People you serve.",
+            fields: [
+              { key: "name", label: "Name", type: "text", reason: "Who." },
+            ],
+          },
+          {
+            key: "jobs",
+            label: "Jobs",
+            reason: "Work booked.",
+            fields: [
+              { key: "service", label: "Service", type: "text", reason: "What." },
+              {
+                key: "client",
+                label: "Client",
+                type: "relation",
+                reason: "For whom.",
+                relationConfig: { targetTable: "clients", cardinality: "one" },
+              },
+            ],
+          },
+        ],
+      },
+      seedRows: {},
+    };
+  }
+
+  it("accepts a valid relation to a batch table and carries relationConfig through", () => {
+    const result = validateGeneratedSchema(linkedSchema());
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    const jobs = result.sanitized.tables.find((t) => t.key === "jobs");
+    const rel = jobs?.fields.find((f) => f.key === "client");
+    expect(rel?.type).toBe("relation");
+    expect(rel?.relationConfig).toEqual({
+      targetTable: "clients",
+      cardinality: "one",
+    });
+    expect(rel?.reason).toBe("For whom.");
+  });
+
+  it("resolves a target declared LATER in the batch (two-pass)", () => {
+    // Reverse the table order so `jobs` (referencing) precedes `clients`.
+    const raw = linkedSchema();
+    raw.schema.tables.reverse();
+    const result = validateGeneratedSchema(raw);
+    expect(result.valid).toBe(true);
+  });
+
+  it("accepts a self-reference (legal)", () => {
+    const raw = linkedSchema();
+    raw.schema.tables[0].fields.push({
+      key: "referred_by",
+      label: "Referred by",
+      type: "relation",
+      reason: "Referral chain.",
+      relationConfig: { targetTable: "clients", cardinality: "one" },
+    });
+    const result = validateGeneratedSchema(raw);
+    expect(result.valid).toBe(true);
+  });
+
+  it("accepts a cycle A->B->A (legal)", () => {
+    const raw = linkedSchema();
+    // clients.latest_job -> jobs, jobs.client -> clients: a cycle.
+    raw.schema.tables[0].fields.push({
+      key: "latest_job",
+      label: "Latest job",
+      type: "relation",
+      reason: "Most recent work.",
+      relationConfig: { targetTable: "jobs", cardinality: "one" },
+    });
+    const result = validateGeneratedSchema(raw);
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects an unknown targetTable", () => {
+    const raw = linkedSchema();
+    raw.schema.tables[1].fields[1].relationConfig!.targetTable = "nope";
+    const result = validateGeneratedSchema(raw);
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects cardinality:'many' in the generation phase", () => {
+    const raw = linkedSchema();
+    raw.schema.tables[1].fields[1].relationConfig!.cardinality = "many";
+    const result = validateGeneratedSchema(raw, { phase: "generation" });
+    expect(result.valid).toBe(false);
+  });
+
+  it("accepts cardinality:'many' in the growth phase", () => {
+    const raw = linkedSchema();
+    raw.schema.tables[1].fields[1].relationConfig!.cardinality = "many";
+    const result = validateGeneratedSchema(raw, { phase: "growth" });
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects a relation from a non-llm source in the generation phase", () => {
+    const result = validateGeneratedSchema(linkedSchema(), { source: "ui" });
+    expect(result.valid).toBe(false);
+  });
+
+  it("accepts a relation from a ui source in the growth phase", () => {
+    const result = validateGeneratedSchema(linkedSchema(), {
+      source: "ui",
+      phase: "growth",
+    });
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects a relation missing its relationConfig", () => {
+    const raw = linkedSchema();
+    // Strip the config entirely.
+    delete (raw.schema.tables[1].fields[1] as { relationConfig?: unknown })
+      .relationConfig;
+    const result = validateGeneratedSchema(raw);
+    expect(result.valid).toBe(false);
+  });
+});
+
+describe("validateGeneratedSchema — Story 1.8: displayField", () => {
+  it("accepts a displayField naming a visible field and normalizes it", () => {
+    const raw = validSchema();
+    (raw.schema.tables[0] as { displayField?: string }).displayField =
+      "Client Name";
+    const result = validateGeneratedSchema(raw);
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    expect(result.sanitized.tables[0].displayField).toBe("client_name");
+  });
+
+  it("rejects a displayField that names no field", () => {
+    const raw = validSchema();
+    (raw.schema.tables[0] as { displayField?: string }).displayField = "missing";
+    const result = validateGeneratedSchema(raw);
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects a displayField that names a hidden field", () => {
+    const raw = validSchema();
+    // Add a hidden field and point displayField at it: it exists but is hidden.
+    raw.schema.tables[0].fields.push({
+      key: "secret",
+      label: "Secret",
+      type: "text",
+      reason: "Hidden.",
+      // @ts-expect-error — exercising the runtime hidden-field path
+      hidden: true,
+    });
+    (raw.schema.tables[0] as { displayField?: string }).displayField = "secret";
+    const result = validateGeneratedSchema(raw);
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects a displayField that names a relation field (id is not a label)", () => {
+    const raw = {
+      schema: {
+        tables: [
+          {
+            key: "clients",
+            label: "Clients",
+            reason: "People you serve.",
+            fields: [
+              { key: "name", label: "Name", type: "text", reason: "Who." },
+            ],
+          },
+          {
+            key: "jobs",
+            label: "Jobs",
+            reason: "Work booked.",
+            // Point the display label at the relation field — must be rejected.
+            displayField: "client",
+            fields: [
+              { key: "service", label: "Service", type: "text", reason: "What." },
+              {
+                key: "client",
+                label: "Client",
+                type: "relation",
+                reason: "For whom.",
+                relationConfig: { targetTable: "clients", cardinality: "one" },
+              },
+            ],
+          },
+        ],
+      },
+      seedRows: {},
+    };
+    const result = validateGeneratedSchema(raw);
+    expect(result.valid).toBe(false);
+  });
+
+  it("leaves displayField unset when omitted", () => {
+    const result = validateGeneratedSchema(validSchema());
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    expect(result.sanitized.tables[0].displayField).toBeUndefined();
   });
 });
 

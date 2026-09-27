@@ -6,6 +6,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 
 import type {
+  FieldDefinition,
   RecordData,
   SchemaDefinition,
   TableDefinition,
@@ -20,6 +21,7 @@ import {
   renameTable,
   visibleTables,
 } from "@/lib/schema/overrides";
+import { buildRelationResolver } from "@/lib/schema/relations";
 import {
   Table,
   TableBody,
@@ -68,6 +70,29 @@ type DemoDashboardProps = {
 /** Local, session-only record store keyed by `table_key`. */
 type RecordsState = Record<string, RecordData[]>;
 
+/** Resolve a relation cell to its target `displayField` label, or null. */
+export type ResolveRelation = (
+  field: FieldDefinition,
+  value: unknown,
+) => string | null;
+
+/**
+ * Render one cell: a `relation` resolves to the target's display label (falling
+ * back to the empty placeholder when the id does not resolve — read-only); every
+ * other type goes through the scalar `formatCell`.
+ */
+function renderCell(
+  field: FieldDefinition,
+  value: unknown,
+  cellStrings: CellStrings,
+  resolveRelation: ResolveRelation,
+): string {
+  if (field.type === "relation") {
+    return resolveRelation(field, value) ?? cellStrings.empty;
+  }
+  return formatCell(value, field.type, cellStrings);
+}
+
 export function DemoDashboard({ response }: DemoDashboardProps) {
   const t = useTranslations("Dashboard");
   const tExplain = useTranslations("Explainability");
@@ -87,6 +112,14 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
     () => response.schema,
   );
   const [records, setRecords] = useState<RecordsState>(() => response.records);
+
+  // Read-time relation resolver (Story 1.8): maps a stored target id back to the
+  // target table's `displayField` label. Memoized on the session schema+records
+  // so edits (which replace `records`) refresh resolved labels.
+  const resolveRelation = useMemo<ResolveRelation>(
+    () => buildRelationResolver(schema, records),
+    [schema, records],
+  );
 
   // The tables the tablist renders — hidden ones drop out (1.7).
   const tables = useMemo(() => visibleTables(schema), [schema]);
@@ -321,6 +354,7 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
                 table={activeTable}
                 rows={activeRows}
                 cellStrings={cellStrings}
+                resolveRelation={resolveRelation}
                 onOpen={setOpenRecordId}
                 openLabel={t("openRecord")}
                 onRenameField={handleRenameField}
@@ -334,6 +368,7 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
                 table={activeTable}
                 rows={activeRows}
                 cellStrings={cellStrings}
+                resolveRelation={resolveRelation}
                 onOpen={setOpenRecordId}
                 openLabel={t("openRecord")}
                 prefersReducedMotion={Boolean(prefersReducedMotion)}
@@ -346,6 +381,7 @@ export function DemoDashboard({ response }: DemoDashboardProps) {
       <RecordDetail
         table={activeTable}
         record={openRecord}
+        resolveRelation={resolveRelation}
         onClose={() => setOpenRecordId(null)}
         onEdit={handleEdit}
         onRenameField={handleRenameField}
@@ -360,6 +396,7 @@ function TableView({
   table,
   rows,
   cellStrings,
+  resolveRelation,
   onOpen,
   openLabel,
   onRenameField,
@@ -368,6 +405,7 @@ function TableView({
   table: TableDefinition;
   rows: RecordData[];
   cellStrings: CellStrings;
+  resolveRelation: ResolveRelation;
   onOpen: (id: string) => void;
   openLabel: string;
   onRenameField: (fieldKey: string, label: string) => void;
@@ -428,7 +466,12 @@ function TableView({
             >
               {fields.map((field) => (
                 <TableCell key={field.key}>
-                  {formatCell(row.data[field.key], field.type, cellStrings)}
+                  {renderCell(
+                    field,
+                    row.data[field.key],
+                    cellStrings,
+                    resolveRelation,
+                  )}
                 </TableCell>
               ))}
             </TableRow>
@@ -444,6 +487,7 @@ function CardList({
   table,
   rows,
   cellStrings,
+  resolveRelation,
   onOpen,
   openLabel,
   prefersReducedMotion,
@@ -451,6 +495,7 @@ function CardList({
   table: TableDefinition;
   rows: RecordData[];
   cellStrings: CellStrings;
+  resolveRelation: ResolveRelation;
   onOpen: (id: string) => void;
   openLabel: string;
   prefersReducedMotion: boolean;
@@ -482,19 +527,21 @@ function CardList({
           <CardContent className="flex flex-col gap-2 px-4">
             {primaryField ? (
               <p className="text-base font-medium text-foreground text-pretty">
-                {formatCell(
+                {renderCell(
+                  primaryField,
                   row.data[primaryField.key],
-                  primaryField.type,
                   cellStrings,
+                  resolveRelation,
                 )}
               </p>
             ) : null}
             {secondaryField ? (
               <p className="text-sm text-muted-foreground text-pretty">
-                {formatCell(
+                {renderCell(
+                  secondaryField,
                   row.data[secondaryField.key],
-                  secondaryField.type,
                   cellStrings,
+                  resolveRelation,
                 )}
               </p>
             ) : null}
@@ -509,7 +556,12 @@ function CardList({
                       {field.label}
                     </dt>
                     <dd className="min-w-0 break-words text-right text-foreground">
-                      {formatCell(row.data[field.key], field.type, cellStrings)}
+                      {renderCell(
+                        field,
+                        row.data[field.key],
+                        cellStrings,
+                        resolveRelation,
+                      )}
                     </dd>
                   </div>
                 ))}

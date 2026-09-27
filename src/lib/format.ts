@@ -9,8 +9,10 @@
  * next-intl import and can be unit-tested in the node env (no jsdom), per the
  * 1.3–1.5 precedent.
  *
- * `relation` is intentionally absent from the field-type union (never generated
- * or accepted — see the Schema Validator); it can never reach this formatter.
+ * `relation` (Story 1.8) is resolved to a human label BEFORE the display path
+ * reaches this formatter (see `buildRelationResolver`). The defensive `relation`
+ * branch here only guards a stray relation value that bypasses resolution: it
+ * degrades to `String(value)` (a raw id) rather than mis-formatting it.
  */
 
 import type { FieldDefinition } from "@/types/db";
@@ -78,6 +80,12 @@ export function formatCell(
 
   if (type === "boolean") {
     return value ? strings.yes : strings.no;
+  }
+
+  // Defensive: a relation should be label-resolved upstream. If a raw relation
+  // value (a target id) reaches here, show it verbatim rather than mis-typing it.
+  if (type === "relation") {
+    return String(value);
   }
 
   if (type === "currency" && typeof value === "number") {

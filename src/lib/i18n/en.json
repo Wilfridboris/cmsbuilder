@@ -75,7 +75,8 @@
       "datetime": "Date & time",
       "currency": "Currency",
       "email": "Email",
-      "phone": "Phone"
+      "phone": "Phone",
+      "relation": "Link"
     }
   },
   "Explainability": {

@@ -40,6 +40,8 @@ const ALLOWED_TYPES = new Set([
   "currency",
   "email",
   "phone",
+  // Story 1.8: the fallback now demonstrates single-reference relations too.
+  "relation",
 ]);
 
 describe("UNIVERSAL_FIELD_SERVICE_TEMPLATE — structure", () => {
@@ -57,13 +59,36 @@ describe("UNIVERSAL_FIELD_SERVICE_TEMPLATE — structure", () => {
     }
   });
 
-  it("uses only MVP scalar field types — never relation", () => {
+  it("uses only allowed field types (scalars plus single-reference relations)", () => {
     for (const table of UNIVERSAL_FIELD_SERVICE_TEMPLATE.tables) {
       for (const field of table.fields) {
         expect(ALLOWED_TYPES.has(field.type)).toBe(true);
-        expect(field.type).not.toBe("relation");
+        if (field.type === "relation") {
+          // A relation carries a single-reference config to a batch table.
+          expect(field.relationConfig?.cardinality).toBe("one");
+          expect(field.relationConfig?.targetTable).toBeTruthy();
+        }
       }
     }
+  });
+
+  it("links Job->Client and Invoice->Job, and names a displayField per table", () => {
+    const byKey = new Map(
+      UNIVERSAL_FIELD_SERVICE_TEMPLATE.tables.map((t) => [t.key, t]),
+    );
+    for (const table of UNIVERSAL_FIELD_SERVICE_TEMPLATE.tables) {
+      expect(table.displayField).toBeTruthy();
+      // The displayField names a real field of that table.
+      expect(table.fields.some((f) => f.key === table.displayField)).toBe(true);
+    }
+    const jobClient = byKey
+      .get("jobs")
+      ?.fields.find((f) => f.type === "relation");
+    expect(jobClient?.relationConfig?.targetTable).toBe("clients");
+    const invoiceJob = byKey
+      .get("invoices")
+      ?.fields.find((f) => f.type === "relation");
+    expect(invoiceJob?.relationConfig?.targetTable).toBe("jobs");
   });
 
   it("has no reserved-column collisions and no blocked keywords in keys/labels", () => {

@@ -5,6 +5,7 @@ import { useTranslations } from "next-intl";
 import { Check, Pencil, X } from "lucide-react";
 
 import type { FieldDefinition, RecordData, TableDefinition } from "@/types/db";
+import type { ResolveRelation } from "@/components/dashboard/DemoDashboard";
 import { formatCell, type CellStrings } from "@/lib/format";
 import {
   Dialog,
@@ -37,6 +38,11 @@ import { OverrideControl } from "@/components/dashboard/OverrideControl";
  * reason and offers one-tap Rename (label only) / Remove (append-only hide).
  * The existing value-edit affordance is untouched.
  *
+ * Story 1.8: a `relation` field renders the resolved target `displayField` label
+ * (via `resolveRelation`, falling back to the empty placeholder), READ-ONLY —
+ * its edit (`Pencil`) affordance is suppressed (interactive relation editing is
+ * Epic 3). Every other field keeps its in-place editor.
+ *
  * All strings resolve through next-intl (`Dashboard` + `Explainability` +
  * reused `Generate.cell*`); every ARIA label is derived from the schema
  * `label`s.
@@ -49,6 +55,8 @@ type RecordDetailProps = {
   table: TableDefinition;
   /** The record to show, or `null` when the dialog is closed. */
   record: RecordData | null;
+  /** Resolve a relation cell to its target label (Story 1.8), read-only. */
+  resolveRelation: ResolveRelation;
   /** Close handler — Radix calls this on Esc / overlay / close button. */
   onClose: () => void;
   /**
@@ -65,6 +73,7 @@ type RecordDetailProps = {
 export function RecordDetail({
   table,
   record,
+  resolveRelation,
   onClose,
   onEdit,
   onRenameField,
@@ -111,6 +120,7 @@ export function RecordDetail({
                 field={field}
                 value={record.data[field.key]}
                 cellStrings={cellStrings}
+                resolveRelation={resolveRelation}
                 onCommit={(value) => onEdit(field.key, value)}
                 onRename={(label) => onRenameField(field.key, label)}
                 onRemove={() => onRemoveField(field.key)}
@@ -128,6 +138,7 @@ function FieldRow({
   field,
   value,
   cellStrings,
+  resolveRelation,
   onCommit,
   onRename,
   onRemove,
@@ -135,6 +146,7 @@ function FieldRow({
   field: FieldDefinition;
   value: unknown;
   cellStrings: CellStrings;
+  resolveRelation: ResolveRelation;
   onCommit: (value: unknown) => void;
   onRename: (label: string) => void;
   onRemove: () => void;
@@ -142,6 +154,10 @@ function FieldRow({
   const t = useTranslations("Dashboard");
   const tExplain = useTranslations("Explainability");
   const [editing, setEditing] = useState(false);
+
+  // Relations are read-only in the demo (interactive editing is Epic 3): show
+  // the resolved target label with no edit affordance.
+  const isRelation = field.type === "relation";
 
   return (
     <div className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
@@ -166,7 +182,12 @@ function FieldRow({
         </Badge>
       </dt>
       <dd className="text-sm text-foreground">
-        {editing ? (
+        {isRelation ? (
+          // Read-only: resolved target label, no edit affordance (Story 1.8).
+          <span className="min-w-0 break-words text-pretty">
+            {resolveRelation(field, value) ?? cellStrings.empty}
+          </span>
+        ) : editing ? (
           <FieldEditor
             field={field}
             value={value}

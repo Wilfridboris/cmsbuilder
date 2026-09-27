@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { provisionGeneration } from "@/lib/generation/provision";
+import {
+  FALLBACK_SEED_ROWS,
+  UNIVERSAL_FIELD_SERVICE_TEMPLATE,
+} from "@/lib/generation/fallback";
 import type { SchemaDefinition } from "@/types/db";
 
 /**
@@ -140,6 +144,15 @@ const SCHEMA: SchemaDefinition = {
   ],
 };
 
+/**
+ * Story 1.8: provisioning defaults each table's `displayField` (first non-hidden
+ * text field, else first non-hidden field). `SCHEMA` above omits it, so the
+ * persisted definition + returned schema gain `displayField: "name"`.
+ */
+const SCHEMA_WITH_DISPLAY: SchemaDefinition = {
+  tables: [{ ...SCHEMA.tables[0], displayField: "name" }],
+};
+
 function asClient(admin: FakeAdmin): SupabaseClient {
   return admin as unknown as SupabaseClient;
 }
@@ -162,9 +175,9 @@ describe("provisionGeneration — happy path", () => {
     // A fresh org id was minted (UUID, not empty).
     expect(result.orgId).toMatch(/[0-9a-f-]{36}/i);
     expect(admin.orgUpserts).toHaveLength(1);
-    // Schema persisted with the definition.
+    // Schema persisted with the definition (displayField defaulted, Story 1.8).
     expect(admin.schemaUpserts).toHaveLength(1);
-    expect(admin.schemaUpserts[0].definition).toEqual(SCHEMA);
+    expect(admin.schemaUpserts[0].definition).toEqual(SCHEMA_WITH_DISPLAY);
     // Both seed rows written under the minted org.
     expect(admin.records).toHaveLength(2);
     expect(admin.records.every((r) => r.organization_id === result.orgId)).toBe(true);
@@ -236,7 +249,7 @@ describe("provisionGeneration — malformed seedRows never sink the schema", () 
     // Only the one well-formed row survived.
     expect(admin.records).toHaveLength(1);
     expect(admin.records[0].data).toEqual({ name: "Keep me", quoted: 500 });
-    expect(result.schema).toEqual(SCHEMA);
+    expect(result.schema).toEqual(SCHEMA_WITH_DISPLAY);
   });
 
   it("persists the schema even when seedRows is entirely absent/invalid", async () => {
@@ -248,5 +261,103 @@ describe("provisionGeneration — malformed seedRows never sink the schema", () 
     expect(admin.schemaUpserts).toHaveLength(1);
     expect(admin.records).toHaveLength(0);
     expect(result.orgId).toBeTruthy();
+  });
+});
+
+describe("provisionGeneration — Story 1.8: relations resolve to target ids", () => {
+  const LINKED_SCHEMA: SchemaDefinition = {
+    tables: [
+      // Declared referencing-first to prove insert-order handling.
+      {
+        key: "jobs",
+        label: "Jobs",
+        displayField: "service",
+        fields: [
+          { key: "service", label: "Service", type: "text" },
+          {
+            key: "client",
+            label: "Client",
+            type: "relation",
+            relationConfig: { targetTable: "clients", cardinality: "one" },
+          },
+        ],
+      },
+      {
+        key: "clients",
+        label: "Clients",
+        displayField: "name",
+        fields: [{ key: "name", label: "Name", type: "text" }],
+      },
+    ],
+  };
+
+  it("inserts referenced tables first and rewrites relation values to inserted ids", async () => {
+    const admin = new FakeAdmin();
+    const seedRows = {
+      clients: [{ name: "Maple Ridge" }, { name: "Bytown" }],
+      jobs: [
+        { service: "HVAC", client: "Maple Ridge" },
+        { service: "Cooler repair", client: "Bytown" },
+        { service: "Orphan", client: "Unknown Co" }, // unresolved → value dropped
+      ],
+    };
+
+    await provisionGeneration(
+      { schema: LINKED_SCHEMA, seedRows },
+      asClient(admin),
+    );
+
+    // Clients seeded before jobs (referenced-first).
+    const clientRows = admin.records.filter((r) => r.table_key === "clients");
+    const jobRows = admin.records.filter((r) => r.table_key === "jobs");
+    expect(clientRows).toHaveLength(2);
+    expect(jobRows).toHaveLength(3);
+    expect(admin.records.slice(0, 2).every((r) => r.table_key === "clients")).toBe(
+      true,
+    );
+
+    // The jobs' `client` now holds the target client's inserted id, not the name.
+    const mapleId = clientRows.find((r) => r.data.name === "Maple Ridge")!.id;
+    const bytownId = clientRows.find((r) => r.data.name === "Bytown")!.id;
+    expect(jobRows[0].data.client).toBe(mapleId);
+    expect(jobRows[1].data.client).toBe(bytownId);
+    // The unresolved reference was dropped; the row still wrote.
+    expect(jobRows[2].data.client).toBeUndefined();
+    expect(jobRows[2].data.service).toBe("Orphan");
+  });
+
+  it("resolves every relation in the real fallback template end-to-end (no dropped refs)", async () => {
+    const admin = new FakeAdmin();
+
+    await provisionGeneration(
+      {
+        schema: UNIVERSAL_FIELD_SERVICE_TEMPLATE,
+        seedRows: FALLBACK_SEED_ROWS,
+      },
+      asClient(admin),
+    );
+
+    const clientRows = admin.records.filter((r) => r.table_key === "clients");
+    const jobRows = admin.records.filter((r) => r.table_key === "jobs");
+    const invoiceRows = admin.records.filter((r) => r.table_key === "invoices");
+
+    // Every fallback seed row was written (nothing sunk).
+    expect(clientRows.length).toBe(FALLBACK_SEED_ROWS.clients.length);
+    expect(jobRows.length).toBe(FALLBACK_SEED_ROWS.jobs.length);
+    expect(invoiceRows.length).toBe(FALLBACK_SEED_ROWS.invoices.length);
+
+    const clientIds = new Set(clientRows.map((r) => r.id));
+    const jobIds = new Set(jobRows.map((r) => r.id));
+
+    // Every jobs.client resolved to a real client id — not a leftover name, not dropped.
+    for (const job of jobRows) {
+      expect(typeof job.data.client).toBe("string");
+      expect(clientIds.has(job.data.client as string)).toBe(true);
+    }
+    // Every invoices.job resolved to a real job id — Invoice->Job links intact.
+    for (const invoice of invoiceRows) {
+      expect(typeof invoice.data.job).toBe("string");
+      expect(jobIds.has(invoice.data.job as string)).toBe(true);
+    }
   });
 });

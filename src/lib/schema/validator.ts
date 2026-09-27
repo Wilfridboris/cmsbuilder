@@ -24,7 +24,15 @@ import { normalizeTableName } from "@/lib/utils";
  *     inert, auto-escaped JSONB text and never concatenated into SQL, so a
  *     substring match there only false-rejects legitimate business vocabulary
  *     (e.g. "Deleted?", "Grants", "Drop-off time"). See Story 2.5 / retro F7;
- *   - never accepts the `relation` field type (nor any type outside the MVP set);
+ *   - accepts a `relation` field ONLY on the strict-JSON generation path (Story
+ *     1.8): its `relationConfig.targetTable` must resolve to a table key in the
+ *     SAME batch (a two-pass check — collect all table keys first, then validate
+ *     targets); self-reference and cycles are legal. It rejects `cardinality:
+ *     'many'` and any non-`llm` source unless `phase === 'growth'`. Any type
+ *     outside the MVP set (plus `relation`) is still rejected;
+ *   - accepts a table `displayField` only when it names a non-hidden field of
+ *     that table; a missing/hidden target is rejected, and an absent
+ *     `displayField` is left unset (provisioning defaults it);
  *   - normalizes every `table_key` and field `key` via `normalizeTableName()`;
  *   - logs every rejection through the observability seam with the org/session
  *     id + raw output (FR45).
@@ -80,6 +88,18 @@ export type ValidationContext = {
   id?: string;
   /** The raw LLM output, for debugging a rejection (FR45). */
   rawOutput?: unknown;
+  /**
+   * The lifecycle phase (Story 1.8). `'generation'` (default) is the anonymous
+   * strict-JSON generation path: single-reference relations only. `'growth'`
+   * (Epic 9) unlocks `cardinality:'many'` and the editor `source`.
+   */
+  phase?: "generation" | "growth";
+  /**
+   * Who proposed the schema (Story 1.8). `'llm'` (default) is the strict-JSON
+   * generation path — the only path that may emit relations at MVP. A `'ui'`
+   * (editor-created) relation is rejected unless `phase === 'growth'`.
+   */
+  source?: "llm" | "ui";
 };
 
 /**
@@ -133,15 +153,23 @@ export function validateGeneratedSchema(
     return reject(genericError, "schema.tables missing, not an array, or empty");
   }
 
-  const seenTableKeys = new Set<string>();
-  const sanitizedTables: TableDefinition[] = [];
+  const phase = context.phase ?? "generation";
+  const source = context.source ?? "llm";
+  // A relation is accepted at MVP only on the strict-JSON generation path (an
+  // `llm` source in the `generation` phase). `cardinality:'many'` and the
+  // editor `ui` source unlock only at `phase === 'growth'` (Epic 9).
+  const relationsAllowed = source === "llm" || phase === "growth";
+  const manyAllowed = phase === "growth";
+  const uiSourceAllowed = phase === "growth";
 
+  // Pass 1 — collect + validate every table key, so relation targets can be
+  // resolved against the FULL batch regardless of declaration order (two-pass).
+  const seenTableKeys = new Set<string>();
   for (const table of tables) {
     if (!table || typeof table !== "object") {
       return reject(genericError, "a table entry is not an object");
     }
     const t = table as Record<string, unknown>;
-
     if (!isNonEmptyString(t.label)) {
       return reject(genericError, "a table is missing a label");
     }
@@ -162,6 +190,15 @@ export function validateGeneratedSchema(
       return reject(genericError, `duplicate table key: "${tableKey}"`);
     }
     seenTableKeys.add(tableKey);
+  }
+
+  // Pass 2 — validate + sanitize fields (including relation targets against the
+  // batch keys collected above) and the table `displayField`.
+  const sanitizedTables: TableDefinition[] = [];
+
+  for (const table of tables) {
+    const t = table as Record<string, unknown>;
+    const tableKey = normalizeTableName(String(t.key));
 
     const rawFields = t.fields;
     if (!Array.isArray(rawFields) || rawFields.length === 0) {
@@ -169,6 +206,10 @@ export function validateGeneratedSchema(
     }
 
     const seenFieldKeys = new Set<string>();
+    // Track which normalized field keys arrived hidden — `hidden` is stripped
+    // from the sanitized fields (generation output is never hidden), so the
+    // displayField check below reads this to reject a hidden-named display label.
+    const hiddenFieldKeys = new Set<string>();
     const sanitizedFields: FieldDefinition[] = [];
 
     for (const field of rawFields) {
@@ -184,11 +225,13 @@ export function validateGeneratedSchema(
         return reject(genericError, `a field in "${tableKey}" is missing a key`);
       }
       const type = f.type;
-      // `relation` (and anything outside the MVP set) is never accepted.
-      if (
-        typeof type !== "string" ||
-        !(GENERATION_FIELD_TYPES as readonly string[]).includes(type)
-      ) {
+      // A `relation` is now accepted (gated below); anything outside the MVP
+      // set plus `relation` is still rejected.
+      const isSupported =
+        type === "relation" ||
+        (typeof type === "string" &&
+          (GENERATION_FIELD_TYPES as readonly string[]).includes(type));
+      if (typeof type !== "string" || !isSupported) {
         return reject(
           genericError,
           `field "${String(f.key)}" has an unsupported type: "${String(type)}"`,
@@ -209,12 +252,66 @@ export function validateGeneratedSchema(
         return reject(genericError, `duplicate field key in "${tableKey}": "${fieldKey}"`);
       }
       seenFieldKeys.add(fieldKey);
+      if (f.hidden === true) {
+        hiddenFieldKeys.add(fieldKey);
+      }
 
       const sanitizedField: FieldDefinition = {
         key: fieldKey,
         label: f.label.trim(),
         type: type as FieldDefinition["type"],
       };
+
+      // Relation gate (Story 1.8). Accept only when the source/phase allow it,
+      // the target resolves within the batch, and the cardinality is permitted.
+      if (type === "relation") {
+        if (!relationsAllowed || (source === "ui" && !uiSourceAllowed)) {
+          return reject(
+            genericError,
+            `relation field "${fieldKey}" not allowed for source "${source}" in phase "${phase}"`,
+          );
+        }
+        const cfg = f.relationConfig;
+        if (!cfg || typeof cfg !== "object") {
+          return reject(
+            genericError,
+            `relation field "${fieldKey}" is missing relationConfig`,
+          );
+        }
+        const rc = cfg as Record<string, unknown>;
+        if (!isNonEmptyString(rc.targetTable)) {
+          return reject(
+            genericError,
+            `relation field "${fieldKey}" is missing relationConfig.targetTable`,
+          );
+        }
+        const targetTable = normalizeTableName(String(rc.targetTable));
+        if (!seenTableKeys.has(targetTable)) {
+          return reject(
+            genericError,
+            `relation field "${fieldKey}" targets an unknown table: "${String(rc.targetTable)}"`,
+          );
+        }
+        const cardinality = rc.cardinality;
+        if (cardinality === "many") {
+          if (!manyAllowed) {
+            return reject(
+              genericError,
+              `relation field "${fieldKey}" uses cardinality:'many' outside phase 'growth'`,
+            );
+          }
+        } else if (cardinality !== undefined && cardinality !== "one") {
+          return reject(
+            genericError,
+            `relation field "${fieldKey}" has an invalid cardinality: "${String(cardinality)}"`,
+          );
+        }
+        sanitizedField.relationConfig = {
+          targetTable,
+          cardinality: cardinality === "many" ? "many" : "one",
+        };
+      }
+
       if (isNonEmptyString(f.reason)) {
         sanitizedField.reason = f.reason.trim();
       }
@@ -226,12 +323,43 @@ export function validateGeneratedSchema(
 
     const sanitizedTable: TableDefinition = {
       key: tableKey,
-      label: t.label.trim(),
+      // Pass 1 already confirmed `t.label` is a non-empty string.
+      label: String(t.label).trim(),
       fields: sanitizedFields,
     };
     if (isNonEmptyString(t.reason)) {
       sanitizedTable.reason = t.reason.trim();
     }
+
+    // Validate `displayField` (Story 1.8): when present it must name a
+    // non-hidden, non-relation field of this table. A relation stores a target
+    // id (never a label), so it can't be a display label; a missing/hidden/
+    // relation target is rejected. An absent displayField is left unset
+    // (provisioning defaults it).
+    if (t.displayField !== undefined) {
+      if (!isNonEmptyString(t.displayField)) {
+        return reject(
+          genericError,
+          `table "${tableKey}" has a non-string displayField`,
+        );
+      }
+      const displayKey = normalizeTableName(String(t.displayField));
+      const target = sanitizedFields.find((field) => field.key === displayKey);
+      if (!target || hiddenFieldKeys.has(displayKey)) {
+        return reject(
+          genericError,
+          `table "${tableKey}" displayField "${String(t.displayField)}" is not a visible field`,
+        );
+      }
+      if (target.type === "relation") {
+        return reject(
+          genericError,
+          `table "${tableKey}" displayField "${String(t.displayField)}" is a relation field, which cannot be a display label`,
+        );
+      }
+      sanitizedTable.displayField = displayKey;
+    }
+
     sanitizedTables.push(sanitizedTable);
   }
 

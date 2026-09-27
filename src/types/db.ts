@@ -14,9 +14,12 @@ export type FieldDefinition = {
   /** Human-facing column label (rename edits this, not `key`). */
   label: string;
   /**
-   * Rendering/validation hint. `relation` is excluded from MVP (never generated
-   * or accepted by the Schema Validator). Story 1.4 widens the union to the full
+   * Rendering/validation hint. Story 1.4 widened the union to the full
    * generation contract: the base scalar set plus `datetime`, `email`, `phone`.
+   * Story 1.8 adds `relation` — a single-reference link to another table's
+   * record (see `relationConfig`). A `relation` cell stores the target record's
+   * UUID in `records.data`, never the label; the label resolves at read time
+   * from the target table's `displayField`.
    */
   type:
     | "text"
@@ -26,7 +29,18 @@ export type FieldDefinition = {
     | "boolean"
     | "currency"
     | "email"
-    | "phone";
+    | "phone"
+    | "relation";
+  /**
+   * Present only when `type === "relation"` (Story 1.8). Describes the link:
+   * `targetTable` is the `TableDefinition.key` this field points at, and
+   * `cardinality` is `"one"` at MVP (a single reference). `"many"` (multi-select)
+   * is Growth-only and rejected by the validator on the generation path.
+   */
+  relationConfig?: {
+    targetTable: string;
+    cardinality: "one" | "many";
+  };
   /** Plain-language reason this field exists (FR46 explainability). */
   reason?: string;
   /** Append-only hide flag — a display concern, never a data delete. */
@@ -50,6 +64,14 @@ export type TableDefinition = {
    * Backward-compatible optional JSONB field — no migration.
    */
   hidden?: boolean;
+  /**
+   * The canonical label field for this table (Story 1.8, FR75): the non-hidden
+   * field key whose value represents a row wherever it appears as a relation
+   * reference. Provisioning defaults it (first non-hidden `text` field, else the
+   * first non-hidden field) when generation omits it. Optional JSONB field,
+   * backward-compatible — no migration.
+   */
+  displayField?: string;
   /** Ordered field definitions rendered as columns. */
   fields: FieldDefinition[];
 };

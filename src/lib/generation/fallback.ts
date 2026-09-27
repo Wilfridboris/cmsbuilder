@@ -11,8 +11,11 @@ import type { SchemaDefinition } from "@/types/db";
  * an LLM output — but it MUST pass `validateGeneratedSchema`/`filterSeedRows`
  * unchanged (the same safety gate the LLM output passes; a unit test asserts it):
  *   - exactly three tables (`clients`, `jobs`, `invoices`);
- *   - only the MVP scalar field types (`text | number | boolean | date |
- *     datetime | currency | email | phone`) — never `relation`;
+ *   - the MVP scalar field types (`text | number | boolean | date | datetime |
+ *     currency | email | phone`) plus single-reference `relation` fields
+ *     (Story 1.8): a Job→Client link and an Invoice→Job link, so the fallback
+ *     demonstrates linked tables too;
+ *   - a `displayField` per table (the canonical row label);
  *   - a plain-language `reason` on every table AND every field (so Story 1.7
  *     explainability and Story 1.6 render work unchanged);
  *   - no reserved-column collisions, no blocked keywords.
@@ -37,6 +40,7 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
       label: "Clients",
       reason:
         "The people and businesses you serve — the core list every field-service business keeps.",
+      displayField: "name",
       fields: [
         {
           key: "name",
@@ -77,11 +81,13 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
       label: "Jobs",
       reason:
         "The work you're booked to do — what keeps your schedule and revenue moving.",
+      displayField: "service",
       fields: [
         {
           key: "client",
           label: "Client",
-          type: "text",
+          type: "relation",
+          relationConfig: { targetTable: "clients", cardinality: "one" },
           reason: "Which client the job is for.",
         },
         {
@@ -115,12 +121,20 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
       label: "Invoices",
       reason:
         "What you've billed and what's still owed — how you keep cash flowing.",
+      displayField: "invoice_number",
       fields: [
         {
-          key: "client",
-          label: "Client",
+          key: "invoice_number",
+          label: "Invoice #",
           type: "text",
-          reason: "Who the invoice is billed to.",
+          reason: "The reference number you and the client use for this invoice.",
+        },
+        {
+          key: "job",
+          label: "Job",
+          type: "relation",
+          relationConfig: { targetTable: "jobs", cardinality: "one" },
+          reason: "Which job this invoice bills for.",
         },
         {
           key: "amount",
@@ -156,6 +170,13 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
  * Real Ontario city names, plausible CAD pricing, and field-service
  * terminology. Passed through `filterSeedRows` unchanged (projected onto the
  * template's known field keys).
+ *
+ * Relation columns (Story 1.8) carry the TARGET row's `displayField` value, not
+ * an id: `jobs.client` holds the client's `name`, `invoices.job` holds the
+ * job's `service`. Provisioning inserts referenced tables first, maps each
+ * table's display value → inserted id, then rewrites these to the target ids
+ * before writing (so `records.data` stores the id). The values below are chosen
+ * to match a real target row so every reference resolves.
  */
 export const FALLBACK_SEED_ROWS: Record<
   string,
@@ -178,11 +199,11 @@ export const FALLBACK_SEED_ROWS: Record<
     { client: "Westboro Yoga Studio", service: "AC unit install", scheduled_date: "2026-10-20", quoted: 4300, status: "Quoted" },
   ],
   invoices: [
-    { client: "Glebe Family Clinic", amount: 980, issued_date: "2026-09-23", due_date: "2026-10-23", paid: true },
-    { client: "Bytown Bakery", amount: 1250, issued_date: "2026-09-25", due_date: "2026-10-25", paid: false },
-    { client: "Maple Ridge Dental", amount: 8400, issued_date: "2026-09-20", due_date: "2026-10-20", paid: false },
-    { client: "Carleton Property Mgmt", amount: 2100, issued_date: "2026-09-18", due_date: "2026-10-18", paid: true },
-    { client: "Rideau Auto Body", amount: 5600, issued_date: "2026-09-27", due_date: "2026-10-27", paid: false },
-    { client: "Westboro Yoga Studio", amount: 4300, issued_date: "2026-09-15", due_date: "2026-10-15", paid: false },
+    { invoice_number: "INV-1001", job: "Ductwork cleaning", amount: 980, issued_date: "2026-09-23", due_date: "2026-10-23", paid: true },
+    { invoice_number: "INV-1002", job: "Walk-in cooler repair", amount: 1250, issued_date: "2026-09-25", due_date: "2026-10-25", paid: false },
+    { invoice_number: "INV-1003", job: "Rooftop HVAC install", amount: 8400, issued_date: "2026-09-20", due_date: "2026-10-20", paid: false },
+    { invoice_number: "INV-1004", job: "Boiler annual service", amount: 2100, issued_date: "2026-09-18", due_date: "2026-10-18", paid: true },
+    { invoice_number: "INV-1005", job: "Furnace replacement", amount: 5600, issued_date: "2026-09-27", due_date: "2026-10-27", paid: false },
+    { invoice_number: "INV-1006", job: "AC unit install", amount: 4300, issued_date: "2026-09-15", due_date: "2026-10-15", paid: false },
   ],
 };

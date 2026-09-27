@@ -17,9 +17,10 @@ import type { GenerationIntent } from "@/lib/generation/intent";
  *      output (labels, reasons, seed data) in that language, independent of UI
  *      locale.
  *   3. `GENERATION_RESPONSE_SCHEMA` — the `responseSchema` describing the single
- *      `{ schema, seedRows }` payload, including a per-table/field `reason`. The
- *      field-type set is limited to the MVP scalar union; `relation` is never
- *      offered to the model.
+ *      `{ schema, seedRows }` payload, including a per-table/field `reason`, a
+ *      per-table `displayField`, and (Story 1.8) single-reference `relation`
+ *      fields with a `relationConfig.targetTable`. The Schema Validator gates
+ *      relations to the strict-JSON generation path.
  */
 
 /**
@@ -35,8 +36,10 @@ Any request outside these boundaries must be refused with the message:
 "I can only help with database structure. Please describe what columns or tables you'd like to add."`;
 
 /**
- * The field types the model is allowed to propose. `relation` is deliberately
- * absent — cross-table lookups are out of MVP scope and must never be generated.
+ * The scalar field types the model may propose. `relation` (Story 1.8) is a
+ * distinct, gated type and is intentionally NOT in this scalar set — the
+ * validator adds `relation` as an accepted type separately so the scalar-only
+ * checks (and this constant's downstream reuse) stay unambiguous.
  */
 export const GENERATION_FIELD_TYPES = [
   "text",
@@ -47,6 +50,16 @@ export const GENERATION_FIELD_TYPES = [
   "email",
   "phone",
   "currency",
+] as const;
+
+/**
+ * The full set of field types offered to the model (the scalar set plus the
+ * single-reference `relation` type, Story 1.8). Drives the response-schema
+ * `type` enum so Gemini can emit relations; the validator gates acceptance.
+ */
+export const GENERATION_FIELD_TYPES_WITH_RELATION = [
+  ...GENERATION_FIELD_TYPES,
+  "relation",
 ] as const;
 
 /**
@@ -85,9 +98,12 @@ ${intent.whatYouTrack}
 Requirements:
 - Propose 1 to 3 tables that directly match what the owner said they track. Do not invent unrelated tables.
 - Every table has a clear, human-facing label and a one-sentence plain-language "reason" explaining why this business would want it.
+- Every table names a "displayField": the key of the one field whose value best identifies a row (e.g. a client's name, a job's service). It must be a real, visible field key of that same table.
 - Every field has a human-facing label, one of the allowed data types, and a one-sentence plain-language "reason". Mark obvious personal information (names, phone numbers, email addresses, home addresses) as sensitive.
-- Do NOT create relationship/lookup fields between tables. Do NOT create fields named id, organization_id, table_key, data, created_at, updated_at, or deleted_at.
+- LINK RELATED TABLES: when one table's rows belong to another table's rows, add a single "relation" field instead of re-typing an identifying name as text. A relation field has "type":"relation" and a "relationConfig" with "targetTable" (the key of the table it points to, which MUST be one of the tables you return) and "cardinality":"one". Give each relation a one-sentence "reason". Typical links for a field-service business: a job points to its client, an invoice points to its job. Do not use "cardinality":"many". A relation may point at the same table or form a cycle if that is genuinely the shape.
+- Do NOT create fields named id, organization_id, table_key, data, created_at, updated_at, or deleted_at.
 - For each table, generate 5 to 8 realistic seed rows. Seed data must be specific to this trade and localized to Ontario (real ${intent.city} / Greater-Toronto-Area / Ottawa-region street names, standard Ontario pricing in Canadian dollars, and real trade terminology).
+- SEED RELATION VALUES BY DISPLAY VALUE: in seed rows, a relation field's value is the human-readable displayField value of the target row it references (e.g. a job's client field is the client's name exactly as it appears in that client's displayField). Do not invent ids. Reference only target rows you actually generated.
 - LANGUAGE: detect the language the owner used in the description above and generate ALL output — every table label, field label, reason, and seed value — in that same language. This is independent of any interface language. If the description is in French, everything you output must be in French.
 
 Return only JSON matching the provided response schema: a "schema" object with the table/field definitions, and "seedRows" as a JSON STRING (stringified JSON) that parses to an object mapping each table's key to its array of row objects (each row keyed by that table's field keys). Use the EXACT same key for a table in seedRows as in schema.tables[].key.`;
@@ -118,6 +134,11 @@ export const GENERATION_RESPONSE_SCHEMA = {
               key: { type: Type.STRING },
               label: { type: Type.STRING },
               reason: { type: Type.STRING },
+              displayField: {
+                type: Type.STRING,
+                description:
+                  "The key of the field whose value best identifies a row of this table (its canonical label). Must be a field key of this same table.",
+              },
               fields: {
                 type: Type.ARRAY,
                 items: {
@@ -127,18 +148,42 @@ export const GENERATION_RESPONSE_SCHEMA = {
                     label: { type: Type.STRING },
                     type: {
                       type: Type.STRING,
-                      enum: [...GENERATION_FIELD_TYPES],
+                      enum: [...GENERATION_FIELD_TYPES_WITH_RELATION],
                     },
                     reason: { type: Type.STRING },
                     sensitive: { type: Type.BOOLEAN },
+                    relationConfig: {
+                      type: Type.OBJECT,
+                      description:
+                        "Present only when type is 'relation'. The single-reference link to another table.",
+                      properties: {
+                        targetTable: {
+                          type: Type.STRING,
+                          description:
+                            "The key of the table this relation points to (must be one of the returned tables).",
+                        },
+                        cardinality: {
+                          type: Type.STRING,
+                          enum: ["one", "many"],
+                        },
+                      },
+                      propertyOrdering: ["targetTable", "cardinality"],
+                    },
                   },
                   required: ["key", "label", "type", "reason"],
-                  propertyOrdering: ["key", "label", "type", "reason", "sensitive"],
+                  propertyOrdering: [
+                    "key",
+                    "label",
+                    "type",
+                    "reason",
+                    "sensitive",
+                    "relationConfig",
+                  ],
                 },
               },
             },
             required: ["key", "label", "reason", "fields"],
-            propertyOrdering: ["key", "label", "reason", "fields"],
+            propertyOrdering: ["key", "label", "reason", "displayField", "fields"],
           },
         },
       },

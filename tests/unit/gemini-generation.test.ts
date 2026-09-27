@@ -142,9 +142,11 @@ describe("prompt inflation + response schema shape", () => {
     expect(prompt).toContain("jobs, quotes, clients");
     // FR35: language detected from the description, independent of UI locale.
     expect(prompt.toLowerCase()).toContain("detect the language");
-    // Reserved keys and relation fields are forbidden in the prompt itself.
+    // Reserved keys are forbidden in the prompt itself.
     expect(prompt).toContain("organization_id");
-    expect(prompt.toLowerCase()).toContain("relationship");
+    // Story 1.8: the prompt now GUIDES single-reference relations + displayField.
+    expect(prompt.toLowerCase()).toContain("relation");
+    expect(prompt.toLowerCase()).toContain("displayfield");
   });
 
   it("preserves a French free-text description verbatim so output localizes to French", async () => {
@@ -158,14 +160,20 @@ describe("prompt inflation + response schema shape", () => {
     expect(prompt).toContain("les travaux, les devis et les factures impayées");
   });
 
-  it("offers only the MVP field-type set — never relation", async () => {
-    const { GENERATION_FIELD_TYPES, GENERATION_RESPONSE_SCHEMA } = await import(
-      "@/lib/gemini/prompts"
-    );
+  it("offers the MVP scalar set plus the gated relation type (Story 1.8)", async () => {
+    const {
+      GENERATION_FIELD_TYPES,
+      GENERATION_FIELD_TYPES_WITH_RELATION,
+      GENERATION_RESPONSE_SCHEMA,
+    } = await import("@/lib/gemini/prompts");
+    // The scalar constant stays relation-free; the with-relation set adds it.
     expect(GENERATION_FIELD_TYPES).not.toContain("relation");
+    expect(GENERATION_FIELD_TYPES_WITH_RELATION).toContain("relation");
     const json = JSON.stringify(GENERATION_RESPONSE_SCHEMA);
-    expect(json).not.toContain("relation");
-    // The schema constrains field type to the enum.
+    // The response schema now offers relation + relationConfig + displayField.
+    expect(json).toContain("relation");
+    expect(json).toContain("relationConfig");
+    expect(json).toContain("displayField");
     expect(json).toContain("currency");
     expect(json).toContain("seedRows");
   });
