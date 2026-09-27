@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useSwipeable } from "react-swipeable";
 import { useQuery } from "@tanstack/react-query";
@@ -9,6 +10,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Maximize2, Trash2 } from "lucide-react
 
 import type {
   FieldDefinition,
+  MemberRole,
   RecordData,
   TableDefinition,
 } from "@/types/db";
@@ -46,6 +48,7 @@ import {
   useUpdateRecord,
 } from "@/components/dashboard/useRecordMutations";
 import { RecordsToolbar } from "@/components/dashboard/RecordsToolbar";
+import { ColumnVisibilityControl } from "@/components/dashboard/ColumnVisibilityControl";
 import {
   applyFilterSort,
   eligibleFields,
@@ -86,6 +89,12 @@ export function clampTableIndex(index: number, count: number): number {
 type RecordsViewProps = {
   /** Route slug — keys the record queries and scopes the API calls. */
   slug: string;
+  /**
+   * The caller's role for this org (Story 3.5). The Admin-only column-hide
+   * control renders only when `role === "admin"`; the server route's
+   * `requireAdmin` is the real security boundary.
+   */
+  role: MemberRole;
   /** Visible logical tables (already filtered via `visibleTables`). */
   tables: TableDefinition[];
   /** Server-fetched rows per table key, seeding each table's query `initialData`. */
@@ -96,11 +105,13 @@ type RecordsViewProps = {
 
 export function RecordsView({
   slug,
+  role,
   tables,
   recordsByTable,
   cellStrings,
 }: RecordsViewProps) {
   const t = useTranslations("SlugDashboard");
+  const router = useRouter();
   const [activeIndex, setActiveIndex] = useState(0);
 
   const safeIndex = Math.min(activeIndex, tables.length - 1);
@@ -370,19 +381,35 @@ export function RecordsView({
         {/* Rollback / error line for the whole surface. */}
         <StatusMessage message={message} />
 
-        {/* Filter & sort toolbar — governs both the table and the cards. */}
-        <RecordsToolbar
-          fields={activeTable.fields}
-          filters={filters}
-          sort={sort}
-          onSortFieldChange={handleSortFieldChange}
-          onSortToggle={() => {
-            if (sort) cycleSort(sort.field);
-          }}
-          onAddFilter={addFilter}
-          onRemoveFilter={removeFilter}
-          onClearFilters={clearFilters}
-        />
+        {/* Filter & sort toolbar — governs both the table and the cards. The
+            Admin-only Columns manager (Story 3.5) sits alongside it in the same
+            toolbar row; a Member never receives it (server `requireAdmin` is the
+            real gate). */}
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <RecordsToolbar
+            fields={activeTable.fields}
+            filters={filters}
+            sort={sort}
+            onSortFieldChange={handleSortFieldChange}
+            onSortToggle={() => {
+              if (sort) cycleSort(sort.field);
+            }}
+            onAddFilter={addFilter}
+            onRemoveFilter={removeFilter}
+            onClearFilters={clearFilters}
+          />
+          {role === "admin" ? (
+            <ColumnVisibilityControl
+              slug={slug}
+              activeTable={activeTable}
+              onToggled={() => {
+                setMessage(null);
+                router.refresh();
+              }}
+              onError={(msg) => setMessage(msg)}
+            />
+          ) : null}
+        </div>
 
         {/* Inline quick-add: a bordered adder at the top of the active table,
             sharing the lifted draft with the modal. The expand control reopens

@@ -3,12 +3,14 @@ import { redirect } from "next/navigation";
 import { getTranslations } from "next-intl/server";
 
 import { getCurrentUser } from "@/lib/auth/session";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { resolveUserOrgMembership } from "@/lib/auth/org";
 import { getSchema, listRecords } from "@/lib/data/records";
 import { visibleTables } from "@/lib/schema/overrides";
 import { type CellStrings } from "@/lib/format";
 import { RecordsView } from "@/components/dashboard/RecordsView";
-import type { RecordData } from "@/types/db";
+import type { MemberRole, RecordData } from "@/types/db";
 
 /**
  * Protected tenant dashboard at `/{slug}` (Story 2.1).
@@ -61,6 +63,15 @@ export default async function SlugDashboardPage({
 
   const orgId = org.id as string;
 
+  // Resolve the caller's role for THIS org (mirrors the layout's membership
+  // resolution). Drives whether the Admin-only Columns control renders; the
+  // server route's `requireAdmin` is the real gate. A caller whose membership
+  // doesn't resolve to this slug defaults to "member" (no control) — never a
+  // crash. The service-role admin client is used ONLY for this membership read.
+  const membership = await resolveUserOrgMembership(user.id, createAdminClient());
+  const role: MemberRole =
+    membership && membership.slug === slug ? membership.role : "member";
+
   const schemaResult = await getSchema(supabase, orgId);
   const tables = visibleTables(schemaResult.data ?? { tables: [] });
 
@@ -96,6 +107,7 @@ export default async function SlugDashboardPage({
       ) : (
         <RecordsView
           slug={slug}
+          role={role}
           tables={tables}
           recordsByTable={recordsByTable}
           cellStrings={cellStrings}

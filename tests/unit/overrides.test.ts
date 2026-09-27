@@ -6,6 +6,7 @@ import {
   hideTable,
   renameField,
   renameTable,
+  showField,
   visibleTables,
 } from "@/lib/schema/overrides";
 import type { SchemaDefinition } from "@/types/db";
@@ -165,5 +166,55 @@ describe("hideField", () => {
     const before = snapshot(schema);
     hideField(schema, "clients", "email");
     expect(snapshot(schema)).toBe(before);
+  });
+});
+
+describe("showField", () => {
+  it("sets hidden: false on the target field", () => {
+    // Start from a schema where the field is hidden, then unhide it.
+    const hidden = hideField(makeSchema(), "clients", "email");
+    const next = showField(hidden, "clients", "email");
+    const field = next.tables
+      .find((t) => t.key === "clients")
+      ?.fields.find((f) => f.key === "email");
+    expect(field?.hidden).toBe(false);
+  });
+
+  it("round-trips: hide then show restores visibility exactly", () => {
+    const base = makeSchema();
+    const roundTripped = showField(
+      hideField(base, "clients", "email"),
+      "clients",
+      "email",
+    );
+    const field = roundTripped.tables
+      .find((t) => t.key === "clients")
+      ?.fields.find((f) => f.key === "email");
+    // The definition (key/label/type) is preserved; only the flag is cleared.
+    expect(field).toMatchObject({
+      key: "email",
+      label: "Email",
+      type: "email",
+      hidden: false,
+    });
+  });
+
+  it("does not mutate the input", () => {
+    const schema = hideField(makeSchema(), "clients", "email");
+    const before = snapshot(schema);
+    showField(schema, "clients", "email");
+    expect(snapshot(schema)).toBe(before);
+  });
+
+  it("is a no-op for an unknown table", () => {
+    const schema = makeSchema();
+    const next = showField(schema, "nope", "email");
+    expect(snapshot(next)).toBe(snapshot(schema));
+  });
+
+  it("is a no-op for an unknown field", () => {
+    const schema = makeSchema();
+    const next = showField(schema, "clients", "nope");
+    expect(snapshot(next)).toBe(snapshot(schema));
   });
 });

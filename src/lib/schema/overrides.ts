@@ -110,3 +110,31 @@ export function hideField(
     ),
   };
 }
+
+/**
+ * Unhide a field within a table (flips the append-only flag back to
+ * `hidden: false`). The inverse of `hideField` and the second half of Story
+ * 3.5's Admin column show/hide: unhiding is fully reversible — the field
+ * definition and every stored value are preserved, so the column simply
+ * reappears through the existing `!hidden` render filters. No-op for an unknown
+ * table/field. Pure and immutable (the input schema is never mutated).
+ */
+export function showField(
+  schema: SchemaDefinition,
+  tableKey: string,
+  fieldKey: string,
+): SchemaDefinition {
+  return {
+    ...schema,
+    tables: schema.tables.map((table) =>
+      table.key === tableKey
+        ? {
+            ...table,
+            fields: table.fields.map((field) =>
+              field.key === fieldKey ? { ...field, hidden: false } : field,
+            ),
+          }
+        : table,
+    ),
+  };
+}

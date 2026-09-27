@@ -83,3 +83,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-4-filter-sort-records.md`
   summary: The datetime `on` operator (and mixed date/datetime boundary matching) in filter-sort.ts compares exact epoch-ms, so it only matches when the stored value and the filter input share granularity.
   evidence: App-entered datetime uses minute-precision `datetime-local` for both cell and filter, so `on` matches today; full-ISO values with seconds/timezone (produced once spreadsheet import lands, Epic 4) would never match. Settle by adding day/minute bucketing for `on` (and normalizing operands to a common granularity) once import defines the stored datetime format. Ties to the pre-existing datetime string-handling limitation noted in Stories 3.2/3.3.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-3-5-admin-column-hide-non-destructive.md`
+  summary: Interactive client behavior of ColumnVisibilityControl (fetch success/failure branch, error-code→message mapping, single-flight guard) is not covered by an automated test.
+  evidence: Real gap — inverting the `!res.ok || body?.error` check would run router.refresh() on a failed write with no test failing. Not fixable in this repo's node/renderToStaticMarkup env (no jsdom); covered by the post-commit Playwright review. Would be settled by a jsdom/RTL harness mounting the control and stubbing fetch.

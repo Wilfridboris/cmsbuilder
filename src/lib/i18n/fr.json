@@ -228,6 +228,13 @@
     "filterChipBetween": "{field} {operator} {value} et {value2}",
     "noRecordsFound": "Aucun enregistrement trouvé",
     "noRecordsFoundBody": "Aucun enregistrement ne correspond à vos filtres. Essayez de les ajuster ou de les effacer.",
+    "columnsManager": "Colonnes",
+    "columnsManagerBody": "Affichez ou masquez des colonnes pour toute votre équipe. Les colonnes masquées conservent leurs données et peuvent être réaffichées à tout moment.",
+    "columnsHiddenBadge": "Masquée",
+    "columnsShowAria": "Afficher la colonne {field}",
+    "columnsHideAria": "Masquer la colonne {field}",
+    "columnsToggleFailed": "Nous n'avons pas pu mettre à jour cette colonne pour le moment. Veuillez réessayer dans un instant.",
+    "columnsToggleForbidden": "Vous n'avez pas l'autorisation de modifier les colonnes.",
     "op": {
       "contains": "contient",
       "equals": "égal à",

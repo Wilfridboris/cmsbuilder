@@ -27,6 +27,10 @@ vi.mock("next-intl", () => ({
   },
 }));
 vi.mock("react-swipeable", () => ({ useSwipeable: () => ({}) }));
+// `RecordsView` calls `useRouter()` unconditionally (Story 3.5 wires
+// `router.refresh()` for the admin column toggle). Under the node SSR renderer
+// there is no Next router context, so mock it to a no-op.
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: () => {} }) }));
 
 // Story 3.2 layers TanStack Query + framer-motion onto the surface. Under the
 // node SSR renderer the query reads its seeded `initialData` (no fetch), so we
@@ -65,12 +69,14 @@ const jobRows: RecordData[] = [
 function render(
   tables: TableDefinition[],
   recordsByTable: Record<string, RecordData[]>,
+  role: "admin" | "member" = "member",
 ) {
   const queryClient = new QueryClient();
   return renderToStaticMarkup(
     <QueryClientProvider client={queryClient}>
       <RecordsView
         slug="test-org"
+        role={role}
         tables={tables}
         recordsByTable={recordsByTable}
         cellStrings={cellStrings}
@@ -88,6 +94,17 @@ describe("RecordsView rendering (I/O matrix)", () => {
     expect(tabs).toHaveLength(2);
     expect(html).toContain("Jobs");
     expect(html).toContain("Customers");
+  });
+
+  it("hides the Admin-only Columns control from a Member (Story 3.5 RBAC gate)", () => {
+    const memberHtml = render([jobs], { jobs: jobRows }, "member");
+    // next-intl is mocked to echo keys, so the control surfaces as its key.
+    expect(memberHtml).not.toContain("columnsManager");
+  });
+
+  it("renders the Admin-only Columns control for an Admin (Story 3.5)", () => {
+    const adminHtml = render([jobs], { jobs: jobRows }, "admin");
+    expect(adminHtml).toContain("columnsManager");
   });
 
   it("renders the active table as a desktop table with a caption and visible-field columns", () => {

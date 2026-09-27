@@ -25,6 +25,7 @@ const redirect = vi.fn((url: string) => {
 const getCurrentUser = vi.fn();
 const getSchema = vi.fn();
 const listRecords = vi.fn();
+const resolveUserOrgMembership = vi.fn();
 
 const RecordsViewStub = () => null;
 
@@ -34,6 +35,8 @@ vi.mock("next-intl/server", () => ({
   getTranslations: async () => (key: string) => key,
 }));
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser }));
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) }));
+vi.mock("@/lib/auth/org", () => ({ resolveUserOrgMembership }));
 vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient: () => ({
     from: () => ({
@@ -81,6 +84,12 @@ describe("SlugDashboardPage render wiring (I/O matrix)", () => {
     vi.clearAllMocks();
     getCurrentUser.mockResolvedValue({ id: "user-1" });
     listRecords.mockResolvedValue({ data: [], error: null });
+    // Story 3.5: the page resolves the caller's role for the Columns control.
+    resolveUserOrgMembership.mockResolvedValue({
+      orgId: "org-1",
+      slug: "acme",
+      role: "admin",
+    });
   });
 
   it("shows the translated empty-dashboard message when there are no visible tables", async () => {
