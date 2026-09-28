@@ -1,4 +1,5 @@
 import type { ApiResponse } from "@/types/api";
+import type { ImportProposal } from "@/types/import";
 
 /**
  * Client-side fetch wrapper for the Import analyze route (Story 4.1). Mirrors
@@ -83,4 +84,32 @@ export async function analyzeSpreadsheet(
     body: form,
   });
   return parseEnvelope<AnalyzeResult>(res);
+}
+
+/**
+ * POST a spreadsheet to `/api/import/propose` (Story 4.2) for the given org, to get
+ * the AI-proposed column mapping. Pass the same `sheet` the preview resolved to so
+ * a multi-sheet workbook is re-parsed for the chosen sheet. Returns the read-only
+ * `ImportProposal`, or throws `ImportApiError(code)` on any failure — including
+ * `Import.error.mappingUnavailable` when auto-mapping is unavailable after retry.
+ * Nothing is written server-side; this is an analyze-phase call.
+ */
+export async function proposeMapping(
+  slug: string,
+  file: File,
+  sheet?: string,
+): Promise<ImportProposal> {
+  const form = new FormData();
+  form.set("slug", slug);
+  form.set("file", file);
+  if (sheet !== undefined) {
+    form.set("sheet", sheet);
+  }
+
+  const res = await fetch("/api/import/propose", {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    body: form,
+  });
+  return parseEnvelope<ImportProposal>(res);
 }

@@ -192,6 +192,21 @@
     "cellEmpty": "Empty",
     "startOver": "Upload a different file",
     "retry": "Try again",
+    "mapping": {
+      "heading": "Proposed column mapping",
+      "summary": "We matched each column from your file to a field in your existing tables. Review it below. Nothing has been saved.",
+      "loading": "Matching your columns to your fields…",
+      "sourceHeader": "Your column",
+      "targetHeader": "Maps to",
+      "confidenceHeader": "Confidence",
+      "reasonHeader": "Why",
+      "notMapped": "Not matched",
+      "flaggedBadge": "Needs review",
+      "caption": "Proposed mapping: each of your columns and the field it would map to.",
+      "confidenceValue": "{percent}%",
+      "unmappedSummary": "{count, plural, =0 {Every column was matched with confidence.} one {# column needs your review before importing.} other {# columns need your review before importing.}}",
+      "reasonEmpty": "No reason given."
+    },
     "error": {
       "empty": "That file looks empty. Please check it has a header row and some data, then try again.",
       "unreadable": "We couldn't read that file. Please upload a valid .csv, .xls, or .xlsx spreadsheet and try again.",
@@ -199,6 +214,7 @@
       "noFile": "Please choose a file to upload.",
       "forbidden": "Only admins can import data.",
       "unauthorized": "Your session expired. Please sign in again.",
+      "mappingUnavailable": "We couldn't suggest a mapping automatically just now. You can try again, or map your columns yourself in the next step.",
       "genericError": "Something went wrong. Please try again."
     }
   },

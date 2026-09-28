@@ -66,8 +66,16 @@ export function ImportDropzone({
   onPreview,
 }: {
   slug: string;
-  /** Called with the parsed preview when a sheet resolves successfully. */
-  onPreview: (preview: ImportPreview) => void;
+  /**
+   * Called when a sheet resolves successfully. Story 4.2 also lifts the uploaded
+   * `file` and the resolved `sheet` up so the propose phase can re-parse the same
+   * bytes/sheet server-side (import is stateless — no fileId).
+   */
+  onPreview: (
+    preview: ImportPreview,
+    file: File,
+    sheet: string | undefined,
+  ) => void;
 }) {
   const t = useTranslations("Import");
   const prefersReducedMotion = useReducedMotion();
@@ -112,7 +120,7 @@ export function ImportDropzone({
         setStatus("sheetSelect");
         return;
       }
-      onPreview(result);
+      onPreview(result, file, sheet);
       reset();
     } catch (err) {
       const code = err instanceof ImportApiError ? err.code : null;

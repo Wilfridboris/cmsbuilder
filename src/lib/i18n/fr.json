@@ -192,6 +192,21 @@
     "cellEmpty": "Vide",
     "startOver": "Téléverser un autre fichier",
     "retry": "Réessayer",
+    "mapping": {
+      "heading": "Correspondance proposée des colonnes",
+      "summary": "Nous avons associé chaque colonne de votre fichier à un champ de vos tables existantes. Vérifiez le résultat ci-dessous. Rien n'a été enregistré.",
+      "loading": "Association de vos colonnes à vos champs…",
+      "sourceHeader": "Votre colonne",
+      "targetHeader": "Associée à",
+      "confidenceHeader": "Confiance",
+      "reasonHeader": "Pourquoi",
+      "notMapped": "Non associée",
+      "flaggedBadge": "À vérifier",
+      "caption": "Correspondance proposée : chacune de vos colonnes et le champ auquel elle serait associée.",
+      "confidenceValue": "{percent} %",
+      "unmappedSummary": "{count, plural, =0 {Toutes les colonnes ont été associées avec confiance.} one {# colonne nécessite votre vérification avant l'import.} other {# colonnes nécessitent votre vérification avant l'import.}}",
+      "reasonEmpty": "Aucune raison fournie."
+    },
     "error": {
       "empty": "Ce fichier semble vide. Vérifiez qu'il contient une ligne d'en-tête et des données, puis réessayez.",
       "unreadable": "Nous n'avons pas pu lire ce fichier. Téléversez un fichier .csv, .xls ou .xlsx valide, puis réessayez.",
@@ -199,6 +214,7 @@
       "noFile": "Veuillez choisir un fichier à téléverser.",
       "forbidden": "Seuls les administrateurs peuvent importer des données.",
       "unauthorized": "Votre session a expiré. Veuillez vous reconnecter.",
+      "mappingUnavailable": "Nous n'avons pas pu proposer une correspondance automatiquement pour le moment. Vous pouvez réessayer, ou associer vos colonnes vous-même à l'étape suivante.",
       "genericError": "Une erreur est survenue. Veuillez réessayer."
     }
   },
