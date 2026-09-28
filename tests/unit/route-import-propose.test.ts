@@ -20,6 +20,10 @@ const parseSpreadsheet = vi.fn();
 const getSchema = vi.fn();
 const callGeminiWithTimeout = vi.fn();
 
+// The NEXT_LOCALE cookie value the route reads via `next/headers` cookies() when
+// threading the locale into the mapping prompt. Mutable so a test can flip it.
+let cookieLocale: string | undefined;
+
 type MaybeSingle = { data: unknown; error: unknown };
 let orgRead: MaybeSingle; // organizations lookup under the RLS client
 
@@ -40,7 +44,14 @@ vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient: () => makeClient(),
 }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) }));
-vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({
+    get: (name: string) =>
+      name === "NEXT_LOCALE" && cookieLocale !== undefined
+        ? { value: cookieLocale }
+        : undefined,
+  }),
+}));
 vi.mock("@/lib/auth/rbac", () => ({ requireAdmin }));
 vi.mock("@/lib/import/parse", async () => {
   const actual = await vi.importActual<typeof import("@/lib/import/parse")>(
@@ -90,6 +101,7 @@ let POST: typeof import("@/app/api/import/propose/route").POST;
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  cookieLocale = undefined;
   orgRead = { data: { id: "org-1" }, error: null };
   getCurrentUser.mockResolvedValue({ id: "user-1" });
   requireAdmin.mockResolvedValue({ orgId: "org-1", slug: "acme", role: "admin" });
@@ -296,6 +308,33 @@ describe("POST /api/import/propose — proposal", () => {
     );
     expect((await body(res)).error).toBe("Import.error.mappingUnavailable");
     expect(callGeminiWithTimeout).toHaveBeenCalledTimes(2);
+  });
+
+  it("threads the fr NEXT_LOCALE cookie into the prompt (French reason)", async () => {
+    cookieLocale = "fr";
+    parseSpreadsheet.mockReturnValue({
+      columns: ["Full Name"],
+      rows: [{ "Full Name": "Ada" }],
+      sheetName: "x",
+    });
+    await POST(
+      importReq({ slug: "acme", file: fakeFile("x.csv", new Uint8Array([1])) }),
+    );
+    const prompt = callGeminiWithTimeout.mock.calls[0][0] as string;
+    expect(prompt).toContain('Write every "reason" in French.');
+  });
+
+  it("defaults to the English reason instruction when no locale cookie is set", async () => {
+    parseSpreadsheet.mockReturnValue({
+      columns: ["Full Name"],
+      rows: [{ "Full Name": "Ada" }],
+      sheetName: "x",
+    });
+    await POST(
+      importReq({ slug: "acme", file: fakeFile("x.csv", new Uint8Array([1])) }),
+    );
+    const prompt = callGeminiWithTimeout.mock.calls[0][0] as string;
+    expect(prompt).toContain('Write every "reason" in English.');
   });
 
   it("maps a ParseError key to its matrix status (empty → 400), no AI call", async () => {

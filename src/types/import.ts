@@ -40,3 +40,28 @@ export type ImportProposal = {
   /** Source columns needing resolution (null target or below threshold). */
   unmapped: string[];
 };
+
+/**
+ * The client-safe field catalog (Story 4.3), built by the import server page from
+ * the org's schema (non-hidden tables/fields only). It carries the human labels
+ * and the grouped picker options the editable mapping surface needs, so the
+ * propose response can keep returning key-only targets. Safe metadata only — no
+ * row data, no hidden entries.
+ */
+export type FieldCatalog = Array<{
+  /** The logical table's stored key. */
+  tableKey: string;
+  /** The table's human-facing label. */
+  tableLabel: string;
+  /** The table's non-hidden fields as picker options. */
+  fields: Array<{ key: string; label: string; type: string }>;
+}>;
+
+/**
+ * A single column's client-side resolution decision (Story 4.3), layered over the
+ * immutable 4.2 proposal. A confident column seeds `{kind:"map"}`; a flagged column
+ * (in `proposal.unmapped`) seeds `{kind:"unresolved"}` and requires an explicit
+ * Admin action (map or skip) before it counts as resolved. Re-exported from the
+ * pure `resolve` module so components and the resolve logic share one shape.
+ */
+export type { MappingDecision } from "@/lib/import/resolve";

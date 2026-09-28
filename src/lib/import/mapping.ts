@@ -3,6 +3,7 @@ import { Type } from "@google/genai";
 import type { SchemaDefinition } from "@/types/db";
 import type { ColumnMapping, ImportProposal } from "@/types/import";
 import { normalizeTableName } from "@/lib/utils";
+import { defaultLocale, type Locale } from "@/lib/i18n/config";
 
 /**
  * Pure, framework-free mapping helpers for the Import propose phase (Story 4.2).
@@ -29,6 +30,16 @@ export const MAPPING_CONFIDENCE_THRESHOLD = 0.7;
 
 /** Max sample values sent per column, to keep the prompt small on wide sheets. */
 const SAMPLE_VALUES_PER_COLUMN = 5;
+
+/**
+ * The natural-language name of each supported locale, used to instruct the model
+ * to write each `reason` in the user's language (Story 4.3). Written in English so
+ * the instruction reads unambiguously regardless of the active locale.
+ */
+const REASON_LANGUAGE: Record<Locale, string> = {
+  en: "English",
+  fr: "French",
+};
 
 /**
  * The raw shape the model returns (one row per source column). Every field may be
@@ -106,11 +117,17 @@ export const MAPPING_RESPONSE_SCHEMA = {
  * with a 0-1 confidence and a one-line reason, or null when nothing fits — and to
  * NEVER invent tables or fields. User content is clearly delimited so it can never
  * be read as instructions (the hardened system prompt is the only instruction).
+ *
+ * `locale` (default {@link defaultLocale}) adds a single instruction line telling
+ * the model to write each `reason` in the user's language (en → English,
+ * fr → French). This is the only locale-dependent part of the prompt; the schema,
+ * threshold, and sanitizer are unchanged.
  */
 export function buildMappingPrompt(
   columns: string[],
   sampleRows: Array<Record<string, string>>,
   schema: SchemaDefinition,
+  locale: Locale = defaultLocale,
 ): string {
   // Per-column sample values, bounded and de-blanked, for the model's context.
   const columnBlocks = columns.map((col) => {
@@ -160,6 +177,7 @@ Requirements:
 - Choose the single best matching EXISTING target: set "targetTable" to a table "key" and "targetField" to one of that table's field "keys". Match on meaning (label and sample values), not just exact spelling.
 - NEVER invent a table or a field. If no existing field is a good match, set BOTH "targetTable" and "targetField" to null.
 - Give a "confidence" from 0 to 1 reflecting how sure you are of the chosen target (use a lower value when unsure), and a one-line plain-language "reason" for the choice.
+- Write every "reason" in ${REASON_LANGUAGE[locale]}.
 - Map to structure only. Never output SQL, DDL, or row data.
 
 Return only JSON matching the provided response schema: a "mappings" array with one object per source column.`;

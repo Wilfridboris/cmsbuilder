@@ -205,7 +205,16 @@
       "caption": "Correspondance proposée : chacune de vos colonnes et le champ auquel elle serait associée.",
       "confidenceValue": "{percent} %",
       "unmappedSummary": "{count, plural, =0 {Toutes les colonnes ont été associées avec confiance.} one {# colonne nécessite votre vérification avant l'import.} other {# colonnes nécessitent votre vérification avant l'import.}}",
-      "reasonEmpty": "Aucune raison fournie."
+      "reasonEmpty": "Aucune raison fournie.",
+      "manualHeading": "Associez vos colonnes",
+      "manualSummary": "Choisissez le champ pour chacune de vos colonnes ci-dessous. Rien n'a été enregistré.",
+      "pickerLabel": "Choisissez le champ pour la colonne « {column} »",
+      "chooseField": "Choisir un champ",
+      "skip": "Ignorer cette colonne",
+      "skipped": "Ignorée",
+      "remaining": "{count, plural, one {# colonne nécessite encore un choix avant l'import : {columns}} other {# colonnes nécessitent encore un choix avant l'import : {columns}}}",
+      "ready": "Toutes les colonnes sont résolues. Vous êtes prêt à importer.",
+      "importButton": "Importer les données"
     },
     "error": {
       "empty": "Ce fichier semble vide. Vérifiez qu'il contient une ligne d'en-tête et des données, puis réessayez.",

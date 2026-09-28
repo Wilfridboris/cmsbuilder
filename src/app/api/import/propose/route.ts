@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cookies } from "next/headers";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { AppError } from "@/types/api";
@@ -11,6 +12,7 @@ import { requireAdmin } from "@/lib/auth/rbac";
 import { resolveOrgIdentity, json, handleError } from "@/lib/api/route-helpers";
 import { parseSpreadsheet, ParseError, SAMPLE_ROW_CAP } from "@/lib/import/parse";
 import { getSchema } from "@/lib/data/records";
+import { defaultLocale, isLocale, LOCALE_COOKIE } from "@/lib/i18n/config";
 import { callGeminiWithTimeout } from "@/lib/gemini/client";
 import {
   buildMappingPrompt,
@@ -125,12 +127,21 @@ export async function POST(
     }
     const schema = schemaResult.data;
 
+    // Resolve the request locale from the NEXT_LOCALE cookie exactly as
+    // `request.ts` does (isLocale else defaultLocale) so the model writes each
+    // `reason` in the user's language. This is the only propose change; the
+    // envelope, auth chain, sanitizer, and retry contract are unchanged.
+    const cookieStore = await cookies();
+    const cookieLocale = cookieStore.get?.(LOCALE_COOKIE)?.value;
+    const locale = isLocale(cookieLocale) ? cookieLocale : defaultLocale;
+
     // Build the mapping prompt from the bounded columns + sample rows, then call
     // Gemini through the shared hardened client, retrying EXACTLY once on failure.
     const prompt = buildMappingPrompt(
       result.columns,
       result.rows.slice(0, SAMPLE_ROW_CAP),
       schema,
+      locale,
     );
 
     let rawOutput: RawMappingOutput;

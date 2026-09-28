@@ -353,6 +353,17 @@ describe("buildMappingPrompt", () => {
     expect(prompt).toMatch(/never invent/i);
     expect(prompt).toMatch(/SQL/);
   });
+
+  it("defaults to an English reason instruction when no locale is passed (4.2 unchanged)", () => {
+    const prompt = buildMappingPrompt(columns, sampleRows, SCHEMA);
+    expect(prompt).toContain("Write every \"reason\" in English.");
+  });
+
+  it("instructs a French reason when the fr locale is passed", () => {
+    const prompt = buildMappingPrompt(columns, sampleRows, SCHEMA, "fr");
+    expect(prompt).toContain("Write every \"reason\" in French.");
+    expect(prompt).not.toContain("Write every \"reason\" in English.");
+  });
 });
 
 describe("MAPPING_RESPONSE_SCHEMA", () => {

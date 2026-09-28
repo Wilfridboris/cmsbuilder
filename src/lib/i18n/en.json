@@ -205,7 +205,16 @@
       "caption": "Proposed mapping: each of your columns and the field it would map to.",
       "confidenceValue": "{percent}%",
       "unmappedSummary": "{count, plural, =0 {Every column was matched with confidence.} one {# column needs your review before importing.} other {# columns need your review before importing.}}",
-      "reasonEmpty": "No reason given."
+      "reasonEmpty": "No reason given.",
+      "manualHeading": "Map your columns",
+      "manualSummary": "Choose the field for each of your columns below. Nothing has been saved.",
+      "pickerLabel": "Choose the field for the column \"{column}\"",
+      "chooseField": "Choose a field",
+      "skip": "Skip this column",
+      "skipped": "Skipped",
+      "remaining": "{count, plural, one {# column still needs a choice before you can import: {columns}} other {# columns still need a choice before you can import: {columns}}}",
+      "ready": "Every column is resolved. You're ready to import.",
+      "importButton": "Import data"
     },
     "error": {
       "empty": "That file looks empty. Please check it has a header row and some data, then try again.",
