@@ -214,7 +214,9 @@
       "skipped": "Ignorée",
       "remaining": "{count, plural, one {# colonne nécessite encore un choix avant l'import : {columns}} other {# colonnes nécessitent encore un choix avant l'import : {columns}}}",
       "ready": "Toutes les colonnes sont résolues. Vous êtes prêt à importer.",
-      "importButton": "Importer les données"
+      "importButton": "Importer les données",
+      "duplicateHeading": "Certaines colonnes pointent vers le même champ",
+      "duplicateDetail": "{columns} correspondent toutes au champ « {field} ». Seule la dernière ({last}) sera importée; les autres valeurs sont ignorées."
     },
     "commit": {
       "committing": "Import de vos données en cours…",

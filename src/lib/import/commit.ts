@@ -62,6 +62,68 @@ type ResolvedTarget = {
   fieldType: string;
 };
 
+/** Boolean spreadsheet tokens (en + fr), matched case-insensitively after trim. */
+const BOOLEAN_TRUE = new Set(["true", "1", "yes", "y", "oui", "o"]);
+const BOOLEAN_FALSE = new Set(["false", "0", "no", "n", "non"]);
+
+/**
+ * The result of coercing one raw imported cell to its target field type:
+ *  - `omit`  → the cell is blank; the field is dropped from that row's payload;
+ *  - `value` → the coerced value to write.
+ */
+export type ImportCoercion = { kind: "omit" } | { kind: "value"; value: unknown };
+
+/**
+ * Coerce one raw imported cell to match how the ADD form stores the same field
+ * type (`src/lib/forms/field-input.ts`), so imported rows and hand-entered rows
+ * share one storage shape and the Epic-3 filter/sort + typed rendering behave the
+ * same for both. Parsed cells arrive as strings (`parse.ts` stringifies every
+ * value, coercing Excel dates to ISO), so:
+ *
+ *   - blank (after trim) → `omit` (the add form omits blank; no `required` flag);
+ *   - `number` / `currency` → a finite `Number`; a non-numeric cell is PRESERVED
+ *     as its trimmed string rather than dropped or failing the whole import
+ *     (5,000-row commits must not die on one stray "N/A") — visible, not silent;
+ *   - `boolean` → a real boolean for recognized en/fr tokens, else the preserved
+ *     trimmed string;
+ *   - `date` / `datetime` / `text` / `email` / `phone` (and any relation, though
+ *     relation targets are dropped upstream) → the trimmed string, exactly as the
+ *     add form stores a date/text input.
+ *
+ * Pure and total: it never throws and never validates beyond the numeric parse.
+ */
+export function coerceImportValue(type: string, raw: unknown): ImportCoercion {
+  const trimmed =
+    typeof raw === "string"
+      ? raw.trim()
+      : raw === null || raw === undefined
+        ? ""
+        : String(raw).trim();
+  if (trimmed === "") {
+    return { kind: "omit" };
+  }
+
+  if (type === "number" || type === "currency") {
+    const parsed = Number(trimmed);
+    // `Number.isFinite` rejects NaN AND Infinity (e.g. "1e999"), matching the add
+    // form. A non-numeric cell is kept as text so no data is silently lost.
+    if (Number.isFinite(parsed)) {
+      return { kind: "value", value: parsed };
+    }
+    return { kind: "value", value: trimmed };
+  }
+
+  if (type === "boolean") {
+    const lower = trimmed.toLowerCase();
+    if (BOOLEAN_TRUE.has(lower)) return { kind: "value", value: true };
+    if (BOOLEAN_FALSE.has(lower)) return { kind: "value", value: false };
+    return { kind: "value", value: trimmed };
+  }
+
+  // text, email, phone, date, datetime (dates already ISO strings from parse.ts).
+  return { kind: "value", value: trimmed };
+}
+
 /**
  * Build a lookup of the real, non-hidden `{table, field}` targets from the schema,
  * keyed by `normalizeTableName(table)::normalizeTableName(field)` (matching the
@@ -97,10 +159,11 @@ function buildTargetIndex(
  * distinct table (carrying only that table's mapped fields). Throws a typed
  * `CommitPlanError` on any `unresolved` decision or schema drift.
  *
- * Row values are carried through verbatim as the parsed string cell values — this
- * story does not coerce or validate value types (deferred with the record-write
- * validator). A table whose every mapped field ends up dropped (all relation
- * targets) yields no planned rows and does not appear in `affectedTables`.
+ * Row values are coerced per target field type via `coerceImportValue` so imported
+ * rows share the storage shape of hand-entered rows (numbers/currency → number,
+ * boolean tokens → boolean, dates/text → trimmed string, blank → omitted). A table
+ * whose every mapped field ends up dropped (all relation targets) yields no planned
+ * rows and does not appear in `affectedTables`.
  */
 export function planCommit(
   rows: Array<Record<string, string>>,
@@ -158,8 +221,13 @@ export function planCommit(
   for (const [tableKey, targets] of byTable) {
     const tableRows = rows.map((row) => {
       const payload: Record<string, unknown> = {};
-      for (const { sourceColumn, fieldKey } of targets) {
-        payload[fieldKey] = row[sourceColumn] ?? "";
+      for (const { sourceColumn, fieldKey, fieldType } of targets) {
+        // Coerce each cell to its target field type so imported values match
+        // hand-entered ones (a blank cell is omitted, not written as "").
+        const coerced = coerceImportValue(fieldType, row[sourceColumn]);
+        if (coerced.kind === "value") {
+          payload[fieldKey] = coerced.value;
+        }
       }
       return payload;
     });

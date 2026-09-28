@@ -6,6 +6,7 @@ import {
   unresolvedColumns,
   isReadyToImport,
   resolveFieldLabel,
+  duplicateTargets,
   type DecisionMap,
 } from "@/lib/import/resolve";
 
@@ -154,5 +155,42 @@ describe("resolveFieldLabel", () => {
 
   it("falls back to the raw field key with an empty catalog", () => {
     expect(resolveFieldLabel([], "clients", "name")).toBe("name");
+  });
+});
+
+describe("duplicateTargets (D1)", () => {
+  it("returns nothing when every mapped target is unique", () => {
+    const decisions: DecisionMap = {
+      "Full Name": { kind: "map", table: "clients", field: "name" },
+      Contact: { kind: "map", table: "clients", field: "email" },
+      Notes: { kind: "skip" },
+    };
+    expect(duplicateTargets(decisions)).toEqual([]);
+  });
+
+  it("groups columns that map to the same target, last-wins order preserved", () => {
+    const decisions: DecisionMap = {
+      "Full Name": { kind: "map", table: "clients", field: "name" },
+      Nickname: { kind: "map", table: "clients", field: "name" },
+      Contact: { kind: "map", table: "clients", field: "email" },
+    };
+    expect(duplicateTargets(decisions)).toEqual([
+      { table: "clients", field: "name", columns: ["Full Name", "Nickname"] },
+    ]);
+  });
+
+  it("ignores skip/unresolved decisions and reports multiple over-subscribed targets", () => {
+    const decisions: DecisionMap = {
+      A: { kind: "map", table: "clients", field: "name" },
+      B: { kind: "map", table: "clients", field: "name" },
+      C: { kind: "map", table: "clients", field: "email" },
+      D: { kind: "map", table: "clients", field: "email" },
+      E: { kind: "skip" },
+      F: { kind: "unresolved" },
+    };
+    expect(duplicateTargets(decisions)).toEqual([
+      { table: "clients", field: "name", columns: ["A", "B"] },
+      { table: "clients", field: "email", columns: ["C", "D"] },
+    ]);
   });
 });

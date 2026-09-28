@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, RotateCcw } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, RotateCcw } from "lucide-react";
 
 import { ImportDropzone } from "@/components/import/ImportDropzone";
 import { ColumnPreview } from "@/components/import/ColumnPreview";
@@ -21,7 +21,10 @@ import {
   initialDecisions,
   unresolvedColumns,
   isReadyToImport,
+  duplicateTargets,
+  resolveFieldLabel,
   type DecisionMap,
+  type DuplicateTarget,
   type MappingDecision,
 } from "@/lib/import/resolve";
 
@@ -212,6 +215,12 @@ export function ImportView({
     () => (activeProposal ? isReadyToImport(activeProposal, decisions) : false),
     [activeProposal, decisions],
   );
+  // Non-blocking caution: two+ columns pointing at the same field collapse to the
+  // last one on commit (see planCommit). Surface it so the drop is never silent.
+  const duplicates = useMemo(
+    () => (activeProposal ? duplicateTargets(decisions) : []),
+    [activeProposal, decisions],
+  );
 
   // Resolve a target table's human label from the catalog for the summary; falls
   // back to the raw stored key when the table is absent (e.g. an empty catalog).
@@ -272,6 +281,13 @@ export function ImportView({
           manual={showManual}
         />
         {activeProposal ? (
+          <DuplicateWarning
+            duplicates={duplicates}
+            fieldCatalog={fieldCatalog}
+            t={t}
+          />
+        ) : null}
+        {activeProposal ? (
           <ImportGate
             ready={ready}
             remaining={remaining}
@@ -285,6 +301,50 @@ export function ImportView({
   }
 
   return <ImportDropzone slug={slug} onPreview={handlePreview} />;
+}
+
+/**
+ * Non-blocking duplicate-target caution (retro [D1]). When two or more source
+ * columns resolve to the SAME `{table, field}`, the commit writes that field once
+ * per row so only the LAST column's value survives — silent data loss. This names
+ * each shared field, the columns feeding it, and which one is kept, without
+ * disabling the Import action (a deliberate remap to one field is still valid). It
+ * uses the amber caution palette to sit between the neutral gate card and the red
+ * `destructive` error alert. `aria-live="polite"` announces it as decisions change.
+ */
+function DuplicateWarning({
+  duplicates,
+  fieldCatalog,
+  t,
+}: {
+  duplicates: DuplicateTarget[];
+  fieldCatalog: FieldCatalog;
+  t: ReturnType<typeof useTranslations>;
+}) {
+  if (duplicates.length === 0) return null;
+  return (
+    <section
+      role="status"
+      aria-live="polite"
+      className="flex flex-col gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-5"
+    >
+      <p className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
+        <AlertTriangle aria-hidden="true" className="size-4 shrink-0" />
+        {t("mapping.duplicateHeading")}
+      </p>
+      <ul className="flex flex-col gap-1 pl-6 text-sm text-pretty text-amber-800/90 dark:text-amber-300/90">
+        {duplicates.map((dup) => (
+          <li key={`${dup.table}::${dup.field}`}>
+            {t("mapping.duplicateDetail", {
+              columns: dup.columns.join(", "),
+              field: resolveFieldLabel(fieldCatalog, dup.table, dup.field),
+              last: dup.columns[dup.columns.length - 1],
+            })}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
 }
 
 /**

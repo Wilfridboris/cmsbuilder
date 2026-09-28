@@ -6,11 +6,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import type { ImportProposal } from "@/types/import";
-import { getCurrentUser } from "@/lib/auth/session";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin } from "@/lib/auth/rbac";
-import { resolveOrgIdentity, json, handleError } from "@/lib/api/route-helpers";
-import { parseSpreadsheet, ParseError, SAMPLE_ROW_CAP } from "@/lib/import/parse";
+import { json, handleError } from "@/lib/api/route-helpers";
+import { SAMPLE_ROW_CAP } from "@/lib/import/parse";
 import { getSchema } from "@/lib/data/records";
 import { defaultLocale, isLocale, LOCALE_COOKIE } from "@/lib/i18n/config";
 import { callGeminiWithTimeout } from "@/lib/gemini/client";
@@ -21,6 +18,7 @@ import {
   type RawMappingOutput,
 } from "@/lib/import/mapping";
 import { reportError } from "@/lib/observability/report";
+import { resolveImportRequest, importErrorForKey, parseUpload } from "../_lib";
 import { analyzeInputSchema } from "../schemas";
 
 /**
@@ -39,11 +37,10 @@ import { analyzeInputSchema } from "../schemas";
  * client. Editing/resolving (4.3) and commit (4.4) build on this; 4.2 is stateless
  * (re-parse per call, no fileId) and never persists the file or the proposal.
  *
- * Auth mirrors analyze exactly: `getCurrentUser()` → 401; `resolveOrgIdentity`
- * (non-member → 403) resolves the RLS-scoped client + orgId; `requireAdmin` (a
- * Member → 403); and a `membership.slug === slug` check (cross-org Admin → 403) —
- * ALL before any parse or AI work. The service-role client is used ONLY for the
- * narrow membership read inside `requireAdmin`, never for tenant data.
+ * Auth + the server-side re-parse run through the shared `resolveImportRequest` /
+ * `parseUpload` helpers (see `../_lib`): 401 with no session, 403 for a non-member /
+ * Member / cross-org Admin, all before any parse or AI work. The service-role client
+ * is used ONLY for the narrow membership read inside `requireAdmin`.
  *
  * On a Gemini mapping failure (timeout or unparseable output) after ONE retry, the
  * route throws `AppError` carrying `Import.error.mappingUnavailable`; the UI shows
@@ -58,32 +55,7 @@ export async function POST(
   req: NextRequest,
 ): Promise<NextResponse<ApiResponse<ImportProposal>>> {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      throw new AppError(401, "unauthorized");
-    }
-
-    // The addressed org travels as a `slug` form field alongside the file.
-    let form: FormData;
-    try {
-      form = await req.formData();
-    } catch {
-      throw new AppError(400, "genericError");
-    }
-
-    const slug = form.get("slug");
-    if (typeof slug !== "string" || slug.trim() === "") {
-      throw new AppError(400, "genericError");
-    }
-
-    // Auth chain (mirror analyze): resolve the org UNDER RLS (non-member → 403),
-    // re-enforce Admin authoritatively (a Member → 403), and reject a cross-org
-    // Admin whose most-recent membership isn't this slug. All BEFORE any parse/AI.
-    const { client, orgId } = await resolveOrgIdentity(slug.trim(), user.id);
-    const membership = await requireAdmin(user, createAdminClient());
-    if (membership.slug !== slug.trim()) {
-      throw new AppError(403, "forbidden");
-    }
+    const { form, client, orgId } = await resolveImportRequest(req);
 
     const sheetRaw = form.get("sheet");
     const parsed = analyzeInputSchema.safeParse({
@@ -92,24 +64,13 @@ export async function POST(
     });
     if (!parsed.success) {
       const key = parsed.error.issues[0]?.message ?? "Import.error.unreadable";
-      throw errorForKey(key);
+      throw importErrorForKey(key);
     }
 
     const file = parsed.data.file as File;
     const chosenSheet = parsed.data.sheet;
 
-    // Re-parse the bytes SERVER-SIDE — client-parsed columns/rows are never trusted.
-    const buffer = Buffer.from(await file.arrayBuffer());
-
-    let result;
-    try {
-      result = parseSpreadsheet(buffer, file.name, chosenSheet);
-    } catch (err) {
-      if (err instanceof ParseError) {
-        throw errorForKey(err.key);
-      }
-      throw new AppError(400, "Import.error.unreadable");
-    }
+    const result = await parseUpload(file, chosenSheet);
 
     // A multi-sheet workbook with no chosen sheet cannot be mapped yet — mirror
     // analyze's picker contract by surfacing the same unreadable retryable error
@@ -179,23 +140,5 @@ export async function POST(
     return json<ImportProposal>({ data: proposal, error: null }, 200);
   } catch (err) {
     return handleError<ImportProposal>(err, "/api/import/propose");
-  }
-}
-
-/**
- * Map a frozen matrix translation KEY to an `AppError` with the matrix status.
- * Mirrors analyze so file/parse failures resolve to the same translated keys.
- */
-function errorForKey(key: string): AppError {
-  switch (key) {
-    case "Import.error.tooLarge":
-      return new AppError(413, "Import.error.tooLarge");
-    case "Import.error.empty":
-      return new AppError(400, "Import.error.empty");
-    case "Import.error.noFile":
-      return new AppError(400, "Import.error.noFile");
-    case "Import.error.unreadable":
-    default:
-      return new AppError(400, "Import.error.unreadable");
   }
 }

@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: 09-28-2026 (epic-4 done: 4.1-4.4)
+last_updated: '09-28-2026 18:05'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -98,7 +98,7 @@ development_status:
   4-2-ai-proposed-column-mapping-shown-before-any-write: done
   4-3-edit-mapping-resolve-flagged-columns: done
   4-4-confirm-import-non-destructive-replace: done
-  epic-4-retrospective: optional
+  epic-4-retrospective: done
 
   epic-5: backlog
   5-1-add-a-column-via-chat: backlog
@@ -323,3 +323,70 @@ action_items:
     owner: "Boris"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
+  - id: "epic-4-retro-item-24-d1-detect-duplicate-resolved-targets-bef"
+    epic: 4
+    action: "[D1] Detect duplicate resolved targets before/at commit so two columns
+      mapping to the same {table,field} cannot silently drop a column data (resolve.ts
+      gate and/or planCommit)."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-09-28.md"
+  - id: "epic-4-retro-item-25-h1-correct-the-deferred-work-md-inserted"
+    epic: 4
+    action: "[H1] Correct the deferred-work.md insertedCount entry to describe the
+      shipped pre-check + plain-insert path (not the abandoned upsert)."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-09-28.md"
+  - id: "epic-4-retro-item-26-h2-prune-the-two-resolved-story-4-2-entr"
+    epic: 4
+    action: "[H2] Prune the two resolved Story-4.2 entries from deferred-work.md (label
+      + fr-reason, closed by 4.3)."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-09-28.md"
+  - id: "epic-4-retro-item-27-d3-add-a-real-supabase-integration-test"
+    epic: 4
+    action: "[D3] Add a real-Supabase integration test for bulkInsertRecords (fresh
+      insert, idempotent re-run, 23505) to close the write-path mocked-test blind
+      spot the 42P10 bug exposed."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-09-28.md"
+  - id: "epic-4-retro-item-28-a2-add-schema-aware-value-coercion-valid"
+    epic: 4
+    action: "[A2] Add schema-aware value coercion/validation on import so committed
+      values match each field type; resolves the epic-3/epic-4 typed-cell boundary."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-09-28.md"
+  - id: "epic-4-retro-item-29-a1-extract-shared-import-route-scaffoldi"
+    epic: 4
+    action: "[A1] Extract shared import-route scaffolding (resolveImportRequest auth+identity
+      helper, shared errorForKey/status map, shared parse+multi-sheet block) across
+      analyze/propose/commit."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-09-28.md"
+  - id: "epic-4-retro-item-30-d2-track-the-multi-table-partial-commit"
+    epic: 4
+    action: "[D2] Track the multi-table partial-commit window; consider a per-import
+      completion marker or all-tables-then-clear guard if multi-table imports become
+      common."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-09-28.md"
+  - id: "epic-4-retro-item-31-a3-reconcile-epic-4-context-md-two-route"
+    epic: 4
+    action: "[A3] Reconcile epic-4-context.md (two routes / analyze does Gemini) to
+      the as-built three-route split (analyze=parse, propose=map, commit=write)."
+    owner: "Boris"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-09-28.md"
+  - id: "epic-4-retro-item-32-s1-reconcile-epic-4-context-md-delete-th"
+    epic: 4
+    action: "[S1] Reconcile epic-4-context.md (delete-then-insert, one transaction)
+      to the as-built insert-then-clear, no-DB-transaction crash-safety strategy."
+    owner: "Boris"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-09-28.md"

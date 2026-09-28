@@ -84,6 +84,47 @@ export function isReadyToImport(
   return unresolvedColumns(proposal, decisions).length === 0;
 }
 
+/** A target that more than one source column resolves to. */
+export type DuplicateTarget = {
+  table: string;
+  field: string;
+  /**
+   * The source columns mapping to this target, in decision order. At commit each
+   * field is written once per row, so the LAST column here overwrites the earlier
+   * ones.
+   */
+  columns: string[];
+};
+
+/**
+ * Find targets that more than one column maps to. `planCommit` writes each field
+ * once per row (`payload[fieldKey] = ...`), so when two `map` decisions share a
+ * `{table, field}` the LAST column (in decision order) silently overwrites the
+ * earlier ones' values. This surfaces that so the Admin can be warned before the
+ * commit drops a column's data. Returns one entry per over-subscribed target
+ * (`columns.length >= 2`), in first-seen target order; an empty array means every
+ * mapped target is unique. Iterates decisions in the same order `planCommit` does,
+ * so the reported "last wins" matches the actual write.
+ */
+export function duplicateTargets(decisions: DecisionMap): DuplicateTarget[] {
+  const byTarget = new Map<string, DuplicateTarget>();
+  const order: string[] = [];
+  for (const [column, decision] of Object.entries(decisions)) {
+    if (decision.kind !== "map") continue;
+    const key = `${decision.table}::${decision.field}`;
+    let entry = byTarget.get(key);
+    if (!entry) {
+      entry = { table: decision.table, field: decision.field, columns: [] };
+      byTarget.set(key, entry);
+      order.push(key);
+    }
+    entry.columns.push(column);
+  }
+  return order
+    .map((key) => byTarget.get(key)!)
+    .filter((entry) => entry.columns.length >= 2);
+}
+
 /**
  * Resolve a target's human label from the catalog by `{table, field}` key. Falls
  * back to the raw `field` key when the table or field is absent from the catalog

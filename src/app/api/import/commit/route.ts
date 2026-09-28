@@ -5,11 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import type { CommitResult } from "@/types/import";
-import { getCurrentUser } from "@/lib/auth/session";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin } from "@/lib/auth/rbac";
-import { resolveOrgIdentity, json, handleError } from "@/lib/api/route-helpers";
-import { parseSpreadsheet, ParseError } from "@/lib/import/parse";
+import { json, handleError } from "@/lib/api/route-helpers";
 import { getSchema } from "@/lib/data/records";
 import {
   bulkInsertRecords,
@@ -18,6 +14,7 @@ import {
 } from "@/lib/data/mutate";
 import { planCommit, CommitPlanError } from "@/lib/import/commit";
 import { normalizeTableName } from "@/lib/utils";
+import { resolveImportRequest, importErrorForKey, parseUpload } from "../_lib";
 import {
   commitInputSchema,
   parseDecisions,
@@ -37,13 +34,12 @@ import {
  * `import_id`; the synthetic clear is a re-runnable soft-delete), so a retried
  * commit dedupes to the same logical write and returns the same summary.
  *
- * Auth mirrors propose/analyze exactly: `getCurrentUser()` → 401;
- * `resolveOrgIdentity` (non-member → 403) resolves the RLS-scoped client + orgId +
- * actorId; `requireAdmin` (a Member → 403); a `membership.slug === slug` check
- * (cross-org Admin → 403) — ALL before any parse or write. Every write flows
- * through the guarded mutation layer under the caller's RLS-scoped client with
- * explicit identity; the service-role client is used ONLY for the narrow
- * membership read inside `requireAdmin`, never for tenant rows.
+ * Auth + the server-side re-parse run through the shared `resolveImportRequest` /
+ * `parseUpload` helpers (see `../_lib`): 401 with no session, 403 for a non-member /
+ * Member / cross-org Admin, all before any parse or write. Every write flows through
+ * the guarded mutation layer under the caller's RLS-scoped client with explicit
+ * identity; the service-role client is used ONLY for the narrow membership read
+ * inside `requireAdmin`, never for tenant rows.
  *
  * Failures collapse to the frozen matrix translation KEYs: unresolved decision →
  * 400, schema drift → 409, too many rows → 413, file/parse → their analyze keys,
@@ -57,34 +53,7 @@ export async function POST(
   req: NextRequest,
 ): Promise<NextResponse<ApiResponse<CommitResult>>> {
   try {
-    const user = await getCurrentUser();
-    if (!user) {
-      throw new AppError(401, "unauthorized");
-    }
-
-    let form: FormData;
-    try {
-      form = await req.formData();
-    } catch {
-      throw new AppError(400, "genericError");
-    }
-
-    const slug = form.get("slug");
-    if (typeof slug !== "string" || slug.trim() === "") {
-      throw new AppError(400, "genericError");
-    }
-
-    // Auth chain (mirror propose): resolve the org UNDER RLS (non-member → 403),
-    // re-enforce Admin authoritatively (a Member → 403), and reject a cross-org
-    // Admin whose most-recent membership isn't this slug. All BEFORE any parse/write.
-    const { client, actorId, orgId } = await resolveOrgIdentity(
-      slug.trim(),
-      user.id,
-    );
-    const membership = await requireAdmin(user, createAdminClient());
-    if (membership.slug !== slug.trim()) {
-      throw new AppError(403, "forbidden");
-    }
+    const { form, client, actorId, orgId } = await resolveImportRequest(req);
 
     const sheetRaw = form.get("sheet");
     const parsed = commitInputSchema.safeParse({
@@ -95,7 +64,7 @@ export async function POST(
     });
     if (!parsed.success) {
       const key = parsed.error.issues[0]?.message ?? "Import.error.unreadable";
-      throw errorForKey(key);
+      throw importErrorForKey(key);
     }
 
     const file = parsed.data.file as File;
@@ -104,17 +73,7 @@ export async function POST(
     const importId = parsed.data.import_id.trim();
 
     // Re-parse the bytes SERVER-SIDE — client-parsed columns/rows are never trusted.
-    const buffer = Buffer.from(await file.arrayBuffer());
-
-    let result;
-    try {
-      result = parseSpreadsheet(buffer, file.name, chosenSheet);
-    } catch (err) {
-      if (err instanceof ParseError) {
-        throw errorForKey(err.key);
-      }
-      throw new AppError(400, "Import.error.unreadable");
-    }
+    const result = await parseUpload(file, chosenSheet);
 
     // A multi-sheet workbook with no chosen sheet cannot be committed — surface the
     // same retryable unreadable error as propose.
@@ -225,23 +184,5 @@ export async function POST(
     );
   } catch (err) {
     return handleError<CommitResult>(err, "/api/import/commit");
-  }
-}
-
-/**
- * Map a frozen matrix translation KEY to an `AppError` with the matrix status.
- * Mirrors propose so file/parse failures resolve to the same translated keys.
- */
-function errorForKey(key: string): AppError {
-  switch (key) {
-    case "Import.error.tooLarge":
-      return new AppError(413, "Import.error.tooLarge");
-    case "Import.error.empty":
-      return new AppError(400, "Import.error.empty");
-    case "Import.error.noFile":
-      return new AppError(400, "Import.error.noFile");
-    case "Import.error.unreadable":
-    default:
-      return new AppError(400, "Import.error.unreadable");
   }
 }

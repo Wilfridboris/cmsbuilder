@@ -214,7 +214,9 @@
       "skipped": "Skipped",
       "remaining": "{count, plural, one {# column still needs a choice before you can import: {columns}} other {# columns still need a choice before you can import: {columns}}}",
       "ready": "Every column is resolved. You're ready to import.",
-      "importButton": "Import data"
+      "importButton": "Import data",
+      "duplicateHeading": "Some columns point to the same field",
+      "duplicateDetail": "{columns} all map to \"{field}\". Only the last one ({last}) will be imported; the other values are ignored."
     },
     "commit": {
       "committing": "Importing your data…",

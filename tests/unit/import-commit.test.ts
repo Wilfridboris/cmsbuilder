@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import type { SchemaDefinition } from "@/types/db";
 import type { DecisionMap } from "@/lib/import/resolve";
-import { planCommit, CommitPlanError } from "@/lib/import/commit";
+import {
+  planCommit,
+  CommitPlanError,
+  coerceImportValue,
+} from "@/lib/import/commit";
 
 /**
  * Unit coverage for the pure commit planner (Story 4.4). Exercises the whole I/O
@@ -72,7 +76,8 @@ describe("planCommit — mapping & grouping", () => {
     const clients = plan.tables.find((t) => t.tableKey === "clients");
     const invoices = plan.tables.find((t) => t.tableKey === "invoices");
     expect(clients?.rows).toEqual([{ name: "Ada" }, { name: "Bea" }]);
-    expect(invoices?.rows).toEqual([{ total: "100" }, { total: "200" }]);
+    // `total` is a currency field, so its cells coerce from strings to numbers.
+    expect(invoices?.rows).toEqual([{ total: 100 }, { total: 200 }]);
   });
 
   it("drops a skip decision from every inserted row", () => {
@@ -94,12 +99,102 @@ describe("planCommit — mapping & grouping", () => {
     expect(plan.tables[0].rows).toEqual([{ name: "Ada" }, { name: "Bea" }]);
   });
 
-  it("carries a missing source cell through as an empty string", () => {
+  it("omits a missing (blank) source cell from the row payload", () => {
     const decisions: DecisionMap = {
       Missing: { kind: "map", table: "clients", field: "name" },
     };
     const plan = planCommit([{ Other: "x" }], decisions, SCHEMA);
-    expect(plan.tables[0].rows).toEqual([{ name: "" }]);
+    expect(plan.tables[0].rows).toEqual([{}]);
+  });
+});
+
+describe("planCommit — value coercion (A2)", () => {
+  it("coerces number/currency cells to finite numbers, omits blanks", () => {
+    const decisions: DecisionMap = {
+      Amount: { kind: "map", table: "invoices", field: "total" },
+    };
+    const rows = [{ Amount: "1200.50" }, { Amount: "  0 " }, { Amount: "" }];
+    const plan = planCommit(rows, decisions, SCHEMA);
+    expect(plan.tables[0].rows).toEqual([{ total: 1200.5 }, { total: 0 }, {}]);
+  });
+
+  it("preserves a non-numeric currency/number cell as trimmed text (no data loss)", () => {
+    const decisions: DecisionMap = {
+      Amount: { kind: "map", table: "invoices", field: "total" },
+    };
+    const plan = planCommit([{ Amount: " N/A " }], decisions, SCHEMA);
+    expect(plan.tables[0].rows).toEqual([{ total: "N/A" }]);
+  });
+
+  it("keeps text/email cells as trimmed strings", () => {
+    const decisions: DecisionMap = {
+      "Full Name": { kind: "map", table: "clients", field: "name" },
+      Email: { kind: "map", table: "clients", field: "email" },
+    };
+    const plan = planCommit(
+      [{ "Full Name": "  Ada  ", Email: " ada@x.io " }],
+      decisions,
+      SCHEMA,
+    );
+    expect(plan.tables[0].rows).toEqual([{ name: "Ada", email: "ada@x.io" }]);
+  });
+
+  it("coerces recognized boolean tokens (en + fr) and preserves the rest", () => {
+    const boolSchema: SchemaDefinition = {
+      tables: [
+        {
+          key: "tasks",
+          label: "Tasks",
+          fields: [{ key: "done", label: "Done", type: "boolean" }],
+        },
+      ],
+    };
+    const decisions: DecisionMap = {
+      Done: { kind: "map", table: "tasks", field: "done" },
+    };
+    const rows = [
+      { Done: "TRUE" },
+      { Done: "no" },
+      { Done: "Oui" },
+      { Done: "maybe" },
+      { Done: "" },
+    ];
+    const plan = planCommit(rows, decisions, boolSchema);
+    expect(plan.tables[0].rows).toEqual([
+      { done: true },
+      { done: false },
+      { done: true },
+      { done: "maybe" },
+      {},
+    ]);
+  });
+});
+
+describe("coerceImportValue", () => {
+  it("omits blank / whitespace / null / undefined", () => {
+    expect(coerceImportValue("text", "")).toEqual({ kind: "omit" });
+    expect(coerceImportValue("text", "   ")).toEqual({ kind: "omit" });
+    expect(coerceImportValue("number", null)).toEqual({ kind: "omit" });
+    expect(coerceImportValue("number", undefined)).toEqual({ kind: "omit" });
+  });
+
+  it("rejects Infinity/NaN and preserves them as text (matches the add form)", () => {
+    // "1e999" parses to Infinity, which Number.isFinite rejects.
+    expect(coerceImportValue("number", "1e999")).toEqual({
+      kind: "value",
+      value: "1e999",
+    });
+    expect(coerceImportValue("currency", "abc")).toEqual({
+      kind: "value",
+      value: "abc",
+    });
+  });
+
+  it("leaves date/datetime cells as trimmed strings", () => {
+    expect(coerceImportValue("date", " 2026-01-15 ")).toEqual({
+      kind: "value",
+      value: "2026-01-15",
+    });
   });
 });
 
