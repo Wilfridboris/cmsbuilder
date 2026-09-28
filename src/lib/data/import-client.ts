@@ -1,5 +1,6 @@
 import type { ApiResponse } from "@/types/api";
-import type { ImportProposal } from "@/types/import";
+import type { CommitResult, ImportProposal } from "@/types/import";
+import type { DecisionMap } from "@/lib/import/resolve";
 
 /**
  * Client-side fetch wrapper for the Import analyze route (Story 4.1). Mirrors
@@ -112,4 +113,38 @@ export async function proposeMapping(
     body: form,
   });
   return parseEnvelope<ImportProposal>(res);
+}
+
+/**
+ * POST the confirmed import to `/api/import/commit` (Story 4.4) — the ONLY write
+ * call. Re-sends the same `file` (plus slug and optional `sheet`) so the route
+ * re-parses server-side, the confirmed `decisions` as a JSON string, and the
+ * client's stable `importId` (regenerated only on a fresh import, reused on every
+ * Retry) so a retried commit dedupes to the same logical rows. Returns the
+ * `CommitResult` per-table summary, or throws `ImportApiError(code)` on any failure
+ * (a frozen `Import.error.*` key) — including `Import.error.commitFailed`, which the
+ * UI surfaces with a Retry. Nothing but this call writes tenant data.
+ */
+export async function commitImport(
+  slug: string,
+  file: File,
+  decisions: DecisionMap,
+  importId: string,
+  sheet?: string,
+): Promise<CommitResult> {
+  const form = new FormData();
+  form.set("slug", slug);
+  form.set("file", file);
+  form.set("decisions", JSON.stringify(decisions));
+  form.set("import_id", importId);
+  if (sheet !== undefined) {
+    form.set("sheet", sheet);
+  }
+
+  const res = await fetch("/api/import/commit", {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    body: form,
+  });
+  return parseEnvelope<CommitResult>(res);
 }

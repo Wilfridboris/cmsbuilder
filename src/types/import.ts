@@ -65,3 +65,17 @@ export type FieldCatalog = Array<{
  * pure `resolve` module so components and the resolve logic share one shape.
  */
 export type { MappingDecision } from "@/lib/import/resolve";
+
+/**
+ * The success payload of a confirmed import (Story 4.4), returned by
+ * `POST /api/import/commit`. `importedCount` is the total rows inserted across all
+ * affected tables; `tables` carries the per-table inserted-row counts (one entry
+ * per distinct target table in the confirmed mapping) so the UI can render a
+ * per-table success summary. Structure/metadata only — no row data leaks.
+ */
+export type CommitResult = {
+  /** Total rows inserted across every affected table. */
+  importedCount: number;
+  /** Per-table inserted-row counts, one entry per distinct target table. */
+  tables: Array<{ tableKey: string; count: number }>;
+};

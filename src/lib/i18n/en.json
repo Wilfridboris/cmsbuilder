@@ -216,6 +216,15 @@
       "ready": "Every column is resolved. You're ready to import.",
       "importButton": "Import data"
     },
+    "commit": {
+      "committing": "Importing your data…",
+      "committingNote": "Please keep this page open while we save your records.",
+      "successHeading": "Import complete",
+      "successSummary": "{count, plural, one {# record was imported.} other {# records were imported.}}",
+      "tableCount": "{table}: {count, plural, one {# record} other {# records}}",
+      "goToDashboard": "Go to dashboard",
+      "importAnother": "Import another file"
+    },
     "error": {
       "empty": "That file looks empty. Please check it has a header row and some data, then try again.",
       "unreadable": "We couldn't read that file. Please upload a valid .csv, .xls, or .xlsx spreadsheet and try again.",
@@ -224,6 +233,10 @@
       "forbidden": "Only admins can import data.",
       "unauthorized": "Your session expired. Please sign in again.",
       "mappingUnavailable": "We couldn't suggest a mapping automatically just now. You can try again, or map your columns yourself in the next step.",
+      "unresolvedColumns": "Some columns still need a choice before importing. Please resolve them and try again.",
+      "schemaChanged": "Your tables changed while you were mapping. Please review the mapping again before importing.",
+      "tooManyRows": "That file has more than 5,000 rows. Please split it into smaller files and try again.",
+      "commitFailed": "We couldn't finish the import. Nothing was left half-saved. Please try again.",
       "genericError": "Something went wrong. Please try again."
     }
   },

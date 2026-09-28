@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { mutate, type MutateIdentity } from "@/lib/data/mutate";
+import { mutate, bulkInsertRecords, type MutateIdentity } from "@/lib/data/mutate";
 import { listRecords } from "@/lib/data/records";
 
 /**
@@ -268,6 +268,121 @@ describe("mutate — soft delete", () => {
     expect(del.error).toBe("versionConflict");
     // A stale delete must NOT soft-delete the row.
     expect(client.rows[0].deleted_at).toBeNull();
+  });
+});
+
+/**
+ * Dedicated fake for `bulkInsertRecords` (Story 4.4). Its two operations are a
+ * first-key pre-check (`.select().eq()×3.maybeSingle()`) and an array `.insert()`
+ * awaited WITHOUT `.single()` — a shape the single-row `FakeQuery` above does not
+ * model — so this stands them up directly and records the insert payloads.
+ */
+function makeBulkClient(opts: {
+  existing?: { id: string } | null;
+  lookupError?: { message: string } | null;
+  insertError?: { code?: string; message: string } | null;
+}) {
+  const calls = { inserts: [] as unknown[][], preChecks: 0 };
+  const client = {
+    from(table: string) {
+      if (table !== "records") throw new Error(`unexpected table: ${table}`);
+      return {
+        select() {
+          return {
+            eq() {
+              return this;
+            },
+            maybeSingle() {
+              calls.preChecks += 1;
+              return Promise.resolve({
+                data: opts.existing ?? null,
+                error: opts.lookupError ?? null,
+              });
+            },
+          };
+        },
+        insert(payload: unknown[]) {
+          calls.inserts.push(payload);
+          return Promise.resolve({ error: opts.insertError ?? null });
+        },
+      };
+    },
+  };
+  return { client: client as unknown as SupabaseClient, calls };
+}
+
+describe("bulkInsertRecords", () => {
+  const TK = "clients";
+  const idFor = (client: SupabaseClient): MutateIdentity => ({
+    client,
+    actorId: ACTOR,
+    orgId: ORG,
+  });
+  const rowsOf = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      data: { name: `n${i}` },
+      idempotencyKey: `import-x-clients-${i}`,
+    }));
+
+  it("short-circuits to insertedCount without inserting when the first key already landed", async () => {
+    const { client, calls } = makeBulkClient({ existing: { id: "existing-1" } });
+    const res = await bulkInsertRecords(idFor(client), TK, rowsOf(2));
+    expect(res.error).toBeNull();
+    expect(res.data).toEqual({ insertedCount: 2 });
+    expect(calls.inserts.length).toBe(0);
+  });
+
+  it("inserts a fresh batch once with the guarded payload shape", async () => {
+    const { client, calls } = makeBulkClient({ existing: null });
+    const res = await bulkInsertRecords(idFor(client), TK, rowsOf(2));
+    expect(res.error).toBeNull();
+    expect(res.data).toEqual({ insertedCount: 2 });
+    expect(calls.inserts.length).toBe(1);
+    expect(calls.inserts[0]).toEqual([
+      {
+        organization_id: ORG,
+        table_key: TK,
+        data: { name: "n0" },
+        actor_id: ACTOR,
+        idempotency_key: "import-x-clients-0",
+      },
+      {
+        organization_id: ORG,
+        table_key: TK,
+        data: { name: "n1" },
+        actor_id: ACTOR,
+        idempotency_key: "import-x-clients-1",
+      },
+    ]);
+  });
+
+  it("treats a 23505 unique violation as idempotent success (concurrent retry)", async () => {
+    const { client } = makeBulkClient({
+      existing: null,
+      insertError: { code: "23505", message: "dup" },
+    });
+    const res = await bulkInsertRecords(idFor(client), TK, rowsOf(3));
+    expect(res.error).toBeNull();
+    expect(res.data).toEqual({ insertedCount: 3 });
+  });
+
+  it("returns an error envelope on a non-unique DB error", async () => {
+    const { client } = makeBulkClient({
+      existing: null,
+      insertError: { code: "500", message: "boom" },
+    });
+    const res = await bulkInsertRecords(idFor(client), TK, rowsOf(1));
+    expect(res.data).toBeNull();
+    expect(res.error).toBe("The write could not be completed.");
+  });
+
+  it("returns insertedCount 0 for an empty batch without touching the client", async () => {
+    const { client, calls } = makeBulkClient({ existing: null });
+    const res = await bulkInsertRecords(idFor(client), TK, []);
+    expect(res.error).toBeNull();
+    expect(res.data).toEqual({ insertedCount: 0 });
+    expect(calls.inserts.length).toBe(0);
+    expect(calls.preChecks).toBe(0);
   });
 });
 

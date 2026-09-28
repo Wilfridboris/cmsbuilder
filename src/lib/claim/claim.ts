@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { PendingClaimRow, SchemaDefinition } from "@/types/db";
 import { ensureUniqueSlug, slugBaseToName } from "@/lib/claim/slug";
+import { SYSTEM_ACTOR_ID } from "@/lib/data/mutate";
 
 /**
  * Core claim bootstrap (Story 2.1) — the ONLY place the service-role admin
@@ -33,9 +34,6 @@ import { ensureUniqueSlug, slugBaseToName } from "@/lib/claim/slug";
 
 /** How long a pending claim is honored before the link must be re-requested. */
 export const PENDING_CLAIM_TTL_MS = 60 * 60 * 1000; // 1 hour — mirrors magic-link life.
-
-/** System actor id for the claim-time soft-delete of synthetic records. */
-const SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-0000000000a0";
 
 export type CreatePendingClaimInput = {
   /** The anonymous session org id (resolved from the signed cookie). */

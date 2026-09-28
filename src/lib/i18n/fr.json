@@ -216,6 +216,15 @@
       "ready": "Toutes les colonnes sont résolues. Vous êtes prêt à importer.",
       "importButton": "Importer les données"
     },
+    "commit": {
+      "committing": "Import de vos données en cours…",
+      "committingNote": "Veuillez garder cette page ouverte pendant l'enregistrement de vos fiches.",
+      "successHeading": "Import terminé",
+      "successSummary": "{count, plural, one {# fiche a été importée.} other {# fiches ont été importées.}}",
+      "tableCount": "{table} : {count, plural, one {# fiche} other {# fiches}}",
+      "goToDashboard": "Aller au tableau de bord",
+      "importAnother": "Importer un autre fichier"
+    },
     "error": {
       "empty": "Ce fichier semble vide. Vérifiez qu'il contient une ligne d'en-tête et des données, puis réessayez.",
       "unreadable": "Nous n'avons pas pu lire ce fichier. Téléversez un fichier .csv, .xls ou .xlsx valide, puis réessayez.",
@@ -224,6 +233,10 @@
       "forbidden": "Seuls les administrateurs peuvent importer des données.",
       "unauthorized": "Votre session a expiré. Veuillez vous reconnecter.",
       "mappingUnavailable": "Nous n'avons pas pu proposer une correspondance automatiquement pour le moment. Vous pouvez réessayer, ou associer vos colonnes vous-même à l'étape suivante.",
+      "unresolvedColumns": "Certaines colonnes nécessitent encore un choix avant l'import. Veuillez les résoudre, puis réessayez.",
+      "schemaChanged": "Vos tables ont changé pendant votre association. Veuillez revoir la correspondance avant d'importer.",
+      "tooManyRows": "Ce fichier contient plus de 5 000 lignes. Veuillez le diviser en fichiers plus petits, puis réessayez.",
+      "commitFailed": "Nous n'avons pas pu terminer l'import. Rien n'a été enregistré à moitié. Veuillez réessayer.",
       "genericError": "Une erreur est survenue. Veuillez réessayer."
     }
   },

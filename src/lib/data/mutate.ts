@@ -28,6 +28,16 @@ import { getSchema } from "@/lib/data/records";
  * `userMessage`; raw SQL is never leaked.
  */
 
+/**
+ * The seed marker actor id (Story 1.2 seeding): synthetic/demo `records` rows are
+ * exactly those whose `actor_id` equals this constant. Lifted here as the single
+ * source of truth so both the claim-time clear (`claim.ts`) and the import commit
+ * (Story 4.4) scope their synthetic soft-delete to the same marker. Real rows
+ * (any human `actor_id`) are never matched, so the clear is a no-op once claim has
+ * already removed demo data.
+ */
+export const SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-0000000000a0";
+
 export type MutateIdentity = {
   client: SupabaseClient;
   actorId: string;
@@ -86,6 +96,103 @@ export async function mutate(
         throw new AppError(400, "Unsupported operation.", `Unknown op: ${_never}`);
       }
     }
+  } catch (err) {
+    if (err instanceof AppError) {
+      return { data: null, error: err.userMessage };
+    }
+    return { data: null, error: "The write could not be completed." };
+  }
+}
+
+/** One row to bulk-insert: its `data` payload plus a stable idempotency key. */
+export type BulkInsertRow = {
+  data: Record<string, unknown>;
+  idempotencyKey: string;
+};
+
+/**
+ * Bulk-insert rows for one logical table in a SINGLE guarded array insert under
+ * the caller's RLS-scoped client (Story 4.4). Every row carries a stable
+ * per-row `idempotencyKey` derived from the client's import id, so a retried
+ * commit dedupes to the SAME logical rows instead of duplicating them.
+ *
+ * De-dupe is a pre-check, NOT an `ON CONFLICT` upsert: the idempotency index
+ * (`records_idempotency_key_idx`) is PARTIAL (`where idempotency_key is not null`),
+ * and Postgres cannot infer a partial index as an ON CONFLICT arbiter from a bare
+ * column target (verified: `42P10`), so a `.upsert({ onConflict })` would fail
+ * every commit. Instead we read whether this batch already landed and skip the
+ * re-insert. The array `.insert` is a single statement, so a prior attempt wrote
+ * ALL of these rows or none; checking the first row's key is sufficient. A
+ * concurrent-retry unique violation (`23505`) means the rows now exist — treated
+ * as idempotent success. The write is atomic on its own (the commit route runs
+ * insert-then-clear for crash-safety; a mid-commit failure never empties a table).
+ *
+ * `insertedCount` reports the number of rows requested (not a DB-affected count):
+ * idempotency guarantees each requested row maps to exactly one live logical
+ * record whether it was inserted now or on a prior attempt, so a retried commit
+ * returns the SAME summary. An empty `rows` short-circuits to 0.
+ *
+ * Import rows are NOT run through the relation referential-integrity guard: 4.4
+ * drops relation targets from the write (relationship-aware import is Epic 9), so
+ * no relation ids are ever in these payloads. `actorId`/`orgId` come from the
+ * caller's proven identity; the service-role key is never used here.
+ */
+export async function bulkInsertRecords(
+  identity: MutateIdentity,
+  tableKey: string,
+  rows: BulkInsertRow[],
+): Promise<ApiResponse<{ insertedCount: number }>> {
+  try {
+    const normalizedTableKey = normalizeTableName(tableKey);
+    if (!normalizedTableKey) {
+      throw new AppError(400, "A valid table is required.");
+    }
+    if (rows.length === 0) {
+      return { data: { insertedCount: 0 }, error: null };
+    }
+
+    const { client, actorId, orgId } = identity;
+
+    // Idempotency pre-check: the per-table array insert below is a single atomic
+    // statement, so a prior successful attempt inserted ALL of these rows or none.
+    // If the first row's key already produced a record, this batch already
+    // committed — return the stable count without re-inserting (a retried commit
+    // does not duplicate). Scoped to (org, table_key) under the RLS client.
+    const { data: existing, error: lookupError } = await client
+      .from("records")
+      .select("id")
+      .eq("organization_id", orgId)
+      .eq("table_key", normalizedTableKey)
+      .eq("idempotency_key", rows[0].idempotencyKey)
+      .maybeSingle();
+    if (lookupError) {
+      throw new AppError(500, "The write could not be completed.", lookupError.message);
+    }
+    if (existing) {
+      return { data: { insertedCount: rows.length }, error: null };
+    }
+
+    const payload = rows.map((row) => ({
+      organization_id: orgId,
+      table_key: normalizedTableKey,
+      data: row.data,
+      actor_id: actorId,
+      idempotency_key: row.idempotencyKey,
+    }));
+
+    const { error } = await client.from("records").insert(payload);
+
+    if (error) {
+      // A unique violation on the idempotency index means a concurrent retry won
+      // the race; those rows now exist, so treat the batch as idempotently complete.
+      if (isUniqueViolation(error.code)) {
+        return { data: { insertedCount: rows.length }, error: null };
+      }
+      throw new AppError(500, "The write could not be completed.", error.message);
+    }
+
+    // Idempotency makes the requested-row count the stable summary across retries.
+    return { data: { insertedCount: rows.length }, error: null };
   } catch (err) {
     if (err instanceof AppError) {
       return { data: null, error: err.userMessage };
