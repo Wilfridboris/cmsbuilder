@@ -170,7 +170,37 @@
   "DashboardNav": {
     "label": "Navigation du tableau de bord",
     "dashboard": "Tableau de bord",
-    "settings": "Paramètres"
+    "settings": "Paramètres",
+    "import": "Importer"
+  },
+  "Import": {
+    "title": "Importez vos données",
+    "subtitle": "Récupérez votre historique réel à partir d'un fichier. Nous lisons le fichier et vous montrons ce que nous avons trouvé avant tout enregistrement.",
+    "dropzoneLabel": "Téléverser un fichier",
+    "dropzoneHint": "Glissez-déposez un fichier CSV ou Excel ici, ou choisissez un fichier. Formats acceptés : .csv, .xls, .xlsx. Jusqu'à 5 Mo.",
+    "dropzoneButton": "Choisir un fichier",
+    "dropzoneActive": "Déposez votre fichier pour le téléverser.",
+    "analyzing": "Lecture de votre fichier…",
+    "sheetPickerLabel": "Ce classeur contient plusieurs feuilles. Choisissez celle à lire.",
+    "sheetPickerPlaceholder": "Choisir une feuille",
+    "sheetPickerButton": "Lire cette feuille",
+    "previewCaption": "Aperçu de {sheet} : colonnes détectées et premières lignes d'exemple.",
+    "previewTitle": "Voici ce que nous avons trouvé",
+    "previewSummary": "{columns, plural, one {# colonne détectée} other {# colonnes détectées}} et {rows, plural, one {# ligne} other {# lignes}} dans {sheet}.",
+    "previewNote": "Rien n'a encore été enregistré. Ceci n'est qu'un aperçu de ce que nous avons lu.",
+    "sampleRowsHeading": "Lignes d'exemple",
+    "cellEmpty": "Vide",
+    "startOver": "Téléverser un autre fichier",
+    "retry": "Réessayer",
+    "error": {
+      "empty": "Ce fichier semble vide. Vérifiez qu'il contient une ligne d'en-tête et des données, puis réessayez.",
+      "unreadable": "Nous n'avons pas pu lire ce fichier. Téléversez un fichier .csv, .xls ou .xlsx valide, puis réessayez.",
+      "tooLarge": "Ce fichier dépasse 5 Mo. Téléversez un fichier plus petit, puis réessayez.",
+      "noFile": "Veuillez choisir un fichier à téléverser.",
+      "forbidden": "Seuls les administrateurs peuvent importer des données.",
+      "unauthorized": "Votre session a expiré. Veuillez vous reconnecter.",
+      "genericError": "Une erreur est survenue. Veuillez réessayer."
+    }
   },
   "Legal": {
     "privacyTitle": "Politique de confidentialité",

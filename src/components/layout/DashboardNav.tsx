@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
-import { LayoutDashboard, Settings } from "lucide-react";
+import { LayoutDashboard, Settings, Upload } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
@@ -51,16 +51,28 @@ export async function DashboardNav({
         </Link>
 
         {isAdmin ? (
-          <Link
-            href={`/${slug}/settings`}
-            className={cn(
-              buttonVariants({ variant: "ghost", size: "sm" }),
-              "gap-2",
-            )}
-          >
-            <Settings aria-hidden="true" className="size-4" />
-            <span>{t("settings")}</span>
-          </Link>
+          <>
+            <Link
+              href={`/${slug}/import`}
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "sm" }),
+                "gap-2",
+              )}
+            >
+              <Upload aria-hidden="true" className="size-4" />
+              <span>{t("import")}</span>
+            </Link>
+            <Link
+              href={`/${slug}/settings`}
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "sm" }),
+                "gap-2",
+              )}
+            >
+              <Settings aria-hidden="true" className="size-4" />
+              <span>{t("settings")}</span>
+            </Link>
+          </>
         ) : null}
       </div>
     </nav>

@@ -170,7 +170,37 @@
   "DashboardNav": {
     "label": "Dashboard navigation",
     "dashboard": "Dashboard",
-    "settings": "Settings"
+    "settings": "Settings",
+    "import": "Import"
+  },
+  "Import": {
+    "title": "Import your data",
+    "subtitle": "Bring in your real history from a spreadsheet. We'll read the file and show you what we found before anything is saved.",
+    "dropzoneLabel": "Upload a spreadsheet",
+    "dropzoneHint": "Drag and drop a CSV or Excel file here, or choose a file. Accepted formats: .csv, .xls, .xlsx. Up to 5 MB.",
+    "dropzoneButton": "Choose a file",
+    "dropzoneActive": "Drop your file to upload it.",
+    "analyzing": "Reading your file…",
+    "sheetPickerLabel": "This workbook has more than one sheet. Choose which one to read.",
+    "sheetPickerPlaceholder": "Choose a sheet",
+    "sheetPickerButton": "Read this sheet",
+    "previewCaption": "Preview of {sheet}: detected columns and the first sample rows.",
+    "previewTitle": "Here's what we found",
+    "previewSummary": "Detected {columns, plural, one {# column} other {# columns}} and {rows, plural, one {# row} other {# rows}} in {sheet}.",
+    "previewNote": "Nothing has been saved yet. This is just a preview of what we read.",
+    "sampleRowsHeading": "Sample rows",
+    "cellEmpty": "Empty",
+    "startOver": "Upload a different file",
+    "retry": "Try again",
+    "error": {
+      "empty": "That file looks empty. Please check it has a header row and some data, then try again.",
+      "unreadable": "We couldn't read that file. Please upload a valid .csv, .xls, or .xlsx spreadsheet and try again.",
+      "tooLarge": "That file is larger than 5 MB. Please upload a smaller file and try again.",
+      "noFile": "Please choose a file to upload.",
+      "forbidden": "Only admins can import data.",
+      "unauthorized": "Your session expired. Please sign in again.",
+      "genericError": "Something went wrong. Please try again."
+    }
   },
   "Legal": {
     "privacyTitle": "Privacy Policy",
