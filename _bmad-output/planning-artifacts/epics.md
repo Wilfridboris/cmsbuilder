@@ -16,7 +16,9 @@ inputDocuments:
 
 This document provides the complete epic and story breakdown for Scheza, decomposing the requirements from the PRD, UX Design (`docs/design.md`), and Architecture requirements into implementable stories.
 
-> **Scope note:** Scheza is delivered in phases. **MVP (Phase 1)** = FR1–FR55 + all non-Forward-Compatibility NFRs, with the Forward-Compatibility NFRs (NFR-FC1–FC4) constraining *how* MVP is built. **Growth** = FR56–FR61. **Vision / Phase 3** = FR62–FR69 (gated, traceability only). Epic and story creation focuses on MVP + the Growth/Phase-3 seams that must not be foreclosed.
+> **Scope note:** Scheza is delivered in phases. **MVP (Phase 1)** = FR1–FR55, the MVP relationship FRs (FR70–FR78), **the Invoicing, Payments & Delivery module (FR82–FR95, Epic 12)**, and all non-Forward-Compatibility NFRs, with the Forward-Compatibility NFRs (NFR-FC1–FC4) constraining *how* MVP is built. **Growth** = FR56–FR61 + FR79–FR81. **Vision / Phase 3** = FR62–FR69 (gated, traceability only). Epic and story creation focuses on MVP + the Growth/Phase-3 seams that must not be foreclosed.
+>
+> **Reconciliation note (2026-09-27 invoice-to-cash pivot):** Epic 12 (Invoicing, Payments & Delivery) was added for FR82–FR95, and **Epic 7 (Billing) was reconciled from usage-based metering to flat all-inclusive tiers** (Solo/Crew/Shop) along with its FR30/FR53–FR55 stories and the Epic 1 signals note. Predictability is the product promise for this buyer; the tier signal is invoicing volume (invoices issued per cycle, counted from the fixed Invoicing module — uniform across tenants, unlike the per-tenant generated "jobs"), which drives only a tier-change prompt, never a meter or spend cap.
 
 ## Requirements Inventory
 
@@ -68,8 +70,8 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 **Billing & Subscriptions**
 
 - **FR29:** User can begin a 14-day free trial without providing payment information
-- **FR30:** Admin can start a usage-based paid subscription (monthly base fee plus metered overage on active records) via a Stripe-hosted checkout page
-- **FR31:** Admin can manage their subscription (update payment method, view invoices with usage breakdown, cancel) via the Stripe Customer Portal
+- **FR30:** Admin can start a flat-fee monthly subscription (tiered by business size, all-inclusive) via a Stripe-hosted checkout page
+- **FR31:** Admin can manage their subscription (update payment method, view invoices, cancel anytime with no contract) via the Stripe Customer Portal
 - **FR32:** The system transitions an account to read-only mode when the trial period expires or the subscription lapses
 - **FR33:** Admin receives email notifications at Day 12 and Day 14 of the trial period prompting them to add billing
 
@@ -104,11 +106,28 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 - **FR51:** The system flags columns it cannot confidently map rather than silently guessing, and requires the user to resolve them before import proceeds
 - **FR52:** The system replaces synthetic demo data with imported real data without data loss upon the user confirming the import
 
-**Billing — Usage Metering (MVP)**
+**Billing — Flat Tiers (MVP)**
 
-- **FR53:** The system meters the count of active records managed per billing cycle and reports it to the billing provider for overage calculation
-- **FR54:** Admin can view current active-record usage against the included allotment at any time
-- **FR55:** Admin can set an optional monthly spend cap; when the cap is reached, the system pauses new-record creation instead of accruing further charges
+- **FR53:** The system assigns each account a flat subscription tier and bills a fixed monthly fee for that tier via the billing provider
+- **FR54:** Admin can view their current tier, what it includes, and their next billing date at any time
+- **FR55:** The system surfaces a tier-change prompt when an account's invoicing volume (invoices issued per cycle) sustainably exceeds its current tier band, rather than silently metering overage
+
+**Invoicing, Payments & Delivery (MVP)** *(a fixed, compliant module — its own Invoices tab, not an AI-generated table)*
+
+- **FR82:** Admin can create an invoice, from an existing work record (pulling customer and line items) or standalone, in a fixed, compliant Invoices module
+- **FR83:** The system captures a reusable Business Profile (legal name, operating name, entity type, jurisdiction, GST/HST number, logo, addresses, payment terms, default invoice language) and renders one clean, full-detail invoice template from it (identity capture, not a template designer)
+- **FR84:** The system calculates and shows Ontario HST as a separate tax line at the place-of-supply rate, and does not label or calculate tax when the business is not GST/HST-registered
+- **FR85:** The system shows the supplier legal name together with the operating name, and the GST/HST registration number, on every invoice that charges tax
+- **FR86:** The system assigns each invoice a unique number, snapshots supplier and customer identity onto the finalized invoice, and makes an issued invoice immutable
+- **FR87:** The system blocks issuance when required compliance fields are missing (for example tax charged without a valid registration, HST split into components, totals not reconciling, or missing legal identity), returning a plain-language reason
+- **FR88:** Admin can correct an issued invoice only via a linked credit note in its own number sequence, never by editing the sent invoice
+- **FR89:** The system stores each invoice as structured records and freezes a rendered PDF copy on send, retaining structured data and each rendered PDF for at least six years
+- **FR90:** Every invoice carries a structured Payment Instructions block (e-transfer email, cheque payable-to and mailing address, and an owner-provided card-payment link as free text)
+- **FR91:** Admin can mark an invoice as paid, recording method, date, amount, and reference (no payment is processed or held by Scheza in MVP)
+- **FR92:** The Invoices tab defaults to an Unpaid / Overdue view derived from invoice status and due date, working uniformly across all tenants regardless of generated schema
+- **FR93:** Admin can send an invoice as a PDF from their own device via the native share sheet (WhatsApp, SMS, or email) so it is delivered from the owner's own number or account; the SMS path sends an unguessable secure link to the same PDF
+- **FR94:** On desktop, the system can send the invoice email with the PDF attached via Resend using reply-to the owner's address, and offers Download PDF and Copy Link as alternatives
+- **FR95:** The system determines invoice language and tax from the customer's province (place of supply); MVP supports Ontario (English, HST) and stores customer province so Quebec (French, GST + QST, QST number) can be enabled later without re-architecture
 
 **Growth-Phase Requirements** *(post-$1K MRR; listed for traceability)*
 
@@ -188,7 +207,7 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 - **NFR-R2:** Platform uptime target: 99.5% monthly for MVP; 99.9% monthly for Growth phase
 - **NFR-R3:** LLM API timeout threshold: 15 seconds; the Hard Fallback Schema must be triggered automatically at this threshold — no user-facing timeout or error screen
 - **NFR-R4:** Stripe webhook processing failures must not affect a user's ability to access their dashboard — subscription status is cached in Supabase and serves as the fallback source of truth
-- **NFR-R5:** Active-record usage counts reported to the billing provider must reconcile with the database record count within a 1% tolerance per cycle, verified by an automated reconciliation job
+- **NFR-R5:** Flat-tier subscription state in the billing provider must reconcile with the account's tier in Supabase every cycle, verified by an automated job; any drift pages before it can affect access. Billing accuracy is a trust requirement
 
 **Forward-Compatibility (Autonomous Operations — Phase 3)** *(constrain HOW the MVP is built; nothing agentic ships in MVP)*
 
@@ -285,7 +304,7 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 - FR27: Epic 6 — Intake submissions appear in owner's table in real time
 - FR28: Epic 6 — Admin email notification on new intake (Resend)
 - FR29: Epic 7 — 14-day free trial, no payment info
-- FR30: Epic 7 — Start usage-based subscription via Stripe Checkout
+- FR30: Epic 7 — Start flat-tier subscription (fixed price per tier) via Stripe Checkout
 - FR31: Epic 7 — Manage subscription via Stripe Customer Portal
 - FR32: Epic 7 — Read-only mode on trial expiry / subscription lapse
 - FR33: Epic 7 — Trial billing email reminders (Day 12, 14)
@@ -308,9 +327,9 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 - FR50: Epic 4 — Edit proposed mapping before confirming
 - FR51: Epic 4 — Flag unmappable columns; require resolution before import
 - FR52: Epic 4 — Replace synthetic data with imported data, no data loss
-- FR53: Epic 7 — Meter active records per cycle, report to billing provider
-- FR54: Epic 7 — Admin views current usage vs included allotment
-- FR55: Epic 7 — Optional monthly spend cap pauses new-record creation
+- FR53: Epic 7 — Assign a flat subscription tier; bill a fixed monthly fee via Stripe
+- FR54: Epic 7 — Admin views current tier, what it includes, and next billing date
+- FR55: Epic 7 — Tier-change prompt when invoicing volume (invoices/cycle) sustainably exceeds the tier band (no overage metering)
 - FR70: Epic 1 — Generation links core tables (Job→Client, Invoice→Job)
 - FR71: Epic 3 — Add relationship (lookup) field, single reference
 - FR72: Epic 3 — Searchable server-side picker over the referenced table
@@ -320,6 +339,20 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 - FR76: Epic 3 — Delete guard: warn with count, soft-delete, archived display
 - FR77: Epic 3 — Reverse related list on a record
 - FR78: Epic 6 — Relationship fields excluded from public intake forms
+- FR82: Epic 12 — Create invoice from a work record or standalone (fixed compliant module)
+- FR83: Epic 12 — Reusable Business Profile; one clean template rendered from it
+- FR84: Epic 12 — Ontario HST as a separate line at place-of-supply rate; no tax when unregistered
+- FR85: Epic 12 — Legal + operating name and GST/HST number on every taxed invoice
+- FR86: Epic 12 — Unique per-org number, identity snapshot, immutable once issued
+- FR87: Epic 12 — Issuance-blocking `assertIssuable` compliance gate (plain-language reasons)
+- FR88: Epic 12 — Corrections only via a linked credit note in its own sequence
+- FR89: Epic 12 — Invoice stored as data; PDF frozen to storage; six-year retention
+- FR90: Epic 12 — Structured Payment Instructions block on every invoice
+- FR91: Epic 12 — Mark as Paid (method/date/amount/reference); no money processed
+- FR92: Epic 12 — Invoices tab defaults to a schema-independent Unpaid/Overdue view
+- FR93: Epic 12 — Send PDF from the owner's own device via native share; SMS unguessable link
+- FR94: Epic 12 — Desktop send via Resend (reply-to owner) + Download PDF + Copy Link
+- FR95: Epic 12 — Language/tax from customer province; Ontario now, Quebec-ready seam
 
 **Growth (post-$1K MRR)**
 
@@ -357,7 +390,7 @@ Stand up the platform and deliver Scheza's core value proposition end-to-end: an
 >
 > **Cheap-now seams landed here (retrofit-avoidance, mirroring the NFR-FC philosophy):**
 > - **i18n seam:** wire `next-intl` and enforce the no-hardcoded-strings rule from the very first component. **FR35 (French synthetic data at generation) lives in this epic** — the generation pipeline detects the prompt's language so Sarah's French-prompt aha moment is French from second one. Epic 8 then adds the EN/FR *UI toggle* (FR34) and the translation catalog.
-> - **Metering seam:** bake the **"active record" billable-unit definition** into the `records` data model now. Epic 7 then adds only the Stripe integration, the Vercel Cron reporting/reconciliation jobs, and the live meter UI.
+> - **Value/usage signals (not a billing meter):** the data model supports two internal, non-billed signals. **(a) Tier signal** = invoicing volume (invoices issued per cycle), counted from the *fixed* Invoicing module so it is uniform across tenants — it drives only the tier-change prompt (FR55, Epic 7). **(b) Value/retention metric** = records under management (live rows the business keeps in Scheza). Neither is billed — flat tiers bill a fixed price per plan. Rich per-event usage tracking is the Growth activity log (FR56, Epic 10), not MVP.
 
 ### Epic 2: Claim, Accounts & Team Access
 Turn a demo into a committed customer. A visitor claims their generated app via passwordless magic link, agrees to a mandatory privacy consent (PIPEDA), and gets a live, isolated organization at `scheza.com/{slug}` with synthetic data cleared. The account creator becomes Admin; they can invite teammates by email and assign the Admin or Member role, with Member permissions enforced both in the UI and independently at the API. Delivers the complete authentication, org-provisioning, and RBAC domain.
@@ -390,8 +423,8 @@ Lead capture with zero extra tooling. Every claimed dashboard auto-generates a p
 **FRs covered:** FR25, FR26, FR27, FR28, FR78
 **NFRs woven in:** NFR-A2, NFR-A4, NFR-P5
 
-### Epic 7: Billing, Trials & Usage Metering
-Monetization on Stripe-hosted surfaces only. A 14-day no-card trial, usage-based subscription (base + metered overage) via Stripe Checkout, self-serve management via Customer Portal, and read-only gating on lapse driven by `subscription_status` as the cached source of truth. Includes the Vercel Cron usage-reporting + reconciliation jobs (AR10, NFR-R5), the live in-app usage meter, and the optional spend cap.
+### Epic 7: Billing, Trials & Flat Tiers
+Monetization on Stripe-hosted surfaces only. A 14-day no-card trial, a **flat all-inclusive subscription** (fixed monthly price per tier: Solo/Crew/Shop) via Stripe Checkout, self-serve management via Customer Portal, and read-only gating on lapse driven by `subscription_status` as the cached source of truth. `subscription_tier` is the billed plan; **no metering, no usage reporting, no spend cap** — invoicing volume (invoices issued per cycle) only drives a tier-change prompt. A per-cycle Vercel Cron reconciles the Stripe tier against `subscription_tier` (NFR-R5). *(Reconciled 2026-09-27: flat tiers replaced usage-based metering.)*
 **FRs covered:** FR29, FR30, FR31, FR32, FR33, FR53, FR54, FR55
 **NFRs woven in:** NFR-R4, NFR-R5
 
@@ -416,6 +449,16 @@ The Ontario-specific trust and reach layer, plus PIPEDA lifecycle obligations. I
 *Gated on proven week-4 retention ≥30% and month-over-month records-under-management growth across ≥2 cohorts. Documented direction, not a build.* A per-tenant operator that proposes → executes-on-approval → graduates to autonomy per action-type, reports on the owner's channel, is organized as named roles, and acts through allowlisted connected external tools — all on the Epic 10 substrate via the NFR-FC seams.
 **FRs covered:** FR62, FR63, FR64, FR65, FR66, FR67, FR68, FR69
 **NFRs woven in:** NFR-FC1–FC4 (fully realized)
+
+### Epic 12: Invoicing, Payments & Delivery *(MVP — the revenue heart; PRD Build Priority 4b)*
+> **Numbered 12 to preserve existing epic IDs, but it is MVP and sequenced in build order right after Epic 4 (Core Data + Import).** It depends only on Epics 1–3 (the `records`/`org_schemas` model, the guarded `mutate.ts` layer, real claimed accounts) and the Resend integration from infra — never on Epics 5–11.
+
+The product's revenue heart: turn finished work into a sent, compliant invoice and a tracked payment. Unlike the AI-generated operational workspace, invoicing is a **fixed, compliant module identical for every tenant**, living in **dedicated typed platform tables** (`business_profiles`, `invoices`, `invoice_line_items`, `invoice_tax_lines`, `credit_notes` + child tables, `invoice_payments`) — not the JSONB record store — because compliance (correct HST, mandatory legal identity, immutable issued documents, per-org numbering) needs real constraints. Capture a reusable Business Profile, draft an invoice from a work record or standalone, compute Ontario HST as a separate line, issue it through a validation gate that mints a gap-free per-org number and freezes an in-house-rendered PDF (`@react-pdf/renderer`) to private storage, deliver it PDF-first from the owner's own phone/inbox, track payment out-of-band, and correct only via credit notes. Payment *processing* (Stripe Connect), Interac auto-reconcile, WhatsApp Business API, and owner-inbox integration are Phase 3. Binds the architecture's Consistency Invariants I1–I8.
+**FRs covered:** FR82, FR83, FR84, FR85, FR86, FR87, FR88, FR89, FR90, FR91, FR92, FR93, FR94, FR95
+**NFRs woven in:** NFR-FC1 (guarded writes), NFR-S1/S2 (TLS/at-rest for the public PDF surface), NFR-A2/A4 (accessible invoice UI), plus the PIPEDA six-year-retention override on offboarding
+**Architecture refs:** §Invoicing, Payments & Delivery — Consistency Invariants I1 (numbering), I2 (totals), I3 (HST/registration date), I4 (share_token), I5 (storage/proxy), I6 (snapshots), I7 (immutability trigger), I8 (one render path)
+
+> **🚦 Hard release gate:** an Ontario lawyer and a CPA must review the invoice templates, HST logic, and terms **before invoicing is enabled in production**. Product copy must never claim every invoice is legally compliant — only that it carries the configured compliance information. All invoice email is strictly transactional (CASL).
 
 ---
 
@@ -459,7 +502,7 @@ So that the full provisioning-and-isolation pipeline is validated before any LLM
 **Given** a Supabase CLI migration
 **When** the platform schema is applied
 **Then** it creates `organizations`, `org_members` (with `principal_type` `human | agent`), `records (id, organization_id, table_key, data JSONB, actor_id, version, created_at, updated_at, deleted_at)`, and `org_schemas (organization_id, definition JSONB)` — with **no per-tenant physical tables and no runtime DDL** (AR3, AR6)
-**And** an "active record" is explicitly defined in the model (the billable unit — non-deleted rows counted per cycle) so metering can be computed without a later migration (metering seam)
+**And** invoicing volume (invoices issued per cycle) is countable from the fixed Invoicing module as the internal signal for flat-tier placement / the tier-change prompt (FR55), and records-under-management is countable as the value/retention metric — **neither** is a billing meter (flat tiers carry no metered overage)
 
 **Given** the `records` table
 **When** the RLS policy is created
@@ -1265,11 +1308,13 @@ So that an anonymous submitter can never browse or pick from my client list (PIP
 
 ---
 
-## Epic 7: Billing, Trials & Usage Metering
+## Epic 7: Billing, Trials & Flat Tiers
 
-Monetization on Stripe-hosted surfaces only. A 14-day no-card trial, usage-based subscription (base + metered overage) via Stripe Checkout, self-serve management via Customer Portal, and read-only gating on lapse driven by `subscription_status` as the cached source of truth. Includes the Vercel Cron usage-reporting + reconciliation jobs, the live in-app usage meter, and the optional spend cap. Depends only on Epics 1–3.
+Monetization on Stripe-hosted surfaces only. A 14-day no-card trial, a **flat all-inclusive subscription** (a fixed monthly price per tier: Solo/Crew/Shop) via Stripe Checkout, self-serve management via Customer Portal, and read-only gating on lapse driven by `subscription_status` as the cached source of truth. `subscription_tier` on the org record is the billed plan; there is **no metering, no usage reporting, and no spend cap** — invoicing volume (invoices issued per cycle, counted from the fixed Invoicing module) only drives a *tier-change prompt*. A per-cycle Vercel Cron reconciles the Stripe tier against `subscription_tier` (NFR-R5). Depends only on Epics 1–3.
 
-*(Covers FR29, FR30, FR31, FR32, FR33, FR53, FR54, FR55. NFRs woven in: NFR-R4, NFR-R5. AR: AR10.)*
+*(Reconciled 2026-09-27: flat tiers replaced the earlier usage-based metering — predictability is the product promise for this buyer, and metering perversely penalized the import-everything behaviour Scheza wants.)*
+
+*(Covers FR29, FR30, FR31, FR32, FR33, FR53, FR54, FR55. NFRs woven in: NFR-R4, NFR-R5.)*
 
 ### Story 7.1: 14-Day Free Trial (No Card)
 
@@ -1287,22 +1332,22 @@ So that I can migrate my whole operation before deciding to pay.
 **When** the user works in it
 **Then** records and team members are unlimited during the trial (to maximize import and switching cost), and the trial state is the single source of truth for access
 
-### Story 7.2: Start a Usage-Based Subscription via Stripe Checkout
+### Story 7.2: Start a Flat-Tier Subscription via Stripe Checkout
 
 As an Admin,
-I want to add billing through a secure hosted checkout,
-So that my business keeps running after the trial.
+I want to add billing through a secure hosted checkout at a predictable flat price,
+So that my business keeps running after the trial with no surprise bill.
 
 **Acceptance Criteria:**
 
 **Given** an Admin
 **When** they tap "Add Billing"
-**Then** they are redirected to a Stripe Checkout session for a subscription with a flat base price plus a metered usage component (`STRIPE_METERED_PRICE_ID`), with no custom billing UI built (FR30)
+**Then** they are redirected to a Stripe Checkout session for a subscription at a **fixed monthly price for their tier** (Solo/Crew/Shop via `STRIPE_PRICE_SOLO`/`_CREW`/`_SHOP`) with **no metered usage component**, and no custom billing UI is built (FR30, FR53)
 **And** the redirect button shows a disabled "Redirecting…" state during the handoff
 
 **Given** a completed checkout
 **When** Stripe fires `checkout.session.completed`
-**Then** a signature-verified webhook (`stripe.webhooks.constructEvent`) updates `subscription_status` to `active` on the org's Supabase record (FR30)
+**Then** a signature-verified webhook (`stripe.webhooks.constructEvent`) sets `subscription_status = active` and records the purchased `subscription_tier` on the org's Supabase record (FR30, FR53)
 
 **Given** a webhook with an invalid signature
 **When** it is received
@@ -1318,7 +1363,7 @@ So that I can update my card, see invoices, or cancel without contacting support
 
 **Given** an Admin with an active subscription
 **When** they open "Billing" in Settings
-**Then** they are redirected to the Stripe Customer Portal where they can update payment method, view invoice history with usage breakdown, and cancel — all on Stripe-hosted surfaces (FR31)
+**Then** they are redirected to the Stripe Customer Portal where they can update payment method, view invoice history, and cancel anytime (no contract) — all on Stripe-hosted surfaces (FR31)
 
 **Given** a change made in the Portal (e.g., cancellation)
 **When** Stripe fires the corresponding webhook (`customer.subscription.deleted`, `invoice.payment_failed`, `invoice.paid`)
@@ -1344,45 +1389,29 @@ So that lapses are graceful and users are prompted to convert.
 **When** a user accesses their dashboard
 **Then** access is governed by the cached `subscription_status` in Supabase (fallback source of truth), so billing-provider downtime never locks a paying user out (NFR-R4)
 
-### Story 7.5: Active-Record Usage Metering & Reporting
-
-As the platform,
-I want to meter each org's active records per cycle and report them to Stripe accurately,
-So that usage-based billing is correct and trustworthy.
-
-**Acceptance Criteria:**
-
-**Given** a scheduled Vercel Cron job (declared in `vercel.json`, hitting a `CRON_SECRET`-protected `/api/cron/*` route)
-**When** it runs each cycle
-**Then** it computes the active-record count per organization (non-deleted rows, per the billable-unit definition from Story 1.2) and posts it to Stripe as usage against the metered price (FR53, AR10)
-
-**Given** a separate reconciliation Cron job
-**When** it runs
-**Then** the usage counts reported to Stripe reconcile with the database record count within a 1% tolerance per cycle, and any drift beyond tolerance is flagged (NFR-R5)
-
-**Given** an unauthenticated request to a cron route
-**When** it arrives without the valid `CRON_SECRET`
-**Then** it is rejected
-
-### Story 7.6: Live Usage Meter & Optional Spend Cap
+### Story 7.5: Tier View, Tier-Change Prompt & Tier Reconciliation
 
 As an Admin,
-I want to see my usage in real time and optionally cap my spend,
-So that I never get a surprise bill.
+I want to see exactly what my flat plan includes and be prompted (not auto-charged) when I outgrow it,
+So that my bill is always predictable and I stay on the right plan.
 
 **Acceptance Criteria:**
 
 **Given** an Admin
-**When** they view billing/usage
-**Then** they see their current active-record usage against the included allotment at any time (the live meter) (FR54)
+**When** they view billing
+**Then** they see their current tier, everything it includes (unlimited team members, customers, historical records, and import — no per-seat or per-record charge), and their next billing date — with **no usage meter and no spend cap** (FR54)
 
-**Given** an Admin who sets an optional monthly spend cap
-**When** usage would exceed the cap
-**Then** new-record creation is paused (rather than silently accruing further charges), with a clear translated message, until the next cycle or the cap is raised (FR55)
+**Given** an account whose invoicing volume (invoices issued per cycle) sustainably exceeds its current tier band
+**When** the platform evaluates tier placement
+**Then** the Admin is shown a **tier-change prompt** to move up a plan, rather than any overage being silently metered or charged (FR55)
 
-**Given** an account within its allotment and cap
-**When** records are created
-**Then** normal creation proceeds with the live meter reflecting current usage
+**Given** a per-cycle Vercel Cron reconciliation job (declared in `vercel.json`, hitting a `CRON_SECRET`-protected `/api/cron/reconcile-tier` route)
+**When** it runs
+**Then** the subscription tier held in Stripe is compared against `subscription_tier` in Supabase, and any drift is paged (Sentry) before it can affect access (NFR-R5)
+
+**Given** an unauthenticated request to the cron route
+**When** it arrives without the valid `CRON_SECRET`
+**Then** it is rejected
 
 ---
 
@@ -1491,3 +1520,201 @@ So that I can recover or export before anything is lost.
 **Given** an account that reaches Day 30 of the grace period
 **When** the offboarding job runs
 **Then** a hard cascade delete removes all of the organization's records and schema (a narrow, allowlisted offboarding operation — the only such use of elevated privileges), and the deletion is irreversible after completion (FR38)
+
+---
+
+## Epic 12: Invoicing, Payments & Delivery
+
+Turn finished work into money. Invoicing is the one **fixed, compliant module** in an otherwise AI-generated product: it lives in **dedicated typed platform tables** (not the JSONB record store) so it can guarantee correct HST, mandatory legal identity, gap-free per-org numbering, and true immutability. Capture a Business Profile once, draft an invoice from a work record or standalone, compute Ontario HST as a separate line, issue it through a validation gate that mints a gap-free number and freezes an in-house-rendered PDF to private storage, deliver it PDF-first from the owner's own phone/inbox, track payment out-of-band, and correct only via credit notes. Depends only on Epics 1–3 (the `records`/`org_schemas` model, the guarded `mutate.ts` layer, real claimed accounts) and Resend — sequenced in build order right after Epic 4. Payment *processing* (Stripe Connect), Interac auto-reconcile, WhatsApp Business API, and owner-inbox integration are Phase 3.
+
+*(Covers FR82–FR95. NFRs woven in: NFR-FC1 (guarded writes), NFR-S1/S2 (TLS + at-rest on the public PDF surface), NFR-A2/A4 (accessible invoice UI), and the PIPEDA six-year-retention override on offboarding. Architecture: §Invoicing, Payments & Delivery, binding Consistency Invariants I1–I8.)*
+
+> **🚦 Hard release gate:** an Ontario lawyer and a CPA must review the invoice templates, HST logic, and terms **before invoicing is enabled in production**. Product copy must never claim every invoice is legally compliant — only that it carries the configured compliance information.
+
+### Story 12.1: Business Profile — Capture Company Identity Once
+
+As an Admin,
+I want to enter my business identity and payment details once,
+So that every invoice is compliant and shows how to pay me, without re-typing it each time.
+
+**Acceptance Criteria:**
+
+**Given** an Admin in Settings
+**When** they open Business Profile
+**Then** they can capture legal name, operating name, entity type, jurisdiction, GST/HST number and registration effective date, logo, addresses, payment terms, and default invoice language, stored in `business_profiles` keyed by `organization_id` (FR83)
+
+**Given** a saved Business Profile
+**When** an invoice that charges tax renders
+**Then** it shows the legal name together with the operating name and the GST/HST registration number (FR85)
+
+**Given** the Business Profile
+**When** the Admin enters payment details
+**Then** a structured Payment Instructions block is captured — e-transfer email, cheque payable-to and mailing address, and an optional owner-provided card-payment link as free text (FR90)
+
+**Given** identity capture
+**When** it drives rendering
+**Then** it produces one clean, full-detail template — this is identity capture, not a template designer (FR83)
+
+### Story 12.2: Draft an Invoice (from a Work Record or Standalone)
+
+As an Admin,
+I want to create an invoice from a completed job or from scratch,
+So that I can bill a customer for labour and parts.
+
+**Acceptance Criteria:**
+
+**Given** an Admin
+**When** they create an invoice from an existing work record
+**Then** customer and line items are pre-filled via a loose link (`customer_record_id` into `records`), and the invoice can equally be created standalone (FR82)
+
+**Given** a draft invoice
+**When** line items are added
+**Then** each carries description, quantity, and unit price in `invoice_line_items`, and the invoice is stored with `status = draft` (FR82)
+
+**Given** a draft created from a record
+**When** it is saved
+**Then** the customer's province is stored on the invoice as `place_of_supply_province`, and **no supplier/customer snapshot is frozen yet** — snapshots are populated only at issue (FR95, Invariant I6)
+
+**Given** the loose customer link
+**When** a tenant's generated schema differs from another's
+**Then** invoice creation still works regardless of how that workspace was generated (FR82)
+
+### Story 12.3: Totals & Ontario HST (Place of Supply)
+
+As an Admin,
+I want HST calculated correctly and shown as its own line,
+So that my invoices are tax-compliant.
+
+**Acceptance Criteria:**
+
+**Given** a draft with line items
+**When** totals are computed
+**Then** a single canonical function (`lib/invoicing/tax.ts`) computes line `amount = round(quantity × unit_price, 2)`, `subtotal = Σ line amounts`, and `total = subtotal + tax_total`, and the stored `invoices` columns are written only from that function's output (Invariant I2)
+
+**Given** a GST/HST-registered business supplying in Ontario
+**When** tax is applied
+**Then** HST is `round(subtotal × rate, 2)` computed once on the subtotal and shown as **one separate** tax line in `invoice_tax_lines` — never split into federal/provincial components (FR84, Invariant I3)
+
+**Given** a business not GST/HST-registered, or whose `gst_hst_effective_date` is after the invoice `issue_date`
+**When** an invoice is prepared
+**Then** no tax is labelled or calculated, using the single shared predicate `gst_hst_effective_date <= issue_date` that both `tax.ts` and `validate.ts` import (FR84, Invariant I3)
+
+**Given** a customer in Quebec
+**When** the province seam is considered
+**Then** province and language are already stored so a Quebec invoice (French, GST + QST on separate lines, QST number) can be enabled later with no re-architecture — Ontario/English is the only active path in MVP (FR95)
+
+### Story 12.4: Issue an Invoice — Validate, Number, Freeze Identity, Lock
+
+As an Admin,
+I want issuing an invoice to be a deliberate, validated, irreversible step,
+So that what I send is compliant and can never be quietly altered.
+
+**Acceptance Criteria:**
+
+**Given** a draft invoice
+**When** the Admin issues it
+**Then** `assertIssuable()` runs first and **blocks** issuance with a plain-language reason if legal identity is missing, tax is charged without a valid registration, HST is split into components, or totals do not reconcile (reusing the same tax function as Invariant I2) (FR87)
+
+**Given** a validated invoice
+**When** it is issued
+**Then** a gap-free `invoice_number` is allocated from a **per-org sequence inside the same transaction** that flips status to `issued`; numbers are never reused and a later void leaves a permanent gap (FR86, Invariant I1)
+
+**Given** the issue transaction
+**When** it commits
+**Then** `supplier_snapshot` and `customer_snapshot` are frozen onto the invoice, so the finalized document is stable even if the live business/customer records later change (FR86, Invariant I6)
+
+**Given** an issued invoice
+**When** any actor attempts to modify it
+**Then** a Postgres trigger permits only the whitelisted transitions (`issued→paid`, `issued→void`, `issued/paid→overdue`), freezes every other column plus the child line/tax rows, and corrections are possible only via a credit note (FR86, FR88, Invariant I7)
+
+### Story 12.5: Render & Freeze the Invoice PDF
+
+As an Admin,
+I want a clean PDF of each issued invoice stored permanently,
+So that I have an exact record of what the customer received for the legally required retention period.
+
+**Acceptance Criteria:**
+
+**Given** an invoice being issued
+**When** the PDF is produced
+**Then** it is rendered in-house with `@react-pdf/renderer` from the invoice data (one render path shared with credit notes) and a copy is frozen to a private Supabase Storage bucket, with the bucket-relative object key stored in `pdf_path` (FR89, Invariants I5, I8)
+
+**Given** a frozen PDF
+**When** it is stored
+**Then** a high-entropy `share_token` (128-bit, base62url) is minted once and stored on the invoice, never rotated on re-send (Invariant I4)
+
+**Given** issued invoices and their PDFs
+**When** retention is considered
+**Then** structured invoice data and every rendered PDF are retained for at least six years (FR89)
+
+**Given** account offboarding
+**When** the cascade delete runs
+**Then** invoices, credit notes, payments, and their frozen PDFs under the six-year obligation are **excluded** from deletion — statutory retention overrides the 30-day PIPEDA cascade
+
+### Story 12.6: Deliver the Invoice (Owner's Own Channels)
+
+As an Admin,
+I want to send the invoice PDF from my own phone or email,
+So that it arrives from a number or address my customer recognizes.
+
+**Acceptance Criteria:**
+
+**Given** an issued invoice on mobile
+**When** the Admin taps Share
+**Then** the phone's native Web Share sheet sends the frozen PDF through the owner's own WhatsApp / Messages / email — no WhatsApp Business API, no cost, no customer login (FR93)
+
+**Given** the SMS path, which cannot attach a PDF
+**When** the Admin shares by text
+**Then** the message carries an unguessable link `GET /i/[token]` that streams the same PDF via a server proxy (never a redirect to a signed storage URL), is non-enumerable, and returns 404/410 once the invoice is void (FR93, Invariants I4, I5)
+
+**Given** an issued invoice on desktop
+**When** the Admin sends it
+**Then** Scheza emails the invoice with the PDF attached via Resend with **reply-to the owner's address**, and also offers Download PDF and Copy Link (FR94)
+
+**Given** any invoice email
+**When** it is sent
+**Then** it is strictly transactional (CASL) — no marketing content on the send path
+
+### Story 12.7: Track Payment Out-of-Band (No Processing)
+
+As an Admin,
+I want to see who owes me and mark invoices paid,
+So that I manage cash flow without Scheza touching the money.
+
+**Acceptance Criteria:**
+
+**Given** an issued invoice
+**When** it is viewed or delivered
+**Then** it carries the structured Payment Instructions block from the Business Profile — e-transfer, cheque, and the owner's optional card link (FR90)
+
+**Given** a payment received outside Scheza
+**When** the Admin marks the invoice paid
+**Then** method, date, amount, and reference are recorded in `invoice_payments` and status becomes `paid`; **no money is processed or held by Scheza** (FR91)
+
+**Given** the Invoices tab
+**When** it loads
+**Then** it defaults to an Unpaid / Overdue view derived from `status` + `due_date`, working uniformly across all tenants regardless of generated schema (FR92)
+
+**Given** `invoice_payments`
+**When** a payment record is added or corrected
+**Then** it remains freely mutable even though the parent invoice is immutable (Invariant I7)
+
+### Story 12.8: Correct an Issued Invoice via Credit Note
+
+As an Admin,
+I want to correct a mistake on a sent invoice without editing it,
+So that my records stay audit-clean and compliant.
+
+**Acceptance Criteria:**
+
+**Given** an issued invoice that needs correcting
+**When** the Admin creates a credit note
+**Then** it is stored in `credit_notes` with a credit-note number from its **own independent per-org sequence** (disjoint from invoice numbers), linked to the original invoice (FR88, Invariant I1)
+
+**Given** a credit note
+**When** its lines are captured
+**Then** they use the same child-table shape as invoices (`credit_note_line_items` / `credit_note_tax_lines`) so the one PDF render path serves both (Invariant I8)
+
+**Given** a credit note is finalized
+**When** it is issued
+**Then** it renders and freezes a PDF like an invoice and is itself immutable; the original issued invoice is never edited (FR88)

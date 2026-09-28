@@ -36,7 +36,11 @@
 #
 # SPRINT SEQUENCE NOTE:
 # =====================
-# Epic numbering already encodes dependency/priority order — implement 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8.
+# Epic numbering encodes dependency/priority order for Epics 1-8. Epic 12 is the EXCEPTION:
+#   it is numbered 12 to preserve stable IDs, but it is MVP (PRD Build Priority 4b) and builds
+#   EARLY, not last. BUILD ORDER (1-3 done): 4 (Import) -> 12 (Invoicing, the revenue heart)
+#   -> 7 (flat-tier billing, low effort) -> 5 (Editor) / 6 (Intake) / 8 (Localization/PWA/Compliance).
+#   Epics 9/10/11 stay deferred (Growth/Vision). Do NOT read Epic 12's numeric position as "build last."
 # Epic 2 (Claim/Accounts/Auth) precedes Epic 3 (Core Data) by design.
 # Epic 1 uses a WALKING-SKELETON order: Story 1.1 (scaffold) → 1.2 (data model + live-table proof)
 #   must land first; LLM/fallback/dashboard/explainability layer on that proven spine.
@@ -49,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: 09-27-2026 14:25
+last_updated: 09-27-2026 15:30
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -57,7 +61,7 @@ story_location: _bmad-output/implementation-artifacts
 
 development_status:
   # ── Epic 1: Foundation & the Generative "Aha" Moment ─────────────────────
-  epic-1: in-progress
+  epic-1: done
   1-1-project-scaffold-toolchain: done
   1-2-platform-data-model-tenant-isolation-walking-skeleton: done
   1-3-guided-mad-libs-prompt-intake: done
@@ -114,11 +118,10 @@ development_status:
 
   epic-7: backlog
   7-1-14-day-free-trial-no-card: backlog
-  7-2-start-a-usage-based-subscription-via-stripe-checkout: backlog
+  7-2-start-a-flat-tier-subscription-via-stripe-checkout: backlog
   7-3-manage-subscription-via-stripe-customer-portal: backlog
   7-4-read-only-gating-trial-reminders: backlog
-  7-5-active-record-usage-metering-reporting: backlog
-  7-6-live-usage-meter-optional-spend-cap: backlog
+  7-5-tier-view-tier-change-prompt-tier-reconciliation: backlog
   epic-7-retrospective: optional
 
   epic-8: backlog
@@ -137,6 +140,17 @@ development_status:
 
   epic-11: backlog
   epic-11-retrospective: optional
+
+  epic-12: backlog
+  12-1-business-profile-capture-company-identity-once: backlog
+  12-2-draft-an-invoice-from-a-work-record-or-standalone: backlog
+  12-3-totals-ontario-hst-place-of-supply: backlog
+  12-4-issue-an-invoice-validate-number-freeze-identity-lock: backlog
+  12-5-render-freeze-the-invoice-pdf: backlog
+  12-6-deliver-the-invoice-owner-s-own-channels: backlog
+  12-7-track-payment-out-of-band-no-processing: backlog
+  12-8-correct-an-issued-invoice-via-credit-note: backlog
+  epic-12-retrospective: optional
 action_items:
   - id: "epic-1-retro-item-1-reconcile-the-gemini-model-in-architectu"
     epic: 1

@@ -29,8 +29,10 @@ classification:
   domain: general
   complexity: medium
   projectContext: brownfield
-lastEdited: '2026-09-26'
+lastEdited: '2026-09-27'
 editHistory:
+  - date: '2026-09-27'
+    changes: 'Invoice-to-cash pivot validated 2026-09-27 with Boris against new inputs (Voice-of-Customer Tim, Customer Persona and Buying-Behaviour, Canada Invoice Compliance Guide). Added Invoicing, Payments and Delivery as a first-class MVP capability implemented as a STANDARD compliant module (its own Invoices tab), NOT an AI-generated table: general service invoice covering short-cycle service trades (HVAC, plumbing, electrical, appliance repair, handyman), full-detail Ontario HST, legal and operating name plus GST/HST number, one clean template (identity capture not design), invoice-as-data plus a frozen PDF per sent invoice for six-year retention, immutable once issued with credit-note corrections and issuance validation. Payments stay OUT-OF-BAND at MVP (no processor, no holds): a payment-instructions block (e-transfer, cheque, owner-pasted card link), Mark-as-Paid reconciliation, and the Invoices tab defaulting to an Unpaid/Overdue view (the schema-dependent completed-not-invoiced idea was dropped). Delivery is PDF-first from the owner own phone via native share (WhatsApp, SMS, email) plus desktop send via Resend with reply-to the owner and download/copy fallback; the SMS path uses an unguessable secure link to the same PDF. Stripe Connect, integrated card processing, Interac auto-reconcile, automated WhatsApp Business API sending, and Gmail/Outlook account integration all moved to Phase 3. PRICING flipped from usage-based active-records metering to flat all-inclusive tiers (Solo/Crew/Shop; unlimited users, customers, and history; no per-seat, per-record, or contract; active jobs decides tier placement only; records retained as an internal value metric, not a billing base). Beachhead set to general short-cycle service trades (HVAC, plumbing, electrical, mechanical, appliance repair, cleaning, handyman) which share one general service invoice; HVAC and plumbing are the initial marketing wedge, not a product limit. Auto repair, construction/renovation, and recurring/seasonal-contract trades are deferred for differing billing/compliance. Added an Ontario-now / Quebec-later tax and language seam (store customer province; a Quebec invoice needs French plus GST 5% and QST 9.975% on separate lines plus a QST number, deferred to the Ottawa expansion with legal review; French invoices prioritized over a full French UI). Added a lawyer and CPA review as an invoicing ship-gate, plus product-promise-precision and CASL transactional-email constraints. Deferred: construction/holdback/progress billing, multi-province tax, full French UI. Left unchanged per Boris: Canadian-residency positioning, hide-the-tech messaging, and assisted/done-for-you import (import stays self-serve AI column mapping).'
   - date: '2026-09-26'
     changes: 'Added Relationship/Lookup Fields capability (Salesforce-style cross-table references), reversing the prior implicit exclusion (architecture AR7). Split across phases: MVP "Relationships & Lookups" group FR70-FR78 (generation links core tables, single-reference lookup fields, searchable picker, resolved labels in views, filter/sort by reference, display-field per table, warn-then-soft-delete guard, reverse related lists, excluded from public forms); Growth advanced FR79-FR81 (multi-select, chat-created relations via Conversational Editor, CSV import matching). Amended FR2 (relationships in generated schema) and FR46 (relationship explainability); added NFR-P9 (picker/related-list performance) and NFR-S7 (Schema Validator relation acceptance); added a validator-surface risk row; inserted core relationships into Build Priority (item 4, MVP) and advanced (item 11, Growth); added an open question on MVP import->relationship population. FR IDs are stable/non-contiguous by design.'
   - date: '2026-09-19'
@@ -56,7 +58,7 @@ Scheza is deliberately **not** positioned as a no-code database builder. That fr
 
 That compounding thesis has a natural endgame, and it defines Scheza's arc across three verbs: **AI builds → AI suggests → AI runs.** In the MVP the AI *builds* the system — schema, data, dashboard — in under a minute. In the Growth phase it *suggests* how the business should run, watching for what falls through the cracks. The endpoint is an AI that *runs* the business inside the system: an always-on, per-tenant operator — a digital employee — that executes routine operational work autonomously and reports back on the owner's channel of choice. This is deferred to a gated **Phase 3** (see *Project Scoping*), not the MVP. But every phase before it exists to accumulate the proprietary data, embedded workflow, and earned trust a digital employee needs to run one specific business. Naming the endgame now keeps the earlier phases pointed at it — and keeps Scheza on the right side of the AI-driven collapse of seat-based SaaS, as the system that *does* the work rather than the one that gets automated away.
 
-Target market: Ontario SMEs, 1–15 employees, in skilled trades and local services. Initial go-to-market targets the Greater Toronto Area and Ottawa-Gatineau corridor. Pricing is **usage-based**: a low monthly base fee (~$29) plus metered overage on active records managed — jobs, invoices, and customers tracked per cycle — over a generous included allotment sized to cover a typical trades account. A 14-day free trial is triggered at account claim. (See *Pricing & Metering* for the metering model and the pure-usage-vs-hybrid open question.)
+Target market: Ontario SMEs, 1–15 employees, in **general short-cycle service trades** (HVAC, plumbing, electrical, mechanical, appliance repair, cleaning, handyman, and similar), which all share the same job-to-invoice workflow and the same general service invoice, so the product serves all of them from day one at no added compliance cost. Initial go-to-market is the Greater Toronto Area, with HVAC and plumbing as the initial marketing wedge (sharpest, best-validated pain), not a product limit; Ottawa-Gatineau and further trades follow. Construction/renovation, recurring/seasonal-contract trades, and auto repair are deferred because their billing and compliance genuinely differ (see Phase 2 & Explicitly Out of Scope). Pricing is a **flat, all-inclusive monthly plan** (tiered by business size; unlimited users, customers, and history; no per-seat, per-record, or contract). A 14-day free trial is triggered at account claim. (See *Pricing & Metering*.)
 
 ### What Makes This Special
 
@@ -73,7 +75,7 @@ Four rules derived from market research. Every feature and scope decision is che
 1. **Value compounds, it does not front-load.** The 30-second generation is the hook, not the product. Scheza must be more useful in month six than in minute one, because the business's own accumulated data and patterns live inside it. The endpoint of that compounding is an autonomous operator that can run the business *because* it has learned it — the arc from *AI builds* to *AI suggests* to *AI runs* (see Executive Summary and Project Scoping Phase 3).
 2. **Redesign the workflow, don't automate the step.** Scheza proposes how the work should be organized, then runs it — rather than bolting automation onto an existing broken process.
 3. **Explainable by default.** Every AI-generated field, table, or suggestion carries a plain-language reason and a one-click override. Adoption stalls on trust, not capability — and this user is wary of losing control.
-4. **Charge for value delivered, not seats occupied.** Pricing meters the records a business actually manages, not logins — the model best fit to a 1–3 person trades operation and most resilient to AI-driven disruption of seat-based SaaS.
+4. **Charge for value delivered, not seats occupied.** Pricing is a flat, all-inclusive monthly plan sized to the business, not a per-seat or per-login charge, the model best fit to a 1–15 person trades operation and most resilient to AI-driven disruption of seat-based SaaS. (Flat tiers replaced the earlier usage-based record metering on 2026-09-27; predictability is the product for this buyer. See Pricing & Metering.)
 
 ### Project Classification
 
@@ -104,15 +106,15 @@ The team-invite milestone is the key stickiness signal: single-player mode is a 
 ### Business Success
 
 **3-Month Milestone — Stranger Validation**
-- ~$1,000 MRR (customer count is ARPA-dependent under usage pricing — approximately 20–30 paying businesses at a blended ~$35–50/month)
+- ~$1,000 MRR (approximately 20–30 paying businesses across the flat tiers at a blended ~$35–50/month)
 - 500 total generated demo apps (measures top-of-funnel engagement and prompt virality)
 
 Rationale: paying strangers — not friends, not beta testers — who pulled out a credit card after experiencing the synthetic-data moment and importing their real data proves the core value proposition is real and transferable without a sales call.
 
 **12-Month Milestone — Default Alive**
-- ~$10,000 MRR (~$120K ARR; roughly 200–280 active paying businesses at blended ARPA, exact count varies with records-under-management)
+- ~$10,000 MRR (~$120K ARR; roughly 200–280 active paying businesses at blended tier ARPA)
 
-Rationale: $10K MRR covers all infrastructure and API costs, supports a founder salary, and validates that the Ontario SME market is deep enough to scale. Under usage-based metering, MRR and records-under-management move together — revenue grows as customers deepen usage rather than only as headcount grows. At this threshold Scheza transitions from "AI project" to a defensible, sellable Micro-SaaS.
+Rationale: $10K MRR covers all infrastructure and API costs, supports a founder salary, and validates that the Ontario SME market is deep enough to scale. Under flat tiers, MRR grows with the paying-business count and with businesses moving up tiers as they grow; records-under-management remains the internal signal that value is compounding (Product Principle 1), not the billing base. At this threshold Scheza transitions from "AI project" to a defensible, sellable Micro-SaaS.
 
 ### Technical Success
 
@@ -396,7 +398,8 @@ Activity logging is scoped to the **Growth** phase and must ship before either d
 | LLM outputs SQL instead of JSON | Medium | High | No Direct SQL Rule + Validator keyword filter |
 | Service role key exposed to client | Low | Critical | Key management policy, server-side only |
 | PIPEDA audit or complaint | Low | High | Privacy by Design posture, consent log, data portability |
-| Usage pricing perceived as unpredictable, suppressing conversion | Medium | High | Generous included allotment covering a typical account; live usage meter; optional hard monthly cap; A/B test hybrid vs pure usage |
+| Flat tier priced wrong (too high suppresses conversion, too low erodes margin) | Medium | Medium | Validate tier prices and invoice-volume bands in willingness-to-pay interviews; flat all-inclusive removes the bill-anxiety that usage metering carried |
+| Invoice tax/compliance error (wrong HST, missing legal identity, editable sent invoice) | Medium | High | Fixed compliant Invoices module (not AI-generated); issuance validation; immutable issued invoices with credit-note corrections; Ontario lawyer + CPA review as a ship-gate; product-promise precision (never claim always compliant) |
 | Import column-mapping errors corrupt real data | Medium | High | Visible, editable mapping before commit; ambiguous columns flagged not silently guessed; non-destructive (synthetic data cleared only on confirmed import) |
 | Autonomous agent takes a wrong real-world action (Phase 3) — wrong-customer email, duplicate parts order, mis-billing | Medium | **Critical** | Reputational contagion is the real impact: trades run on tight-knit word-of-mouth (Journey 1 — Tim texts his crew the moment he trusts the tool; the same channel runs in reverse on a bad action). Mitigation: propose → approve → remembered graduation per action-type; money-spending and customer-facing actions stay approval-gated longest and are never autonomous by default; action allowlist + per-actor org-scoped identity + full activity-log audit; no background process writes tenant data via the raw service-role key (see NFR Forward-Compatibility) |
 | Agent connected to an external tool causes external-world harm or cost (Phase 3) — wrong-recipient email, runaway paid-API spend, tenant data egress | Medium | **Critical** | Each connected tool is a distinct allowlisted, approval-gated action class with its own trust threshold; paid/customer-facing tools require explicit Admin opt-in and (for paid) a spend cap; all tool calls audited to the activity log; tenant data shared with any external tool governed by PIPEDA consent and CASL for customer messaging (see Phase 3 safety model) |
@@ -496,49 +499,54 @@ Scheza ships with two hardcoded roles for MVP. A custom RBAC configuration UI is
 
 **Rationale:** A field worker (Member) accidentally instructing the AI to drop a table is an existential churn risk. The two-role model is the minimum safe configuration for a multi-user product.
 
-### Pricing & Metering (Usage-Based)
+### Pricing & Metering (Flat, All-Inclusive Tiers)
 
-**MVP Model: Base + Metered Overage (Hybrid)**
+**MVP Model: Flat monthly tiers, everything included**
 
-Scheza prices on value delivered, not seats occupied (Product Principle 4). Seat-based SaaS is the model most exposed to AI-driven disruption and fits a 1–3 person trades business badly regardless — a solo operator in a busy year and a crew of three in a slow one should not pay the same seat bill. The billable unit is the **active record managed** (jobs, invoices, and customers tracked per cycle), not the user login.
+*Revised 2026-09-27: replaces the earlier usage-based active-records metering. Voice-of-Customer and persona research showed that predictability is the product for this buyer, that "active records managed" is an unintuitive and anxiety-inducing unit, and that metering on records perversely penalized the import-everything behaviour Scheza wants to encourage. The single loudest message in the research is "one price, everything included, no contract, no per-tech fees."*
 
-| Attribute | Value |
-|---|---|
-| Base fee | ~$29/month, including a generous allotment of active records sized to cover a typical trades account so most users never reach overage |
-| Overage | Metered per active record above the included allotment, billed per cycle |
-| Live usage meter | Admin sees current usage against the allotment at all times — no surprise bills |
-| Optional hard cap | Admin can set a monthly spend cap; on reaching it, new-record creation pauses rather than silently accruing charges |
-| Trial | 14 days, no credit card required; unlimited records and team members during trial |
-| Trial-to-paid conversion prompt | Persistent banner from Day 12: *"Your trial expires in 2 days. Add billing to keep your business running."* |
-| Post-trial behaviour | Account enters read-only mode; data preserved for 30 days then subject to offboarding cascade |
+Scheza prices on value delivered, not seats occupied (Product Principle 4), and delivers that value through a **flat, all-inclusive monthly plan** rather than a live meter. Seat-based SaaS is the model most exposed to AI-driven disruption and fits a 1–15 person trades business badly; usage-metered billing solves that but reintroduces exactly the bill-anxiety Scheza sells relief from. Flat tiers keep the "charge for value, not seats" principle while making the bill perfectly predictable.
 
-**Conversion guardrails (why usage pricing won't scare this user):** trades owners fear unpredictable bills — the exact chaos Scheza sells relief from. Three controls make the model safe: the included allotment is deliberately generous (a typical account stays inside it and pays only the base), usage is always visible via the live meter, and the optional hard cap makes the worst case bounded and self-chosen.
+**Tiers (illustrative; exact prices pending willingness-to-pay validation):**
 
-**Why no usage caps during trial:** encouraging users to migrate their full operations — and import their history — during the trial maximizes switching cost and conversion probability. A user who has imported 500 real records is far more likely to pay than one who created 3 test entries.
+| Tier | Who it fits | Shape |
+|---|---|---|
+| Solo / Light | 1 person, low job volume (including the once-a-month user) | Low flat fee, so it beats a cheap invoice app on value without pricing out light users |
+| Crew | 3–10 employees, steady volume (the beachhead) | Main flat plan, undercuts the real all-in cost of Jobber/Housecall Pro |
+| Shop | approaching 15, higher volume | Higher flat fee |
 
-**Open question (for validation):** whether trades owners prefer the base-plus-overage hybrid above or **pure usage-based metering** (no base fee). The hybrid is the default because it preserves a predictable ARPA and meaningful MRR milestones; pure usage is the A/B variant to test for conversion. Repricing later, with customers on legacy plans, is far harder than starting on a metered model now — hence usage pricing from Day 1 rather than deferred. See *Open Questions* in Project Scoping.
+**Every tier includes, with no surcharge:** unlimited team members (no per-seat, no per-tech fee), unlimited customers and historical records, unlimited spreadsheet import, and no contract (cancel anytime).
 
-### Stripe Integration (Day 1 Requirement)
+- **Invoicing volume (invoices issued per cycle) decides tier placement only:** it is the internal sizing signal for which flat plan a business belongs to — chosen because invoices live in the *fixed* Invoicing module and so are counted uniformly across every tenant (unlike "jobs," which live in each business's differently-generated workspace) — never a live meter the owner watches tick up. "Records under management" is retained as an internal value/retention metric (see Compounding-Value Metrics), not as a billing base and not as the tier signal.
+- **Written price-lock and no-contract promise** are explicit product commitments (a direct answer to the incumbent "35% hike after lock-in" complaints in the research).
+- **Trial:** 14 days, no credit card required; full access during trial to maximize import and switching cost.
+- **Trial-to-paid conversion prompt:** persistent banner from Day 12: *"Your trial expires in 2 days. Add billing to keep your business running."*
+- **Post-trial behaviour:** account enters read-only mode; data preserved for 30 days then subject to offboarding cascade.
 
-Stripe is a Day 1 dependency. Manual billing is inconsistent with the product's zero-friction mission and creates the exact administrative chaos the product is designed to eliminate.
+**Seasonal note (future):** for snow-removal and landscaping (recurring, seasonal, route-based trades outside the initial short-cycle service beachhead) a seasonal or usage-flavoured plan may fit better, and is the one place metered pricing is an advantage rather than a fear. Deferred with those trades.
 
-**Implementation (Stripe Checkout + Customer Portal + Metered Billing):**
-- No custom billing UI is built — Scheza uses Stripe-hosted surfaces exclusively for MVP
-- **Metered subscription:** the plan is a Stripe subscription with a flat base price plus a **metered usage component**; Scheza reports each cycle's active-record count to Stripe as usage records against the metered price
+**Open question (for validation):** the exact tier prices and the invoice-volume bands (invoices issued per cycle) that place a business in each tier, validated against real trades-account volumes and willingness-to-pay interviews. Flat pricing is the committed default; a lower-base seasonal variant is the only metered option still on the table, scoped to seasonal trades. See *Open Questions* in Project Scoping.
+
+### Stripe Integration (Day 1 Requirement — Scheza's own subscription billing)
+
+Stripe is a Day 1 dependency for **Scheza's own SaaS subscription** (billing the trades business for its Scheza plan). This is distinct from processing the trades business's *customer* payments, which is out of scope for MVP and deferred to Phase 3 (see Invoicing, Payments & Delivery). Manual billing is inconsistent with the product's zero-friction mission.
+
+**Implementation (Stripe Checkout + Customer Portal, flat subscription):**
+- No custom billing UI is built; Scheza uses Stripe-hosted surfaces exclusively for MVP
+- **Flat subscription:** the plan is a Stripe subscription at a fixed monthly price per tier; no metered usage component
 - **Upgrade flow:** "Add Billing" button redirects to Stripe Checkout; on success, Stripe fires `checkout.session.completed` webhook
-- **Billing management:** "Billing" in Settings redirects to Stripe Customer Portal (card updates, invoice history with usage breakdown, cancellation)
-- **Usage reporting:** a scheduled job computes active-record counts per organization per cycle and posts them to Stripe; this count is also surfaced in-app as the live usage meter
+- **Billing management:** "Billing" in Settings redirects to Stripe Customer Portal (card updates, invoice history, cancellation)
 - **Webhook handler:** Next.js API route listens for `checkout.session.completed`, `customer.subscription.deleted`, `invoice.payment_failed`, `invoice.paid` and updates `subscription_status` on the user's Supabase record
 - **Access gating:** `subscription_status` is the single source of truth for trial, active, and expired states; Stripe status is cached, not authoritative
 
-**Estimated implementation effort:** ~1 day for a mid-level engineer (metered usage reporting adds to the ~4h base Checkout/Portal integration).
+**Estimated implementation effort:** ~4h for a mid-level engineer (flat Checkout/Portal integration; no usage reporting to build).
 
 ### Integration List
 
 | Integration | Scope | Purpose |
 |---|---|---|
-| Resend | MVP | Transactional email: magic links, trial expiry warnings, offboarding notifications |
-| Stripe | MVP | Usage-based billing (base + metered active records), checkout, customer portal |
+| Resend | MVP | Transactional email: magic links, trial expiry warnings, offboarding notifications, and desktop invoice delivery (reply-to owner) |
+| Stripe | MVP | Scheza's own flat-fee SaaS subscription (checkout, customer portal). Customer-payment processing via Stripe Connect is Phase 3 |
 | Sentry | MVP | Error monitoring, Schema Validator rejection logging, LLM failure tracking |
 | OpenAI API (GPT-4o-mini) / Groq (Llama 3) | MVP | Schema generation, synthetic data injection, conversational editor, import column mapping |
 | Supabase | MVP | PostgreSQL database, Auth, Row-Level Security, real-time subscriptions |
@@ -549,6 +557,7 @@ Stripe is a Day 1 dependency. Manual billing is inconsistent with the product's 
 | QuickBooks / Stripe Billing Export | Growth | Financial data sync for business owners |
 | Cloudflare for SaaS | Growth | Custom domain routing + SSL for white-label and custom domain features |
 | Live two-way API sync (Jobber, Housecall Pro, ServiceTitan, QuickBooks) | Phase 2 | Real-time bidirectional sync — build only when paying customers ask (Tier 3) |
+| Stripe Connect (customer payments), Interac auto-reconcile, WhatsApp Business API, Gmail/Outlook send | Phase 3 | Integrated card payouts to the owner's own account, e-transfer auto-matching, and automated send-from-owner-inbox: the AI-runs automation |
 
 ---
 
@@ -580,6 +589,9 @@ Stripe is a Day 1 dependency. Manual billing is inconsistent with the product's 
 | Prompt intake + LLM schema generation | Full — with "Mad Libs" structured UI and Prompt Inflation |
 | Schema explainability + override | Full — each generated table/field carries a one-line plain-language reason and a one-click remove/rename, shown at generation (not buried in settings) |
 | Data import (CSV/Excel) with AI column mapping | Full — Tier 1; visible, editable mapping before commit; ambiguous columns flagged |
+| Invoicing (standard compliant module) | Full — general service invoice, Ontario HST, one template, immutable + credit notes, PDF |
+| Invoice delivery (PDF-first, multi-channel) | Full — WhatsApp/SMS/email from owner's phone; desktop via Resend |
+| Payments (out-of-band tracking) | Full — payment-instructions block + Mark as Paid + Unpaid/Overdue view (no processing) |
 | Supabase DB provisioning | Full |
 | Ontario-localized synthetic data injection | Full — trade-specific, GTA/Ottawa-localized |
 | Dynamic Table/Card Views (desktop + mobile) | Full — shadcn/ui DataTable + swipeable card view |
@@ -645,6 +657,35 @@ Import — not signup — is the real onboarding gate and the primary activation
 | 2 | Pre-built mappings for Jobber, Housecall Pro, ServiceTitan, QuickBooks exports | Growth | No API needed — recognizes their export file format and pre-fills the mapping. Turns generic import into "we already know your system." |
 | 3 | Live two-way API sync with those tools | Phase 2 | Deferred — build only when paying customers ask. |
 
+### Invoicing, Payments & Delivery (MVP)
+
+The product heart: turning finished work into money. Both the Voice-of-Customer and persona research rank invoice-to-cash as the trades owner's number-one paid-for pain. The MVP does not merely *track* invoice status; it produces and sends a real, compliant invoice and tracks payment. Payment *processing* is deliberately out of scope for MVP (see below).
+
+**A standard module, not an AI-generated table.** Unlike the operational workspace (which the AI generates and which differs per business: Jobs, Appointments, Contracts, and so on), invoicing is a **fixed, compliant module with its own Invoices tab, identical for every tenant.** Compliance (correct HST, mandatory legal identity, immutable issued documents) cannot be left to per-tenant generation. An invoice can be created from a work record with one action (pulling customer and line items) or created standalone; the link to the generated workspace is loose, so it works regardless of how a given business's schema was generated.
+
+**General service invoice (trade-agnostic).** One full-detail invoice template serves all short-cycle service trades that bill labour plus parts on completion: HVAC, plumbing, electrical, mechanical (HVAC/mechanical contracting), appliance repair, cleaning (one-off jobs), handyman, and similar. Including these adds no compliance cost, because they all share the same invoice shape; only the line-item descriptions differ, which the generation engine already produces. What is **deferred**, because its billing or compliance genuinely differs: construction/renovation (proper-invoice mode, statutory holdback, progress billing, deposit/advance tax timing), recurring-contract billing (snow, landscaping, and ongoing cleaning contracts), auto repair (Ontario vehicle-repair invoices require specialized fields), and multi-province tax (see Phase 2 & Explicitly Out of Scope).
+
+**Compliance backbone (Ontario, English, MVP).** Per the Canada Invoice Compliance Guide: full-detail invoice regardless of amount; supplier legal name and operating name shown together; GST/HST registration number (with registration effective-date logic; do not label tax if not registered); place-of-supply-driven Ontario HST as a separate line (never split into federal/provincial); unique invoice number; identity snapshotted onto the finalized invoice; issued invoices immutable, corrected only via linked credit notes in their own sequence; issuance-blocking validation; and six-year retention of structured data plus each rendered PDF. Business identity is captured once as a **Business Profile** (legal_name, operating_name, entity_type, jurisdiction, GST/HST number, logo, addresses, payment terms, default invoice language), which is identity capture rather than a template designer; the MVP renders one clean template.
+
+**Invoice as data, not a document.** The invoice is stored as records (invoice, line items, tax lines); the PDF is rendered from that data and a copy is frozen to storage on send (satisfying the retention requirement and giving an immutable record of what the customer received). Job-photo attachments are a separate, later capability (file/image columns backed by object storage, not row blobs).
+
+**Payments: out-of-band at MVP (no processor, no holds).** The ICP gets paid outside any software today, dominated by Interac e-Transfer, then cheque, then card by phone or link. MVP therefore does **not** process or hold money:
+- A structured **Payment Instructions block** on every invoice (e-transfer email; cheque payable-to and mailing address; and the owner may paste their own existing card-payment link as text).
+- **Mark as Paid** reconciliation (method, date, amount, reference).
+- The **Invoices tab defaults to an Unpaid / Overdue view**, the universal money view: every invoice has a status and due date, so it works for any business regardless of generated schema. The earlier "completed, not invoiced" idea was dropped as schema-dependent and unreliable across generated workspaces.
+- **Deferred to Phase 3:** integrated card processing via **Stripe Connect** (funds direct to the owner's own account, never held by Scheza), and **Interac auto-reconcile** (matching e-transfer memos to invoices) as part of the AI-runs automation.
+
+**Delivery: PDF-first, from the owner's own phone/number.**
+- **Mobile:** the owner sends via the phone's native share (Web Share) through their **own** WhatsApp / Messages / email, so it arrives from a number the customer recognizes. No WhatsApp Business API, no cost, no opt-in. PDF attaches on WhatsApp and email; SMS carries an **unguessable secure link** to the same PDF (invoices are not enumerable by outsiders; no customer login required).
+- **Desktop:** Scheza sends the invoice email (PDF attached) via **Resend** with **reply-to the owner's address**; plus **Download PDF** and **Copy Link** so the owner can send from their own Gmail or WhatsApp Web manually.
+- **Deferred to Phase 3:** automated WhatsApp Business API sending and Gmail/Outlook account integration (send from the owner's real inbox, thread replies), the connected-tools automation already in the Phase 3 plan.
+
+**Quebec / bilingual seam (built now, switched on later).** Language and tax follow the **customer's** province (place of supply), not the owner's. MVP supports Ontario (English, HST). Store each customer's province so a **Quebec invoice** (French, with GST 5% and QST 9.975% on separate lines and a QST number) can be switched on for the Ottawa-Gatineau expansion without re-architecture, with French invoice terminology under legal review. French *invoices* are prioritized over a full French *UI*.
+
+**Ship-gate:** an Ontario lawyer and a CPA must review the invoice templates, HST logic, and terms before invoicing goes live. Scheza's product promise must be precise: it helps create invoices carrying configured compliance information; it must never claim every invoice is legally compliant. Invoice emails stay strictly transactional (CASL).
+
+**Build vs buy (open):** whether to generate the compliant document and HST via Stripe Invoicing + Stripe Tax or build in-house is an architecture decision (see Open Questions); the behaviour above holds either way.
+
 ### Post-MVP Features (Growth — Post $1K MRR)
 
 *Framing:* four items below — tenant activity logging, the workflow execution engine, the suggestion layer, and the learned-patterns record — are not independent features. Together they are **the nervous system a future autonomous operator runs on** (Phase 3): the activity log is its senses, the execution engine its hands, the learned patterns its memory. Each earns its place in Growth on its own merits (Business Snapshot, workflow suggestions, the moat), and each doubles as the substrate that makes the digital employee possible later without new architecture.
@@ -695,6 +736,8 @@ Not in Phase 1 (neither MVP nor Growth):
 
 - **Retail and hospitality POS integration** — Square, Shopify POS, Moneris, Lightspeed, Toast. These serve a different persona than trades: retailers transact at a counter, trades invoice per job. This is a real opportunity, not a dead end — the CSV and column-mapping engine built for trades is the same engine retail needs, so Phase 2 is new connectors rather than new architecture. Ranking: Square and Shopify POS first (API quality and install base); Moneris carries a local-Toronto trust angle; Lightspeed mid; Toast is restaurant-specific and lowest priority.
 - **Live two-way API sync** with field-service tools (Tier 3 in Data Import & Migration).
+- **Construction/renovation and specialized-trade invoice compliance:** Ontario Construction Act proper-invoice mode, 10% statutory holdback accounting, progress billing, deposit/advance tax timing, recurring-contract billing (snow, landscaping, ongoing cleaning contracts), and auto repair (Ontario vehicle-repair invoices require specialized fields). These serve roofing, general contracting, renovation, seasonal route trades, and auto repair, a much larger compliance surface than the general short-cycle service beachhead needs. Deferred with those trades.
+- **Multi-province sales tax** (QST, BC/SK PST, MB RST) and the **full French UI:** the Quebec invoice (French plus GST/QST) is enabled for the Ottawa-Gatineau expansion via the province seam built into Invoicing; the broader multi-province tax engine and a fully translated interface are deferred.
 - **Native iOS/Android apps** — responsive PWA first; native shells only if PWA limitations become a measured retention blocker.
 
 **Signals that justify opening Phase 2:** trades customers requesting POS connections themselves, or trades acquisition slowing while retail interest arrives inbound. Not before.
@@ -713,14 +756,15 @@ Not in Phase 1 (neither MVP nor Growth):
 
 ### Build Priority
 
-Ordered by dependency and payoff. Items 1–4 are MVP; 5–11 are Growth, sequenced so prerequisites precede the features that depend on them.
+Ordered by dependency and payoff. Items 1–4 and 4b are MVP; 5–11 are Growth, sequenced so prerequisites precede the features that depend on them.
 
 | # | Item | Effort | Phase | Why this order |
 |---|---|---|---|---|
 | 1 | CSV/Excel import with AI column mapping | Medium | MVP | Without it the demo stalls the moment a real user tries real work; it is the primary activation event |
-| 2 | Usage-based metering | Low | MVP | Cheap now, expensive to retrofit once customers sit on legacy plans |
+| 2 | Flat-tier billing (Stripe fixed-price subscription per tier) | Low | MVP | Simple Stripe Checkout + Portal + webhook; predictable billing is the product promise for this buyer (replaced usage-based metering on 2026-09-27 — see Pricing & Metering) |
 | 3 | Schema explainability + override | Low | MVP | Small UI change, disproportionate trust payoff at the first-impression moment |
 | 4 | Core relationships — generation links + lookup pickers + related lists | Medium | MVP | Makes the generated schema genuinely relational (the FR2 promise) and prevents the free-text data chaos the product exists to end; cheapest to build before real data accumulates |
+| 4b | Invoicing, out-of-band payments, and delivery | High | MVP | The product heart: turns tracked work into sent, compliant invoices and paid status; the retention driver, built as a fixed compliant module rather than an AI-generated table |
 | 5 | Tenant activity logging | Medium | Growth | Prerequisite substrate for Snapshot and Learned Patterns |
 | 6 | Workflow execution engine | High | Growth | Prerequisite for the suggestion layer (does not exist in MVP) |
 | 7 | Workflow suggestion layer | High | Growth | Biggest differentiator; needs real usage data to suggest against, so it follows import and the engine |
@@ -731,8 +775,8 @@ Ordered by dependency and payoff. Items 1–4 are MVP; 5–11 are Growth, sequen
 
 ### Open Questions
 
-- [ ] Pure usage pricing vs base-plus-overage hybrid — hybrid is the current default; test pure usage as the A/B variant (see Pricing & Metering)
-- [ ] Included-allotment size and overage rate for the hybrid model — needs validation against real trades-account record volumes
+- [ ] Exact flat-tier prices (Solo/Crew/Shop) and the invoice-volume bands (invoices issued per cycle) that place a business in each tier, validated against real trades-account volumes and willingness-to-pay interviews (see Pricing & Metering)
+- [ ] Build vs buy for the invoice document + tax engine: use Stripe Invoicing + Stripe Tax to generate the compliant invoice and HST, or build in-house (an architecture decision; see Invoicing, Payments & Delivery)
 - [ ] Which trades vertical to target first for the initial cohort
 - [ ] Whether pre-account generation creates abandoned-system cost worth capping
 - [ ] MVP import → relationship fields: does Tier-1 CSV import populate relationship fields via exact display-label match (reusing the FR49–FR51 confirm/flag flow), with fuzzy and create-if-missing matching deferred to FR81 (Growth)? Confirm the MVP behaviour with architecture
@@ -801,8 +845,8 @@ Ordered by dependency and payoff. Items 1–4 are MVP; 5–11 are Growth, sequen
 ### Billing & Subscriptions
 
 - **FR29:** User can begin a 14-day free trial without providing payment information
-- **FR30:** Admin can start a usage-based paid subscription (monthly base fee plus metered overage on active records) via a Stripe-hosted checkout page
-- **FR31:** Admin can manage their subscription (update payment method, view invoices with usage breakdown, cancel) via the Stripe Customer Portal
+- **FR30:** Admin can start a flat-fee monthly subscription (tiered by business size, all-inclusive) via a Stripe-hosted checkout page
+- **FR31:** Admin can manage their subscription (update payment method, view invoices, cancel anytime with no contract) via the Stripe Customer Portal
 - **FR32:** The system transitions an account to read-only mode when the trial period expires or the subscription lapses
 - **FR33:** Admin receives email notifications at Day 12 and Day 14 of the trial period prompting them to add billing
 
@@ -837,11 +881,32 @@ Ordered by dependency and payoff. Items 1–4 are MVP; 5–11 are Growth, sequen
 - **FR51:** The system flags columns it cannot confidently map rather than silently guessing, and requires the user to resolve them before import proceeds
 - **FR52:** The system replaces synthetic demo data with imported real data without data loss upon the user confirming the import
 
-### Billing — Usage Metering (MVP)
+### Invoicing, Payments & Delivery (MVP)
 
-- **FR53:** The system meters the count of active records managed per billing cycle and reports it to the billing provider for overage calculation
-- **FR54:** Admin can view current active-record usage against the included allotment at any time
-- **FR55:** Admin can set an optional monthly spend cap; when the cap is reached, the system pauses new-record creation instead of accruing further charges
+*A standard, compliant module (its own Invoices tab), not an AI-generated table. IDs continue the global sequence.*
+
+- **FR82:** Admin can create an invoice, from an existing work record (pulling customer and line items) or standalone, in a fixed, compliant Invoices module
+- **FR83:** The system captures a reusable Business Profile (legal name, operating name, entity type, jurisdiction, GST/HST number, logo, addresses, payment terms, default invoice language) and renders one clean, full-detail invoice template from it (identity capture, not a template designer)
+- **FR84:** The system calculates and shows Ontario HST as a separate tax line at the place-of-supply rate, and does not label or calculate tax when the business is not GST/HST-registered
+- **FR85:** The system shows the supplier legal name together with the operating name, and the GST/HST registration number, on every invoice that charges tax
+- **FR86:** The system assigns each invoice a unique number, snapshots supplier and customer identity onto the finalized invoice, and makes an issued invoice immutable
+- **FR87:** The system blocks issuance when required compliance fields are missing (for example tax charged without a valid registration, HST split into components, totals not reconciling, or missing legal identity), returning a plain-language reason
+- **FR88:** Admin can correct an issued invoice only via a linked credit note in its own number sequence, never by editing the sent invoice
+- **FR89:** The system stores each invoice as structured records and freezes a rendered PDF copy on send, retaining structured data and each rendered PDF for at least six years
+- **FR90:** Every invoice carries a structured Payment Instructions block (e-transfer email, cheque payable-to and mailing address, and an owner-provided card-payment link as free text)
+- **FR91:** Admin can mark an invoice as paid, recording method, date, amount, and reference (no payment is processed or held by Scheza in MVP)
+- **FR92:** The Invoices tab defaults to an Unpaid / Overdue view derived from invoice status and due date, working uniformly across all tenants regardless of generated schema
+- **FR93:** Admin can send an invoice as a PDF from their own device via the native share sheet (WhatsApp, SMS, or email) so it is delivered from the owner's own number or account; the SMS path sends an unguessable secure link to the same PDF
+- **FR94:** On desktop, the system can send the invoice email with the PDF attached via Resend using reply-to the owner's address, and offers Download PDF and Copy Link as alternatives
+- **FR95:** The system determines invoice language and tax from the customer's province (place of supply); MVP supports Ontario (English, HST) and stores customer province so Quebec (French, GST + QST, QST number) can be enabled later without re-architecture
+
+### Billing — Flat Tiers (MVP)
+
+*Revised 2026-09-27: usage metering removed in favour of flat, all-inclusive tiers (see Pricing & Metering).*
+
+- **FR53:** The system assigns each account a flat subscription tier and bills a fixed monthly fee for that tier via the billing provider
+- **FR54:** Admin can view their current tier, what it includes, and their next billing date at any time
+- **FR55:** The system surfaces a tier-change prompt when an account's invoicing volume (invoices issued per cycle) sustainably exceeds its current tier band, rather than silently metering overage
 
 ### Growth-Phase Requirements
 
@@ -932,7 +997,7 @@ Ordered by dependency and payoff. Items 1–4 are MVP; 5–11 are Growth, sequen
 | NFR-R2 | Platform uptime target: 99.5% monthly for MVP; 99.9% monthly for Growth phase |
 | NFR-R3 | LLM API timeout threshold: 15 seconds; the Hard Fallback Schema must be triggered automatically at this threshold — no user-facing timeout or error screen |
 | NFR-R4 | Stripe webhook processing failures must not affect a user's ability to access their dashboard — subscription status is cached in Supabase and serves as the fallback source of truth if Stripe is unreachable |
-| NFR-R5 | Active-record usage counts reported to the billing provider must reconcile with the database record count within a 1% tolerance per cycle, verified by an automated reconciliation job — billing accuracy is a trust requirement under usage pricing |
+| NFR-R5 | Flat-tier subscription state in the billing provider must reconcile with the account's tier in Supabase every cycle, verified by an automated job; any drift pages before it affects access. Billing accuracy is a trust requirement |
 
 ### Forward-Compatibility (Autonomous Operations — Phase 3)
 

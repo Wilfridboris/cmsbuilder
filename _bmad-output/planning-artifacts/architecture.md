@@ -1,6 +1,6 @@
 ---
-updated: '2026-09-26'
-changeNote: 'Added relationship/lookup field support (§Relationships); FieldType gains ''relation'' + RelationConfig; Schema Validator target-table rule (NFR-S7); reverses the prior relation exclusion. MVP FR70–FR78, Growth FR79–FR81.'
+updated: '2026-09-27'
+changeNote: 'Reconciled to the PRD invoice-to-cash pivot (2026-09-27). (1) REMOVED usage-based metering entirely (org_usage, org_billing_settings, assertUnderCap, report/reconcile crons, STRIPE_METERED_PRICE_ID, live meter) and replaced it with flat all-inclusive tiers (Solo/Crew/Shop) billed as a fixed Stripe subscription per tier; FR53–55 reworked to tier assignment + tier-change prompt; NFR-R5 reframed to tier-drift reconcile. (2) ADDED a new §Invoicing, Payments & Delivery (MVP) decision section for FR82–95: a FIXED compliant module (not AI-generated) in dedicated typed platform tables (business_profiles, invoices, invoice_line_items, invoice_tax_lines, credit_notes, invoice_payments), org-scoped RLS; in-house PDF via @react-pdf/renderer frozen to a private Supabase Storage bucket; Ontario HST as a separate line; issuance-blocking assertIssuable() gate; immutable issued invoices (BEFORE UPDATE trigger) corrected only via credit notes; out-of-band payment tracking (Mark as Paid, Unpaid/Overdue default view); PDF-first delivery (Web Share mobile / Resend desktop / unguessable tokened public link for SMS); Ontario-now / Quebec-later province seam. Stripe customer-payment processing (Connect), Interac auto-reconcile, WhatsApp Business API, and owner-inbox integration confirmed Phase 3.'
 stepsCompleted:
   - 1
   - 2
@@ -24,8 +24,12 @@ date: '2026-05-17'
 lastStep: 8
 status: 'complete'
 completedAt: '2026-05-17'
-revisedAt: '2026-09-23'
+revisedAt: '2026-09-27'
 revisionHistory:
+  - date: '2026-09-27'
+    changes: 'Reconciled to PRD invoice-to-cash pivot. Removed usage-based metering (flat tiers replace it); added the Invoicing, Payments & Delivery MVP module (FR82–95) as a fixed compliant module in dedicated typed platform tables with in-house PDF (@react-pdf/renderer) frozen to Supabase Storage, out-of-band payment tracking, and multi-channel PDF delivery. See changeNote.'
+  - date: '2026-09-26'
+    changes: 'Added relationship/lookup field support (§Relationships); FieldType gains ''relation'' + RelationConfig; Schema Validator target-table rule (NFR-S7); reverses the prior relation exclusion. MVP FR70–FR78, Growth FR79–FR81.'
   - date: '2026-09-19'
     changes: 'Re-aligned to PRD update of 2026-09-19. Added three MVP concerns: usage-based metering (base + metered overage, usage-reporting cron, live meter, hard spend cap, reconciliation), CSV/Excel import with AI column mapping, and schema explainability + override. Regenerated FR/NFR coverage from 45 to 61 FRs. Noted Growth-phase substrate (tenant activity logging, workflow execution engine, suggestion layer, learned patterns, Business Snapshot) and its data-model implications. Confirmed Gemini remains the LLM (PRD OpenAI/Groq mention superseded — boundary is LLM-agnostic via Schema Validator).'
   - date: '2026-09-23c'
@@ -49,15 +53,17 @@ revisionHistory:
 
 **Functional Requirements:**
 
-61 FRs across 11 capability areas: App Generation (FR1–5), Data Management (FR6–12),
+FRs across these capability areas: App Generation (FR1–5), Data Management (FR6–12),
 Conversational Editor (FR13–17), User Access & Permissions (FR18–24), Intake Forms
 (FR25–28), Billing & Subscriptions (FR29–33), Localization & Compliance (FR34–40),
 Platform & Security (FR41–45), Schema Explainability (FR46–47), Data Import (FR48–52),
-Billing — Usage Metering (FR53–55), plus Growth-phase traceability FRs (FR56–61).
+Billing — Flat Tiers (FR53–55), Relationships & Lookups (FR70–81), **Invoicing,
+Payments & Delivery (FR82–95)**, plus Growth-phase traceability FRs (FR56–61).
 
-Architecturally, these resolve to 14 MVP systems (12 original + Data Import + Usage
-Metering; Schema Explainability folds into the Generative pipeline rather than standing
-alone):
+Architecturally, these resolve to the MVP systems below (Schema Explainability folds into
+the Generative pipeline rather than standing alone; usage metering has been **removed** in
+favour of flat tiers per the 2026-09-27 PRD pivot, and **Invoicing** is added as a new
+first-class MVP system):
 
 | # | System | Primary FRs |
 |---|---|---|
@@ -69,12 +75,12 @@ alone):
 | 6 | Multi-tenant data layer (shared JSONB `records` store + membership-based RLS; `organization_id` is an org FK) | FR44 |
 | 7 | Real-time sync layer (Supabase Realtime subscriptions) | FR12, FR27 |
 | 8 | Intake form generator (auto-generated public URL, no-auth submission) | FR25–FR28 |
-| 9 | Billing & subscription state machine — now **usage-based metered** (Stripe metered subscription + usage-reporting cron + live meter + hard spend cap + reconciliation) | FR29–FR33, FR53–FR55 |
+| 9 | Billing & subscription state machine — **flat all-inclusive tiers** (fixed Stripe subscription per tier: Solo/Crew/Shop; no metering, no spend cap; tier-change prompt when invoicing volume — invoices issued per cycle — sustainably exceeds the tier band) | FR29–FR33, FR53–FR55 |
 | 10 | Internationalization layer (EN/FR, client-side, no reload) | FR34–FR35 |
 | 11 | PIPEDA compliance layer (consent, export, offboarding cascade) | FR36–FR40 |
 | 12 | PWA layer (manifest, service workers, install prompt) | FR41 |
 | 13 | **Data Import pipeline** (CSV/Excel parse → AI column mapping → editable preview → non-destructive replace) | FR48–FR52 |
-| 14 | **Usage metering & spend-cap enforcement** (active-record counting, cross-cuts the record-create path) | FR53–FR55 |
+| 14 | **Invoicing, Payments & Delivery module** (fixed compliant module in dedicated typed tables — Business Profile, invoice + line/tax lines + credit notes, in-house PDF frozen to storage, out-of-band payment tracking, multi-channel PDF delivery) | FR82–FR95 |
 
 **Growth-phase systems (out of MVP scope, but the MVP data model must not preclude them):**
 tenant activity logging (FR56, append-only per-tenant event log), workflow execution
@@ -94,15 +100,15 @@ on the Growth substrate (activity log = senses, execution engine = hands, learne
 = memory) and add no new data assets. **They are traced here, not built.** Their only claim
 on the MVP is a set of cheap-now/expensive-later *seams* (see
 §Forward-Compatibility Seams), captured because the PRD's new NFR-FC1–FC4 make them
-**MVP build constraints**, not future work — the same "start metered on Day 1" logic that
-justified usage pricing early.
+**MVP build constraints**, not future work — the cheap-now/expensive-later logic of
+building the seam before it is needed rather than retrofitting it after code has scattered.
 
 **Non-Functional Requirements:**
 
 - **Performance-critical:** Sub-45s TTV (p95), <5s DB provisioning, <2s page load, <300ms EN/FR toggle, <2s real-time sync propagation, optimistic UI (instant render before server confirmation); **CSV/Excel import of ≤5,000 rows <60s with mapping preview <5s (NFR-P7)**
 - **Security-critical:** RLS on 100% of tenant tables (automated test gate), Schema Validator blocks all restricted keywords, service role key never in client bundle (CI lint gate), hardened Gemini system prompt on every API call
-- **Reliability:** LLM outages must not affect CRUD; 15s Gemini timeout triggers hard fallback schema automatically; Stripe webhook failures must not block dashboard access; **active-record usage reported to Stripe must reconcile with DB counts within 1% per cycle via an automated job (NFR-R5)**
-- **Compliance:** PIPEDA — Canadian data residency (ca-central-1), consent timestamp at claim, data portability (CSV/JSON), cascade delete on offboarding (30-day grace)
+- **Reliability:** LLM outages must not affect CRUD; 15s Gemini timeout triggers hard fallback schema automatically; Stripe webhook failures must not block dashboard access; **the flat subscription tier held in Stripe must reconcile with the account's tier in Supabase every cycle via an automated job; drift pages before it can affect access (NFR-R5)**
+- **Compliance:** PIPEDA — Canadian data residency (ca-central-1), consent timestamp at claim, data portability (CSV/JSON), cascade delete on offboarding (30-day grace). **Statutory override:** the offboarding hard-delete **excludes** `invoices`/`credit_notes`/`invoice_payments` and their frozen PDFs while under the six-year invoice-retention obligation — legal retention wins over the 30-day cascade
 - **Accessibility:** WCAG AA minimum (AODA obligation), 48×48px touch targets, schema-derived ARIA labels, no placeholder-only form labels
 - **Forward-Compatibility (MVP constraints, Phase 3 readiness):** every tenant-data mutation flows through a single guarded action layer under a per-actor, org-scoped RLS identity — the raw service-role key never writes tenant rows (NFR-FC1); the Growth activity log is an authoritative append-only event stream consumable via a replayable cursor, with Realtime/NOTIFY as a wake-up hint only (NFR-FC2); a documented seam exists for a persistent/scheduled worker to read the stream and invoke the action layer out-of-band (NFR-FC3); any future autonomous action is expressible as an action-allowlist entry (Schema Validator generalized) logged before/after execution (NFR-FC4). *Nothing agentic ships in MVP — these constrain how MVP code is written.*
 
@@ -119,14 +125,17 @@ justified usage pricing early.
 - **Database:** Supabase PostgreSQL + Auth + RLS + Realtime — ca-central-1 region (PIPEDA)
 - **Frontend:** Next.js 16 + shadcn/ui (New York theme) + Tailwind CSS
 - **Hosting:** Vercel (serverless functions, edge middleware, auto-scaling)
-- **Email:** Resend v6 (magic links, trial/offboarding notifications)
-- **Billing:** Stripe v22 server + v9 client (Checkout + Customer Portal + webhooks)
+- **Email:** Resend v6 (magic links, trial/offboarding notifications, desktop invoice delivery with reply-to the owner)
+- **Billing:** Stripe v22 server + v9 client (Checkout + Customer Portal + webhooks) — **flat fixed-price subscription per tier for Scheza's own SaaS billing only; no metered price.** Processing the trades business's *customer* payments (Stripe Connect) is out of MVP scope — Phase 3
+- **Invoice PDF:** `@react-pdf/renderer` — server-side PDF render from typed invoice data (React-component model, ~2MB, no headless Chromium; ~400ms/invoice on Vercel; React 19 supported since v4.1.0, requires Next ≥14.1.1). Chosen over Puppeteer/`@sparticuz/chromium` (~50MB, cold-start + memory cost). Verify current version at install
+- **Object storage:** Supabase Storage (private bucket, ca-central-1) for frozen invoice/credit-note PDFs (six-year retention) — the same bucket pattern later serves job-photo attachments
 - **Monitoring:** Sentry v10 (`@sentry/nextjs`)
 - **Conversational Editor:** Append-only at MVP — add table, add column, generate view only
 - **Schema Validator:** Hard blocking dependency before Conversational Editor can ship
 - **RLS isolation test:** Hard blocking gate before any tenant table is exposed to the frontend
+- **Invoicing lawyer + CPA review:** Hard blocking ship-gate — an Ontario lawyer and a CPA must review the invoice templates, HST logic, and terms before invoicing goes live (same altitude as the Schema Validator / RLS gates). Related product-copy constraint: Scheza must never claim every invoice is legally compliant — only that it carries the configured compliance information
 - **Spreadsheet parsing:** `papaparse` (CSV) + `xlsx`/SheetJS (Excel) for the Data Import pipeline — parse server-side, never trust client-parsed rows
-- **Scheduled jobs:** Vercel Cron for periodic usage reporting to Stripe and the usage-reconciliation job (NFR-R5)
+- **Scheduled jobs:** Vercel Cron for the tier-reconciliation job (NFR-R5) and trial/offboarding lifecycle sweeps — **no usage-reporting cron** (flat tiers carry no metered usage to report)
 - **LLM provider (confirmed):** Google Gemini remains the choice. The PRD Integration List names OpenAI GPT-4o-mini / Groq, but the architecture is LLM-agnostic at the Schema Validator boundary; the Gemini decision stands and the PRD's provider mention is treated as superseded here
 
 ### Cross-Cutting Concerns Identified
@@ -137,12 +146,12 @@ justified usage pricing early.
 4. **Internationalization** — EN/FR client-side with pre-loaded bundles via next-intl; language detected at prompt submission for synthetic data generation; toggle stored in `localStorage`
 5. **LLM resilience** — silent retry once on Gemini failure; Universal Field Service Template (hardcoded fallback) on second failure or 15s timeout; CRUD operations never depend on LLM
 6. **Security boundary** — service role key in server-only files; CI lint rule fails build if key detected in client bundle; Schema Validator runs synchronously in API route; RLS verified by automated cross-tenant test
-7. **Subscription state machine** — trial → active → read-only → grace → deleted; `subscription_status` in Supabase user record is source of truth (Stripe status cached, not authoritative). Now **usage-metered:** a periodic cron counts active records per org per cycle and reports them to Stripe's metered price; a live in-app meter reflects the same count
+7. **Subscription state machine** — trial → active → read-only → grace → deleted; `subscription_status` in Supabase user record is source of truth (Stripe status cached, not authoritative). **Flat tiers:** each org carries a `subscription_tier` (Solo/Crew/Shop) billed as a fixed Stripe price; no metering, no usage reporting. A tier-change prompt (not an automatic overage charge) surfaces when invoicing volume (invoices issued per cycle — counted from the fixed Invoicing module, uniform across tenants) sustainably exceeds the tier band
 8. **PWA lifecycle** — manifest + service workers generated at claim; install prompt deferred until post-aha intent signal; field worker surface always dark (bypasses theme token)
-9. **Usage metering & spend cap** — active-record count (jobs + invoices + customers per cycle) is the billable unit; the count is surfaced live and reported to Stripe on a cron. An admin-set **hard spend cap** gates the record-create path: when the cap is reached, INSERTs into tenant tables are paused (server-enforced in the create API path, not just UI) — this cross-cuts every table's add-record flow
+9. **Invoicing, payments & delivery** — a fixed compliant module (own Invoices tab), identical per tenant, in **dedicated typed platform tables** (not the JSONB records store): Business Profile, invoice + line/tax lines + credit notes + payments. Issuance runs through an `assertIssuable()` gate; issued invoices are immutable (DB `BEFORE UPDATE` trigger + guarded mutation layer) and corrected only via linked credit notes; a PDF is rendered in-house and **frozen to private object storage** on send (six-year retention). Payment is tracked out-of-band (Mark as Paid; no processing). Delivery is PDF-first: Web Share on mobile, Resend on desktop, and an **unguessable tokened public link** for the SMS path (a new no-auth public-read surface)
 10. **Data import** — CSV/Excel parsed server-side → Gemini-proposed column→field mapping → user-editable preview (ambiguous columns flagged, nothing written pre-confirm) → non-destructive replacement of synthetic rows with imported rows on confirm; reuses the generation pipeline's "understand messy input, map to structure" capability
 11. **Explainability propagation** — the generation call emits a plain-language `reason` alongside every proposed table/field; reasons flow through `SchemaDefinition` to the UI at generation time, with one-click override (removal reuses the append-only hide mechanism — no destructive migration)
-12. **Activity-logging readiness (Growth)** — no MVP code, but tenant tables and the metering counter are designed so an append-only per-tenant event log (FR56) can be added additively as the substrate for workflow suggestions, learned patterns, and Business Snapshot
+12. **Activity-logging readiness (Growth)** — no MVP code, but tenant tables (records + invoice tables) are designed so an append-only per-tenant event log (FR56) can be added additively as the substrate for workflow suggestions, learned patterns, and Business Snapshot
 13. **Guarded tenant-mutation layer (MVP constraint, Phase 3 seam)** — all tenant-data writes (record CRUD, import commit) flow through one shared mutation path that runs under an org-scoped, RLS-enforced identity **passed as an explicit parameter (never read from request cookies, so an out-of-band worker can call the identical path — FC3), carrying `actor_id` + an optional idempotency key** so a retried agent loop cannot double-execute; the service-role key is reserved for narrow platform-bootstrap operations (anonymous pre-claim generation, claim-time org bootstrap, cross-org cron, offboarding cascade — never runtime DDL) and **never** writes tenant rows on an authenticated user's behalf. This is the single point a future autonomous actor (Phase 3) plugs into — as another org-scoped identity subject to the same RLS and action allowlist, not a service-role backdoor (NFR-FC1, NFR-FC4)
 
 ---
@@ -220,15 +229,19 @@ npm install @supabase/supabase-js@2.105.4 \
 npm install papaparse@5.4.1 xlsx@0.18.5
 npm install -D @types/papaparse@5.3.14
 
+# Invoice PDF (server-side render — verify current version at install)
+npm install @react-pdf/renderer
+
 # Sentry
 npm install @sentry/nextjs@10.53.1
 npx @sentry/wizard@latest -i nextjs
 ```
 
-> **Scheduled jobs:** Usage reporting to Stripe and the usage-reconciliation job (NFR-R5)
-> run on **Vercel Cron** (declared in `vercel.json`) — no extra dependency; Cron invokes
-> a protected API route on a schedule. No new runtime library is required beyond the
-> Stripe SDK already listed.
+> **Scheduled jobs:** the tier-reconciliation job (NFR-R5) and trial/offboarding lifecycle
+> sweeps run on **Vercel Cron** (declared in `vercel.json`) — no extra dependency; Cron
+> invokes a protected API route on a schedule. No new runtime library is required beyond the
+> Stripe SDK already listed. (There is no usage-reporting cron — flat tiers carry no metered
+> usage to report.)
 
 ---
 
@@ -249,8 +262,8 @@ npx @sentry/wizard@latest -i nextjs
 - TanStack Query for server state (no Redux/Zustand)
 - next-intl for i18n (client-side bundle swap, no page reload)
 - Append-only Conversational Editor at MVP
-- Stripe-hosted surfaces only, but now with a **metered usage component** (base + overage)
-- Usage metering: active-record count via a Vercel Cron reporting job; hard spend cap enforced server-side in the record-create path
+- Stripe-hosted surfaces only, as a **flat fixed-price subscription per tier** (Solo/Crew/Shop) for Scheza's own SaaS billing — no metered component, no usage reporting
+- **Invoicing in dedicated typed platform tables** (not the JSONB records store): a fixed compliant module with in-house PDF render, issuance-gate + immutability, out-of-band payment tracking, and multi-channel PDF delivery (see §Invoicing, Payments & Delivery)
 - Data Import: reuse the generation pipeline (Gemini) for column→field mapping; parse spreadsheets server-side; non-destructive synthetic→real replacement
 - Schema explainability: `reason` emitted per table/field by the same generation call (no separate model round-trip)
 
@@ -263,6 +276,7 @@ npx @sentry/wizard@latest -i nextjs
 - Multi-region Supabase (growth phase)
 - **Phase 3 operator runtime** — the always-on compute for the autonomous operator: (a) serverless-cron + durable-queue, (b) a managed agent runner (e.g. Inngest, Trigger.dev), or (c) a persistent worker/droplet. A **Hermes-style harness** (persistent memory, loop engineering, model-agnostic tool use) is the reference pattern — *named, not committed*, and separable from the deployment (it runs on top of any of the three). **Current lean: (b) a managed agent runner**, as the boring/low-ops fit for a solo founder (see §Phase 3 — Open Architectural Questions). Decided only when the Phase 3 entry gate is met; the MVP seams (§Forward-Compatibility) keep every option open
 - **Connected external tools (Phase 3)** — standard tool-connection protocol (e.g. MCP) for email/search/messaging; each tool a distinct allowlisted, approval-gated action class with its own trust threshold and (for paid tools) a spend cap + Admin opt-in
+- **Customer-payment processing (Phase 3)** — **Stripe Connect** (card funds paid direct to the owner's own account, never held by Scheza), **Interac e-Transfer auto-reconcile** (matching e-transfer memos to invoices), automated **WhatsApp Business API** sending, and **Gmail/Outlook** owner-inbox integration. All deferred out of MVP: MVP invoicing tracks payment out-of-band and delivers PDFs from the owner's own device/account (see §Invoicing, Payments & Delivery)
 - **Digital-crew role model (Phase 3)** — presenting the operator as independently-governed named roles (bookkeeping / sales / operations) over one shared per-tenant memory
 
 ---
@@ -276,13 +290,13 @@ npx @sentry/wizard@latest -i nextjs
 | Query layer | Supabase JS client (direct) on `records` | 2.105.4 | Reads/writes target `records` filtered by `organization_id` + `table_key`; filter/sort (FR10) via JSONB operators. No ORM — dynamic logical schemas make Prisma/Drizzle impractical |
 | Tenant record storage | `public.records (id UUID, organization_id UUID NOT NULL, table_key TEXT NOT NULL, data JSONB NOT NULL, actor_id UUID, version INT NOT NULL DEFAULT 1, created_at, updated_at, deleted_at)` | — | Every tenant row across every logical table. `table_key` is the normalized logical-table name; `data` holds the row per the field definitions in `org_schemas`. Soft-delete via `deleted_at` (non-destructive by default). `actor_id` records who last wrote the row (human today, agent role in Phase 3 — attribution seam B); `version` gives optimistic concurrency so a human edit and an agent write don't silently clobber. GIN index on `data`; btree on `(organization_id, table_key)` |
 | Schema metadata storage | `public.org_schemas (organization_id, definition JSONB)` | — | The **authoritative logical schema**: tables, fields, types, `reason` per table/field (FR46), `sensitive` flag (FR40), and `hidden` flag (FR11/append-only hide). The UI renders from this; a field add/rename/hide is a metadata edit — **no migration** |
-| Usage metering storage | `public.org_usage` table (org_id, cycle_start, active_record_count, reported_at, stripe_usage_record_id) | — | Per-org, per-cycle active-record count; source for the live meter and the Stripe usage report; reconciled against live DB counts within 1% (NFR-R5) |
-| Spend-cap storage | `public.org_billing_settings` (org_id, monthly_spend_cap, cap_reached_at) | — | Admin-set optional hard cap (FR55); read on the record-create path to pause INSERTs when reached |
+| Subscription/tier storage | `subscription_status` + `subscription_tier` on the org record (no separate metering tables) | — | Flat tiers (Solo/Crew/Shop) carry no per-cycle usage count. `subscription_status` stays the access source of truth (Stripe cached); `subscription_tier` is the billed plan. The old `org_usage` and `org_billing_settings` tables are **removed** with usage metering |
+| Invoicing storage (dedicated typed tables) | `public.business_profiles`, `public.invoices`, `public.invoice_line_items`, `public.invoice_tax_lines`, `public.credit_notes` (+ `credit_note_line_items`, `credit_note_tax_lines`), `public.invoice_payments` | — | **Fixed platform tables, NOT the JSONB records store.** Invoicing is a fixed compliant module, so it gets real typed columns, constraints, unique per-org invoice/credit-note numbering, and DB-enforced immutability — everything a legally-reviewed document needs and the JSONB store can't guarantee. Same class as `org_schemas`/`records`/`org_members`; org-scoped RLS via `auth_org_ids()`. Not a no-runtime-DDL violation: these are CLI-migrated platform tables, not tenant-generated logical tables. See §Invoicing, Payments & Delivery |
 | Activity log (Growth-ready) | `public.org_activity_log` (incl. `actor_id`, `action_type`, before/after diff) — **not built at MVP** | — | Append-only per-tenant event log (FR56). `actor_id` + `action_type` are the dimensions the Phase-3 trust threshold (FR65: "N clean approvals of *that action-type*") and per-role autonomy (FR66/FR68) are accounted against — carried in the schema shape now so they aren't retrofitted. **NFR-FC2:** when built, it is the *authoritative* event stream — a monotonic per-org sequence (e.g. `seq BIGSERIAL` / append-only insert-only table) consumable via a **replayable cursor**, so an out-of-band worker can resume from a last-seen position. Supabase Realtime / Postgres `NOTIFY` is a wake-up optimization only, never the system of record. Documented now so tenant tables and metering are designed to feed it additively without retrofit |
 | Data validation | Zod | 4.4.3 | TypeScript-first, composable, used at all API boundaries and form resolvers |
 | Client-side cache | TanStack Query | 5.100.10 | Server state management, optimistic updates, background refetch, Supabase Realtime cache sync |
 | Caching layer | None at MVP | — | Supabase connection pooling sufficient at 200 org scale; Redis deferred to Growth |
-| Migrations | Supabase CLI (platform schema) only — **no runtime DDL** | — | The entire schema (`organizations`, `org_members`, `org_schemas`, `records`, `org_usage`, `org_billing_settings`, `anonymous_sessions`, and Growth's `org_activity_log`) is fixed platform schema created by Supabase CLI migrations. Provisioning a tenant "app" = inserting an `org_schemas` metadata row + seeding `records` — never DDL |
+| Migrations | Supabase CLI (platform schema) only — **no runtime DDL** | — | The entire schema (`organizations`, `org_members`, `org_schemas`, `records`, the invoicing tables `business_profiles`/`invoices`/`invoice_line_items`/`invoice_tax_lines`/`credit_notes` (+ credit-note child tables)/`invoice_payments`, `anonymous_sessions`, and Growth's `org_activity_log`) is fixed platform schema created by Supabase CLI migrations. Provisioning a tenant "app" = inserting an `org_schemas` metadata row + seeding `records` — never DDL. Invoicing tables are migrated once like any platform table, not generated per tenant |
 | Query indexing | GIN on `records.data` + btree `(organization_id, table_key)`; optional Postgres **generated columns** for hot filter/sort fields | — | JSONB filter/sort (FR10) at 50K rows/org is comfortable on a GIN index; promote a hot field (status, date) to a generated column only if a query pattern demands it (Rule of Three) |
 
 **Tenant Data Isolation (non-negotiable) — membership-based, single policy:**
@@ -545,7 +559,7 @@ propose structure" problem as generation, pointed at a different input.
 | Ambiguity handling | Columns below a confidence threshold are returned as `unmapped` and **must be resolved by the user** before commit (FR51) | Explainability principle — show the work, never silently guess |
 | Preview UI | Editable mapping table rendered before any write; user can override every proposed match (FR50) | Same "show your work" trust surface as schema generation |
 | Write strategy | On confirm (via `lib/data/mutate.ts`): soft-delete synthetic `records` for the affected `table_key`s, then bulk-insert mapped rows in one transaction (FR52) | Non-destructive to real data; synthetic data is the only thing replaced; all under the user's RLS identity |
-| Row count gate | Import counts toward active-record usage and is checked against the spend cap at commit | Keeps metering accurate; an import that would exceed a hard cap warns before committing |
+| Row count gate | None — import is **unmetered**. Flat tiers include unlimited records and unlimited import by design (the PRD explicitly wants import-everything encouraged to maximize switching cost) | The only bound on import is the NFR-P7 size/time limit (≤5,000 rows < 60s), enforced server-side for safety, not billing |
 
 **Import flow:** `upload → parse (server) → Gemini column mapping → editable preview
 (ambiguous flagged) → user confirms → clear synthetic + bulk insert → invalidate
@@ -554,26 +568,94 @@ tables.
 
 ---
 
-### Usage-Based Metering Architecture (MVP)
+### Billing — Flat Tiers (MVP)
 
-Pricing meters the **active record managed** (jobs + invoices + customers tracked per
-cycle), not seats (Product Principle 4). This replaces the earlier flat-fee model and is
-a Day-1 requirement — retrofitting metering onto customers sitting on legacy flat plans
-is far harder than starting metered.
+*Revised 2026-09-27: this replaces the earlier usage-based active-records metering. The PRD
+pivot flattened pricing to all-inclusive tiers (Solo/Crew/Shop) because predictability is the
+product for this buyer and metering on records perversely penalized the import-everything
+behaviour Scheza wants. Metering, the live meter, the spend cap, and the usage/reconcile crons
+are removed.*
+
+Scheza bills its **own SaaS subscription** as a flat fixed price per tier (this is distinct
+from the trades business's *customer* payments, which are out-of-band at MVP — see §Invoicing).
+Everything is Stripe-hosted; no custom billing UI.
 
 | Decision | Choice | Rationale |
 |---|---|---|
-| Billable unit | Active-record count per org per cycle | PRD Pricing & Metering; the single number that proxies both value and revenue |
-| Stripe model | Metered subscription: flat base price **+** metered usage price | Stripe-hosted Checkout/Portal still; the metered price is reported via usage records |
-| Usage reporting | Vercel Cron → `POST /api/cron/report-usage` (protected by a cron secret) computes each org's active-record count and posts a Stripe usage record | Scheduled, idempotent per cycle; writes `org_usage.stripe_usage_record_id` |
-| Live meter | `useUsage()` reads `org_usage` (current cycle) + live DB count; surfaced in Settings and as a header indicator | FR54 — admin sees usage vs. allotment at all times; no surprise bills |
-| Hard spend cap | `org_billing_settings.monthly_spend_cap`; checked in the record-create API path — when reached, INSERT is refused with a plain-language message and `cap_reached_at` is set | FR55 — pause new-record creation instead of accruing charges; **server-enforced**, not UI-only |
-| Reconciliation | A second cron job compares reported usage to live DB counts; discrepancy > 1% logs to Sentry and blocks the next report until resolved | NFR-R5 — billing accuracy is a trust requirement under usage pricing |
-| Source of truth | `subscription_status` on the Supabase user record stays authoritative for access state; Stripe status remains cached | Unchanged from prior decision (NFR-R4) |
+| Plan model | One flat Stripe **fixed-price** subscription per tier (Solo/Crew/Shop) — no metered price, no usage records | PRD Pricing & Metering (flat tiers); the bill is perfectly predictable, which is the product promise |
+| Tier assignment | `subscription_tier` on the org record; set at checkout, changed via a **tier-change prompt** when invoicing volume (invoices issued per cycle) sustainably exceeds the tier band | FR53/FR55 — invoice volume decides tier *placement only* (counted from the fixed `invoices` table, uniform across tenants — never from the per-tenant generated "jobs" workspace), and never a live meter the owner watches tick up |
+| What each tier includes | Unlimited team members, customers, historical records, and spreadsheet import; no per-seat/per-record charge; no contract | FR30 — the all-inclusive promise is a direct answer to incumbent per-tech fees and lock-in hikes |
+| Stripe integration | Stripe Checkout (fixed price) + Customer Portal + webhook (`checkout.session.completed`, `customer.subscription.deleted`, `invoice.payment_failed`, `invoice.paid`) → updates `subscription_status` | ~4h integration; no usage-reporting job to build |
+| Reconciliation | A cron compares the tier held in Stripe to `subscription_tier` in Supabase every cycle; drift pages before it can affect access | NFR-R5 (reframed) — billing accuracy is a trust requirement |
+| Source of truth | `subscription_status` on the org record stays authoritative for access state (trial → active → read-only → grace → deleted); Stripe status remains cached | Unchanged (NFR-R4) |
 
-**Cross-cutting note:** the spend-cap check is the one place metering reaches into every
-table's create flow. It lives in a single shared guard (`assertUnderCap(orgId)`) called
-at the top of any record-insert route, so no table's add path can bypass it.
+**Removed with metering:** `org_usage`, `org_billing_settings`, `assertUnderCap()`, the
+`report-usage` and `reconcile-usage` crons, `STRIPE_METERED_PRICE_ID`, `UsageMeter`/`useUsage`,
+and the record-create spend-cap gate. Record creation and import are now **unbounded by billing**.
+
+---
+
+### Invoicing, Payments & Delivery (MVP)
+
+The product heart (PRD FR82–95): turning finished work into a sent, compliant invoice and a
+tracked payment. This is a **fixed, compliant module identical for every tenant — NOT an
+AI-generated table.** Compliance (correct HST, mandatory legal identity, immutable issued
+documents) cannot be left to per-tenant generation, so invoicing gets its own dedicated typed
+platform tables and its own Invoices tab, while the operational workspace around it stays
+generated in the JSONB record store.
+
+**Data model — dedicated typed platform tables (not the JSONB records store).**
+
+| Table | Shape (indicative) | Notes |
+|---|---|---|
+| `business_profiles` | `organization_id` (PK/FK), `legal_name`, `operating_name`, `entity_type`, `jurisdiction`, `gst_hst_number`, `gst_hst_effective_date`, `logo_url`, `addresses` (jsonb), `payment_terms`, `payment_instructions` (jsonb: e-transfer email, cheque payable-to + mailing address, owner card link), `default_invoice_language` | Identity captured **once** (FR83) — identity capture, not a template designer. One clean template renders from it |
+| `invoices` | `id`, `organization_id`, `invoice_number` (**unique per org**), `status` (`draft`/`issued`/`paid`/`overdue`/`void`), `customer_record_id` (**nullable, loose FK into `records`**), `supplier_snapshot` (jsonb), `customer_snapshot` (jsonb), `place_of_supply_province`, `language`, `currency`, `subtotal`, `tax_total`, `total`, `issue_date`, `due_date`, `pdf_path`, `share_token`, `issued_at`, `paid_at`, `actor_id`, `created_at`, `updated_at` | Snapshots freeze identity onto the finalized invoice (FR86). The customer link is **loose** — a nullable id into the generated `records` plus a frozen snapshot — so invoicing works regardless of how a tenant's schema was generated |
+| `invoice_line_items` | `id`, `invoice_id`, `description`, `quantity`, `unit_price`, `amount`, `sort_order` | Labour + parts on completion; descriptions differ per trade, shape does not |
+| `invoice_tax_lines` | `id`, `invoice_id`, `tax_label` (e.g. `HST`), `rate`, `base_amount`, `tax_amount` | HST shown as a **separate line, never split** into federal/provincial (FR84) |
+| `credit_notes` (+ `credit_note_line_items`, `credit_note_tax_lines`) | `id`, `organization_id`, `credit_note_number` (**own unique per-org sequence**), `invoice_id` (FK), `pdf_path`, `issued_at`; lines/tax in the **same child-table shape as invoices** (so one PDF render path serves both) | The **only** way to correct an issued invoice (FR88) |
+| `invoice_payments` | `id`, `invoice_id`, `method`, `paid_date`, `amount`, `reference`, `actor_id`, `created_at` | Mark-as-Paid reconciliation (FR91); mutable metadata — no money is processed or held by Scheza at MVP |
+
+RLS on all six via the same membership resolver (`organization_id IN (SELECT auth_org_ids())`)
+— one policy shape per table, identical to `records`. All writes go through the guarded
+mutation layer (`mutate.ts`, identity as explicit parameter, `actor_id`).
+
+| Concern | Decision |
+|---|---|
+| Compliance backbone (Ontario, EN) | Full-detail invoice regardless of amount; supplier legal + operating name shown together with GST/HST number (FR85); place-of-supply-driven Ontario HST as one separate line (FR84); unique invoice number; identity snapshotted onto the finalized invoice (FR86). Per the Canada Invoice Compliance Guide |
+| Issuance validation (FR87) | `assertIssuable(invoice)` — a synchronous gate in the mutation layer, **the same pattern as the Schema Validator**: blocks issue when tax is charged without a valid registration, HST is split into components, totals don't reconcile, or legal identity is missing; returns a plain-language reason |
+| Immutability (FR86, FR88) | Issued invoices are immutable, enforced **both** in the mutation layer **and** by a Postgres trigger (a guarantee the JSONB store could not give — a reason invoicing lives in typed tables). The trigger is a **status-transition whitelist**, not a blanket freeze (see invariant I7 below): it permits only `issued→paid`, `issued→void`, `issued/paid→overdue` while freezing every other column, and it also freezes the child line/tax tables of an issued invoice. Corrections only via a linked `credit_notes` row in its own sequence |
+| Invoice as data + frozen PDF (FR89) | The invoice is stored as the rows above; the PDF is **rendered in-house** (`@react-pdf/renderer`) from that data and a copy is **frozen to a private Supabase Storage bucket on send** (`pdf_path`), giving an immutable record of exactly what the customer received and satisfying six-year retention |
+| Build vs buy (PRD open question) | **Build in-house**, not Stripe Invoicing/Tax. Rationale: MVP payments are out-of-band (no processor, funds never held by Scheza), Stripe Connect is deferred to Phase 3, and the invoice supplier must be the **owner's** legal identity + GST number, not Scheza's platform account — all of which Stripe Invoicing fights. Ontario single-province HST is a trivial in-house calc. Revisit Stripe Tax only if multi-province tax later explodes |
+| Payments — out-of-band (FR90–92) | No processor at MVP. A structured **Payment Instructions block** on every invoice (from `business_profiles.payment_instructions`); **Mark as Paid** records method/date/amount/reference into `invoice_payments`; the **Invoices tab defaults to an Unpaid/Overdue view** derived from `status` + `due_date`, which works uniformly across all tenants regardless of generated schema (the earlier schema-dependent "completed, not invoiced" idea is dropped) |
+| Delivery (FR93–94) | **PDF-first, from the owner's own number/account.** Mobile: the phone's native **Web Share API** shares the frozen PDF through the owner's own WhatsApp/Messages/email (no WhatsApp Business API, no cost). SMS can't attach a PDF, so it carries an **unguessable secure link** (`share_token`) to the same PDF. Desktop: **Resend** sends the email with the PDF attached, **reply-to the owner's address**, plus **Download PDF** and **Copy Link** |
+| Secure link surface | `GET /i/[token]` — a new **no-auth, non-enumerable public-read** route that streams the frozen PDF from storage for a high-entropy `share_token` (invoices are not enumerable by outsiders; no customer login). This parallels the existing public intake-form path — the second and last unauthenticated surface, deliberately narrow (read-only, one PDF, token-gated) |
+| Province seam (Quebec-later) | Language and tax follow the **customer's** province (place of supply), stored on the customer record and snapshotted onto the invoice as `place_of_supply_province`/`language`. MVP: Ontario (English, HST). A Quebec invoice (French, GST 5% + QST 9.975% on separate lines, QST number) is a data/config extension of the same tables — **no re-architecture** (FR95). French *invoice* terminology (under legal review) is prioritized over a full French *UI*; next-intl already carries EN/FR |
+| Retention vs offboarding (tension resolved) | Six-year statutory retention of invoices + PDFs **overrides** the PIPEDA 30-day offboarding cascade: the offboarding hard-delete **excludes** `invoices`/`credit_notes`/`invoice_payments` rows and their frozen PDFs while under legal retention. Recorded on the top-level PIPEDA compliance statement (§Project Context — NFR Compliance) so the offboarding cascade is written correctly |
+
+**Consistency invariants (pin the module so independently-built units can't diverge).**
+Numbering, money, tax, tokens, storage, and immutability each have more than one reasonable
+implementation; without a fixed contract two units would each obey the spec yet build
+incompatibly. These are binding:
+
+- **I1 — Numbering.** `invoice_number` and `credit_note_number` are each a **per-org sequence allocated inside the same transaction that flips status to `issued`** (never a `max()+1` read-then-write). Format is one documented pattern (zero-padded, no prefix). Numbers are **never reused**; a `void` leaves a **permanent gap** (an audit property, not a bug). Invoice and credit-note sequences are **two independent per-org namespaces**.
+- **I2 — Money totals: computed once, then stored.** `lib/invoicing/tax.ts` owns the *single* canonical computation — line `amount = round(quantity × unit_price, 2)`, `subtotal = Σ line amounts`, tax per I3, `total = subtotal + tax_total`. The `invoices` columns are written **only** from that function's output, and `assertIssuable` calls the **same** function to verify equality — never a second implementation.
+- **I3 — HST rounding + registration date.** HST = `round(subtotal × rate, 2)` computed **once on the invoice subtotal** (not per line). Registration validity is the single predicate `gst_hst_effective_date <= invoice.issue_date`, living in **one shared helper** that both `tax.ts` and `validate.ts` import; `issue_date` is the one reference date. (This prevents the deadlock where `tax.ts` charges HST but `validate.ts` blocks it, or vice-versa.)
+- **I4 — `share_token`.** A fixed-format high-entropy string (128-bit, base62url, stored `text` — documented alphabet/length). **Minted once at issue, never rotated on re-send** (the link is stable). `GET /i/[token]` returns **404/410 once the invoice is `void`**.
+- **I5 — Storage access.** One private bucket with a documented name; `pdf_path` stores the **bucket-relative object key**. `/i/[token]` is a **server proxy** — it reads the bytes server-side (platform read, no user session) and streams them; it **never** redirects to a signed storage URL (so revocation-on-void and non-enumerability are actually enforced, and no direct storage URL ever leaks).
+- **I6 — Snapshot authority.** After issue, the PDF and **all** rendering read **exclusively** from `supplier_snapshot`/`customer_snapshot`; `customer_record_id` is a navigation back-reference only, **never** a render source. Snapshots are populated **in the issue transaction**, not at draft creation — so the frozen six-year PDF, the stored snapshot, and any re-render always agree even after the live customer/business record changes.
+- **I7 — Immutability trigger is a transition whitelist.** The trigger permits only `issued→paid`, `issued→void`, and `issued/paid→overdue` (freezing every other column of an issued/paid/void invoice), and additionally **blocks INSERT/UPDATE/DELETE on `invoice_line_items` and `invoice_tax_lines` whose parent is issued/paid/void**. `invoice_payments` stays freely mutable. (A blanket "reject any UPDATE on issued rows" would block Mark-as-Paid itself and would leave the child lines unprotected.)
+- **I8 — One render path.** Because credit notes reuse the invoice child-table shape (above), `lib/invoicing/pdf.tsx` renders invoices and credit notes from **one** structure.
+
+**Ship-gate (from the PRD):** an Ontario lawyer and a CPA must review the invoice templates,
+HST logic, and terms before invoicing goes live. The product promise must be precise — Scheza
+helps create invoices carrying configured compliance information; it must **never** claim every
+invoice is legally compliant. Invoice emails stay strictly transactional (CASL).
+
+**Explicitly deferred (Phase 2 / Phase 3):** construction/renovation proper-invoice mode,
+statutory holdback, progress billing, recurring-contract billing, and auto-repair invoices
+(Phase 2 — different compliance surface); Stripe Connect card processing, Interac auto-reconcile,
+WhatsApp Business API sending, and Gmail/Outlook owner-inbox integration (Phase 3 — the AI-runs
+automation).
 
 ---
 
@@ -600,14 +682,14 @@ The PRD's autonomous operator ("digital employee," FR62–FR69) is **Phase 3 —
 nor Growth** — and nothing agentic is built here. But four new NFRs (NFR-FC1–FC4) are
 explicit **MVP build constraints**: they govern *how* MVP code is written so the operator
 can be added later without re-architecture or tearing a hole in the security fence. These
-are the cheap-now/expensive-later seams — the same reasoning that put usage metering on
-Day 1. Each is a limit on MVP code, **not** MVP feature work.
+are the cheap-now/expensive-later seams — build the seam before it is needed rather than
+retrofit it after code has scattered. Each is a limit on MVP code, **not** MVP feature work.
 
 | Seam | MVP requirement | Why it must be an MVP constraint |
 |---|---|---|
 | **Guarded mutation layer** (NFR-FC1) | Every tenant-data write — record CRUD, import commit — goes through one shared path (`src/lib/data/mutate.ts`) under an **org-scoped, RLS-enforced** identity. **Critically, `mutate.ts` receives identity as an explicit parameter — it never reads request cookies** — so an out-of-band worker (no cookie) can call the identical layer (this is what makes FC3 actually usable, not just aspirational). It also carries `actorId`, an optional `idempotencyKey`, and `expectedVersion`. No code path writes tenant rows with the raw service-role key; service role is reserved for narrow platform-bootstrap ops (anonymous pre-claim generation, claim-time org bootstrap, cross-org cron, offboarding cascade). No runtime DDL. | Retrofitting "route all writes through one guarded, identity-scoped layer" after CRUD is scattered across routes is a large, error-prone refactor — and a cookie-bound layer would have to be rewritten the day a worker needs it. A Phase 3 agent becomes *another* org-scoped identity through the same layer — auditable and RLS-bound — not a service-role backdoor. |
 | **Authoritative event stream** (NFR-FC2) | The Growth activity log (`org_activity_log`), when built, is a monotonic, append-only, per-org sequence read via a **replayable cursor**. Realtime/`NOTIFY` is a wake-up hint only, never the system of record. | An operator resumes work from a durable position across restarts; an ephemeral pub/sub channel cannot be replayed and would drop events on any worker downtime. |
-| **Out-of-band compute seam** (NFR-FC3) | MVP must not assume request-scoped compute is the only compute. A documented seam lets a persistent or scheduled worker read the event stream and invoke the guarded mutation layer out-of-band. MVP already exercises this shape with **Vercel Cron** (usage report + reconcile) hitting `CRON_SECRET`-protected routes that call shared `lib/` logic — the same logic a future worker calls. | The operator needs always-on compute; if MVP business logic is welded to the HTTP request lifecycle, none of it is reusable out-of-band. Keeping logic in `lib/` (callable by a route *or* a worker) is the seam. |
+| **Out-of-band compute seam** (NFR-FC3) | MVP must not assume request-scoped compute is the only compute. A documented seam lets a persistent or scheduled worker read the event stream and invoke the guarded mutation layer out-of-band. MVP already exercises this shape with **Vercel Cron** (tier reconciliation + trial/offboarding lifecycle sweeps) hitting `CRON_SECRET`-protected routes that call shared `lib/` logic — the same logic a future worker calls. | The operator needs always-on compute; if MVP business logic is welded to the HTTP request lifecycle, none of it is reusable out-of-band. Keeping logic in `lib/` (callable by a route *or* a worker) is the seam. |
 | **Action allowlist generalization** (NFR-FC4) | The Schema Validator's allowlist model (permitted-operations + blocklist + Sentry audit) is the reference pattern for a future **action allowlist**: any autonomous real-world action must be an allowlisted, validated entry, recorded to the activity log before and after execution. | The security fence is already an allowlist over *schema* ops; generalizing the same shape to *real-world* ops (send email, update status, order parts) means the fence extends rather than being rebuilt when the AI graduates from proposing structure to taking action. |
 
 **What this does NOT add to MVP scope:** no operator, no event log (Growth), no worker, no
@@ -709,9 +791,12 @@ any customer-facing tool ships** (it is the compliance gate).
   and *Hermes is a pattern (persistent memory + loop + model-agnostic tool use) that runs on
   top of a runner* — the pattern and the deployment are separable. Boring wins; revisit only
   if a managed runner's execution-time or statefulness limits bite.
-- **Agent spend budgets reuse the metering seam.** An autonomous loop spends money (LLM
-  tokens + paid APIs like DataForSEO). The same `assertUnderCap` guard shape that gates
-  record creation should gate agent action budgets — one budget primitive, two uses.
+- **Agent spend budgets need a cap-guard primitive.** An autonomous loop spends money (LLM
+  tokens + paid APIs like DataForSEO). A small `assertUnderBudget(org, actionClass)` guard in
+  the mutation/action layer bounds it — the same guard *shape* Phase 3 uses for money-spending
+  and customer-facing action classes. (Note: the MVP no longer ships a record-metering
+  `assertUnderCap` — flat tiers removed it — so this is a Phase-3 primitive to build, not an
+  MVP seam to reuse.)
 
 ---
 
@@ -724,8 +809,8 @@ any customer-facing tool ships** (it is the compliance gate).
 | CI/CD | GitHub Actions → Vercel preview + production deploys | Standard Next.js workflow; preview URLs per PR |
 | Environment management | `.env.local` (dev), Vercel project env vars (staging/production) | No `.env.production` committed to repo |
 | Monitoring | Sentry (`@sentry/nextjs` v10) | Error tracking + Schema Validator rejection logging + LLM failure tracking |
-| Email delivery | Resend v6 | Magic links, trial expiry (Day 12, 14), offboarding (Day 1, 7, 25) |
-| Scheduled jobs | Vercel Cron (declared in `vercel.json`) | Usage reporting to Stripe + usage reconciliation (NFR-R5); each hits a cron-secret-protected API route |
+| Email delivery | Resend v6 | Magic links, trial expiry (Day 12, 14), offboarding (Day 1, 7, 25), and desktop invoice delivery (PDF attached, reply-to the owner). **All invoice-related email is strictly transactional (CASL)** — no marketing content on the invoice send path |
+| Scheduled jobs | Vercel Cron (declared in `vercel.json`) | Tier reconciliation (NFR-R5) + trial/offboarding lifecycle sweeps; each hits a cron-secret-protected API route. No usage-reporting cron (flat tiers carry no metered usage) |
 | Scaling ceiling | Vercel auto-scales; Supabase free tier → Pro at 500MB or 50K MAU | NFR-SC1/SC2; explicit upgrade prompt at 20 tables or 50K rows per org |
 
 **Environment Variables (server-side only — never NEXT_PUBLIC_ prefixed):**
@@ -735,8 +820,8 @@ SUPABASE_SERVICE_ROLE_KEY          # Server API routes only
 GEMINI_API_KEY                     # Server API routes only
 STRIPE_SECRET_KEY                  # Server API routes only
 STRIPE_WEBHOOK_SECRET              # Webhook handler only
-STRIPE_METERED_PRICE_ID            # Metered usage price for usage reporting (server only)
-CRON_SECRET                        # Guards /api/cron/* routes (usage report + reconciliation)
+STRIPE_PRICE_SOLO / _CREW / _SHOP  # Fixed per-tier subscription price IDs (server only)
+CRON_SECRET                        # Guards /api/cron/* routes (tier reconciliation + lifecycle sweeps)
 RESEND_API_KEY                     # Server API routes only
 SENTRY_AUTH_TOKEN                  # Build time only
 ```
@@ -1053,9 +1138,10 @@ All AI agents MUST:
 - Use optimistic updates for all CRUD mutations (TanStack Query pattern above)
 - Never expose raw JSON schema, SQL, or error stack traces to end users
 - Include the hardened `HARDENED_SYSTEM_PROMPT` constant on every Gemini call
-- Call the shared `assertUnderCap(orgId)` guard at the top of every record-insert route (including import commit) before writing — never let a table's add path bypass the spend cap (FR55)
 - Never write imported rows before the user confirms the mapping; resolve all `unmapped` columns first (FR51–FR52)
 - Emit and persist a `reason` for every AI-generated table/field; surface it at generation time, not in settings (FR46)
+- Run every invoice issuance through `assertIssuable(invoice)` before setting `status='issued'`; never update an invoice once issued (correct via a credit note only) — this is the invoicing analogue of the Schema Validator gate (FR86–FR88)
+- Freeze the rendered PDF to the private storage bucket on send and stamp `pdf_path`; serve the customer-facing copy only via the token route `/i/[token]`, never a bucket-enumerable path (FR89, FR93)
 
 ---
 
@@ -1071,7 +1157,7 @@ scheza/
 ├── tailwind.config.ts
 ├── tsconfig.json
 ├── components.json                    # shadcn/ui configuration
-├── vercel.json                        # Vercel Cron schedules (usage report + reconciliation)
+├── vercel.json                        # Vercel Cron schedules (tier reconciliation + trial/offboarding lifecycle sweeps)
 ├── .eslintrc.json                     # includes CI lint gate for service role key
 ├── .env.local                         # local dev (gitignored)
 ├── .env.example                       # committed, no real values
@@ -1101,8 +1187,13 @@ scheza/
 │   │   ├── forms/
 │   │   │   └── [slug]/
 │   │   │       └── page.tsx           # Public intake form (no auth, schema-derived fields)
+│   │   ├── i/
+│   │   │   └── [token]/
+│   │   │       └── route.ts           # GET (public, no-auth, non-enumerable): stream frozen invoice PDF by share_token (FR93)
+│   │   ├── invoices/
+│   │   │   └── page.tsx               # Invoices tab (Unpaid/Overdue default view; create/issue/send/mark-paid UI)
 │   │   ├── settings/
-│   │   │   └── page.tsx               # Admin settings (billing, invite, data export, offboarding)
+│   │   │   └── page.tsx               # Admin settings (billing, invite, business profile, data export, offboarding)
 │   │   └── api/
 │   │       ├── generate/
 │   │       │   └── route.ts           # POST: prompt → Gemini → Validator → provision → inject
@@ -1123,17 +1214,22 @@ scheza/
 │   │       │   ├── analyze/
 │   │       │   │   └── route.ts       # POST: parse file + Gemini column mapping → ImportProposal (FR48–51)
 │   │       │   └── commit/
-│   │       │       └── route.ts       # POST: confirmed mapping → clear synthetic + bulk insert (FR52; assertUnderCap)
-│   │       ├── usage/
-│   │       │   └── route.ts           # GET: current-cycle active-record usage vs. allotment (FR54)
+│   │       │       └── route.ts       # POST: confirmed mapping → clear synthetic + bulk insert (FR52)
+│   │       ├── invoices/
+│   │       │   ├── route.ts           # GET list (Unpaid/Overdue default view, FR92) / POST create (from record or standalone, FR82)
+│   │       │   └── [id]/
+│   │       │       ├── issue/route.ts # POST: assertIssuable() gate → freeze number + render+store PDF → status=issued (FR86–89)
+│   │       │       ├── send/route.ts  # POST: desktop send via Resend (PDF attached, reply-to owner) (FR94)
+│   │       │       ├── pay/route.ts   # POST: Mark as Paid → invoice_payments (method/date/amount/ref, FR91)
+│   │       │       └── credit-note/route.ts # POST: issue a linked credit note in its own sequence (FR88)
+│   │       ├── business-profile/
+│   │       │   └── route.ts           # GET/PUT: reusable Business Profile identity capture (FR83)
 │   │       ├── cron/
-│   │       │   ├── report-usage/
-│   │       │   │   └── route.ts       # POST (cron): count active records → Stripe usage record (FR53)
-│   │       │   └── reconcile-usage/
-│   │       │       └── route.ts       # POST (cron): reconcile reported vs. live count, ±1% (NFR-R5)
+│   │       │   └── reconcile-tier/
+│   │       │       └── route.ts       # POST (cron): Stripe tier vs. subscription_tier drift check (NFR-R5)
 │   │       └── webhooks/
 │   │           └── stripe/
-│   │               └── route.ts       # POST: Stripe webhook (subscription lifecycle, metered invoices)
+│   │               └── route.ts       # POST: Stripe webhook (flat subscription lifecycle: checkout.session.completed, subscription.deleted, invoice.paid, invoice.payment_failed)
 │   ├── components/
 │   │   ├── ui/                        # shadcn/ui components (CLI-generated, do not hand-edit)
 │   │   ├── generation/
@@ -1165,11 +1261,19 @@ scheza/
 │   │   ├── intake/
 │   │   │   └── IntakeForm.tsx         # Public form (schema-derived, no auth, 5 fields max)
 │   │   ├── billing/
-│   │   │   ├── UpgradeButton.tsx      # → Stripe Checkout (base + metered price; server action redirect)
+│   │   │   ├── UpgradeButton.tsx      # → Stripe Checkout (fixed per-tier price; server action redirect)
 │   │   │   ├── TrialBanner.tsx        # Day 12+ persistent banner
-│   │   │   ├── UsageMeter.tsx         # Live active-record usage vs. allotment (FR54)
-│   │   │   ├── SpendCapSettings.tsx   # Admin sets optional monthly hard cap (FR55)
+│   │   │   ├── TierCard.tsx           # Current tier + what it includes + next billing date (FR54)
+│   │   │   ├── TierChangePrompt.tsx   # Prompt when invoicing volume (invoices/cycle) sustainably exceeds the tier band (FR55)
 │   │   │   └── GracePeriodBanner.tsx  # Offboarding grace period warnings (Day 1/7/25)
+│   │   ├── invoices/
+│   │   │   ├── InvoiceList.tsx        # Unpaid/Overdue default view + status/due-date columns (FR92)
+│   │   │   ├── InvoiceEditor.tsx      # Create from record or standalone; line items + HST preview (FR82, FR84)
+│   │   │   ├── BusinessProfileForm.tsx# Identity capture: legal/operating name, GST/HST #, addresses, payment instructions (FR83, FR90)
+│   │   │   ├── IssueDialog.tsx        # assertIssuable() result + plain-language blockers (FR87)
+│   │   │   ├── MarkPaidDialog.tsx     # Method/date/amount/reference (FR91)
+│   │   │   ├── CreditNoteDialog.tsx   # Correct an issued invoice via a linked credit note (FR88)
+│   │   │   └── ShareSheet.tsx         # Web Share (mobile) / Download PDF + Copy Link + Resend send (desktop) (FR93–94)
 │   │   ├── layout/
 │   │   │   ├── Sidebar.tsx            # Desktop left nav (240px, collapsible to 64px)
 │   │   │   ├── BottomTabBar.tsx       # Mobile persistent tab bar (64px)
@@ -1199,14 +1303,20 @@ scheza/
 │   │   ├── import/
 │   │   │   ├── parser.ts              # papaparse/xlsx server-side parse → normalized rows (NFR-P7)
 │   │   │   ├── mapper.ts              # Gemini column→field mapping vs. org_schemas → ImportProposal
-│   │   │   └── commit.ts             # clear synthetic + transactional bulk insert (assertUnderCap)
+│   │   │   └── commit.ts             # clear synthetic + transactional bulk insert
 │   │   ├── billing/
-│   │   │   ├── metering.ts            # count active records per org/cycle; post Stripe usage record (FR53)
-│   │   │   ├── cap.ts                 # assertUnderCap(orgId) — shared guard for all insert paths (FR55)
-│   │   │   └── reconcile.ts           # reported-vs-live reconciliation, ±1% tolerance (NFR-R5)
+│   │   │   ├── tiers.ts               # tier definitions + Stripe price-id mapping (Solo/Crew/Shop)
+│   │   │   └── reconcile-tier.ts      # Stripe-tier vs. subscription_tier drift check (NFR-R5)
+│   │   ├── invoicing/
+│   │   │   ├── validate.ts            # assertIssuable(invoice) — issuance-blocking compliance gate (FR87)
+│   │   │   ├── tax.ts                 # place-of-supply HST calc; Ontario now, Quebec GST+QST seam (FR84, FR95)
+│   │   │   ├── numbering.ts           # per-org unique invoice + credit-note sequences (FR86, FR88)
+│   │   │   ├── pdf.tsx                # @react-pdf/renderer template → PDF buffer (FR89)
+│   │   │   ├── storage.ts             # freeze PDF to private Supabase Storage bucket; issue share_token (FR89, FR93)
+│   │   │   └── invoices.ts            # invoice/line/tax/credit-note/payment writes via the guarded mutation layer
 │   │   ├── stripe/
 │   │   │   ├── client.ts              # Stripe server client init
-│   │   │   └── webhooks.ts            # checkout.session.completed, subscription.deleted, invoice.paid handlers
+│   │   │   └── webhooks.ts            # checkout.session.completed, subscription.deleted, invoice.paid, invoice.payment_failed handlers
 │   │   ├── resend/
 │   │   │   ├── client.ts              # Resend client init
 │   │   │   └── templates.ts           # Magic link, trial day 12/14, offboarding day 1/7/25
@@ -1217,7 +1327,7 @@ scheza/
 │   │   ├── auth/
 │   │   │   └── session.ts             # getSession(), getRole(), requireAdmin() helpers
 │   │   ├── data/
-│   │   │   ├── mutate.ts              # GUARDED tenant-mutation layer. Signature takes IDENTITY as an explicit param (scoped principal + client), NEVER reads request cookies — so an out-of-band worker with no cookie can call it (resolves FC1↔FC3). Also takes actorId + optional idempotencyKey + expectedVersion. Single path for all `records` writes; composes assertUnderCap; never uses service role (NFR-FC1). Routes call it today; a Phase 3 agent role calls it too (NFR-FC3)
+│   │   │   ├── mutate.ts              # GUARDED tenant-mutation layer. Signature takes IDENTITY as an explicit param (scoped principal + client), NEVER reads request cookies — so an out-of-band worker with no cookie can call it (resolves FC1↔FC3). Also takes actorId + optional idempotencyKey + expectedVersion. Single path for all `records` and invoicing-table writes; never uses service role (NFR-FC1). Routes call it today; a Phase 3 agent role calls it too (NFR-FC3)
 │   │   │   └── records.ts             # Query layer over `records`: list/filter/sort by (organization_id, table_key) via JSONB operators (FR6, FR10); maps rows to the org_schemas field definitions
 │   │   └── utils.ts                   # normalizeTableName(), cn() classnames, formatCurrency()
 │   ├── hooks/
@@ -1229,8 +1339,8 @@ scheza/
 │   │   ├── usePWAInstall.ts           # beforeinstallprompt event capture + deferred prompt
 │   │   ├── useLanguage.ts             # EN/FR toggle (wraps next-intl setLocale)
 │   │   ├── useImport.ts               # Import flow state: upload → proposal → edit → commit
-│   │   ├── useUsage.ts                # Live active-record usage vs. allotment (FR54)
-│   │   └── useSubscription.ts         # Stripe subscription status from Supabase user record
+│   │   ├── useInvoices.ts             # TanStack Query: invoices (default Unpaid/Overdue filter), create/issue/pay mutations
+│   │   └── useSubscription.ts         # Stripe subscription status + current tier from Supabase org record
 │   ├── context/
 │   │   ├── AuthContext.tsx            # Supabase auth session + user + role
 │   │   ├── TenantContext.tsx          # Organization record + org_schema metadata
@@ -1238,7 +1348,8 @@ scheza/
 │   └── types/
 │       ├── schema.ts                  # SchemaDefinition, SchemaField (+reason/label/hidden), SchemaOperation, FieldType, TenantRecord
 │       ├── auth.ts                    # User, Organization, OrgMember, Role
-│       ├── billing.ts                 # SubscriptionStatus, TrialState, GracePeriodState, UsageCycle, SpendCap
+│       ├── billing.ts                 # SubscriptionStatus, SubscriptionTier, TrialState, GracePeriodState
+│       ├── invoicing.ts               # BusinessProfile, Invoice, InvoiceLineItem, InvoiceTaxLine, CreditNote, InvoicePayment, InvoiceStatus
 │       ├── import.ts                  # ColumnMapping, ImportProposal
 │       └── api.ts                     # ApiResponse<T>, AppError
 ├── tests/
@@ -1249,15 +1360,17 @@ scheza/
 │   │   │   └── mutate-schema.test.ts  # add_field/add_table/hide/rename metadata edits preserve records
 │   │   ├── import/
 │   │   │   └── mapper.test.ts         # Column mapping: confidence threshold, unmapped flagging (FR51)
-│   │   ├── billing/
-│   │   │   ├── metering.test.ts       # active-record count correctness per cycle (FR53)
-│   │   │   └── cap.test.ts            # assertUnderCap pauses inserts at the cap (FR55)
+│   │   ├── invoicing/
+│   │   │   ├── validate.test.ts       # assertIssuable blocks tax-without-registration, HST split, totals-not-reconciling, missing identity (FR87)
+│   │   │   ├── tax.test.ts            # Ontario HST as a separate line at place-of-supply rate; no tax when unregistered (FR84)
+│   │   │   └── numbering.test.ts      # unique per-org invoice + credit-note sequences (FR86, FR88)
 │   │   └── lib/
 │   │       └── utils.test.ts          # normalizeTableName, formatCurrency
 │   ├── integration/
-│   │   ├── rls-isolation.test.ts      # CRITICAL GATE: member of Org A sees its records; stranger sees none (membership-based RLS on `records`)
+│   │   ├── rls-isolation.test.ts      # CRITICAL GATE: member of Org A sees its records + invoices; stranger sees none (membership-based RLS)
 │   │   ├── import-commit.test.ts      # Non-destructive synthetic→real replacement, no data loss (FR52)
-│   │   ├── usage-reconciliation.test.ts # Reported vs. live count within 1% (NFR-R5)
+│   │   ├── invoice-immutability.test.ts # issued invoice cannot be UPDATEd (trigger + mutation layer); correction only via credit note (FR86, FR88)
+│   │   ├── invoice-share-link.test.ts # /i/[token] serves the PDF; wrong/absent token 404s; not enumerable (FR93)
 │   │   └── generation-pipeline.test.ts # Full prompt → schema → provision smoke test
 │   └── e2e/
 │       ├── generation-arc.spec.ts     # Landing → prompt → aha → claim
@@ -1298,9 +1411,9 @@ scheza/
 | Generation pipeline | `src/app/api/generate/route.ts` | Gemini, Schema Validator, Supabase provisioner, Resend |
 | Schema mutations | `src/app/api/schema-mutate/route.ts` | Gemini, Schema Validator, `org_schemas` metadata edit (`lib/schema/mutate-schema.ts`) |
 | Auth + claim | `src/app/api/claim/route.ts` | Supabase Auth, Resend |
-| Billing | `src/app/api/webhooks/stripe/route.ts` | Stripe SDK, Supabase user record |
-| Data import | `src/app/api/import/{analyze,commit}/route.ts` | `lib/import/*`, Gemini, Schema Validator (structure only), `assertUnderCap` |
-| Usage metering | `src/app/api/cron/{report-usage,reconcile-usage}/route.ts` | `lib/billing/*`, Stripe metered price, `org_usage` |
+| Billing (flat tiers) | `src/app/api/webhooks/stripe/route.ts`, `src/app/api/cron/reconcile-tier/route.ts` | Stripe SDK (fixed per-tier price), Supabase org record, `lib/billing/*` |
+| Data import | `src/app/api/import/{analyze,commit}/route.ts` | `lib/import/*`, Gemini, Schema Validator (structure only) |
+| Invoicing, payments & delivery | `src/app/api/invoices/*`, `src/app/api/business-profile/`, `src/app/i/[token]/` | `lib/invoicing/*` (validate, tax, numbering, pdf, storage), `lib/data/mutate.ts`, Supabase Storage, Resend, Web Share (client) |
 | Realtime | `src/hooks/useRealtimeSync.ts` | Supabase Realtime, TanStack Query |
 
 **Data Flow — Generation Pipeline:**
@@ -1351,26 +1464,37 @@ File upload (browser)
 User confirms mapping
   → POST /api/import/commit
     → lib/data/mutate.ts (guarded, user's RLS client — NFR-FC1)
-      → assertUnderCap(orgId)  [import counts toward usage]
       → transaction: soft-delete synthetic records for affected table_keys → bulk insert mapped rows into records
         → Invalidate TanStack Query cache → dashboard shows real data
 ```
 
-**Data Flow — Usage Metering & Spend Cap:**
+**Data Flow — Invoice issue → deliver → get paid:**
 
 ```
-Record create (any table)
-  → insert route → lib/data/mutate.ts (guarded layer, user's org-scoped RLS client — NFR-FC1)
-    → assertUnderCap(orgId)
-      → [under cap] insert row (RLS-enforced; never service role)
-      → [cap reached] refuse with plain-language message, set cap_reached_at (FR55)
+Create invoice (from a work record or standalone)
+  → POST /api/invoices  → lib/data/mutate.ts (guarded, user's RLS client)
+    → write invoices(status=draft) + invoice_line_items; store live customer_record_id (loose link into records) — no snapshot yet (I6)
+Issue  [single transaction]
+  → POST /api/invoices/[id]/issue
+    → tax.ts compute canonical totals + HST line (I2, I3) → validate.ts assertIssuable() reuses the same tax fn  [missing identity / tax-without-registration / HST split / totals ⇒ plain-language block, FR87]
+      → numbering.ts allocate invoice_number from per-org sequence (I1) → freeze supplier/customer snapshots (I6) → pdf.tsx render → storage.ts freeze PDF + mint share_token (I4) → status=issued
+        (all in one tx; trigger then enforces immutability + transition whitelist — I7)
+Deliver
+  → mobile: Web Share API shares frozen PDF via owner's own WhatsApp/Messages/email; SMS carries /i/[token] link
+  → desktop: POST /api/invoices/[id]/send → Resend (PDF attached, reply-to owner) | Download PDF | Copy Link
+Get paid (out-of-band)
+  → owner reconciles → POST /api/invoices/[id]/pay → invoice_payments(method,date,amount,ref) → status=paid (FR91)
+Correct
+  → POST /api/invoices/[id]/credit-note → credit_notes row in its own sequence (never edits the issued invoice, FR88)
+```
 
+**Data Flow — Flat-tier billing:**
+
+```
+Add billing → Stripe Checkout (fixed per-tier price) → checkout.session.completed webhook → set subscription_status + subscription_tier
 Vercel Cron (per cycle)
-  → POST /api/cron/report-usage  [CRON_SECRET]
-    → metering.ts: count active records (jobs+invoices+customers) per org
-      → post Stripe usage record → write org_usage.stripe_usage_record_id
-  → POST /api/cron/reconcile-usage  [CRON_SECRET]
-    → reconcile.ts: reported vs live count → >1% drift ⇒ Sentry + block next report (NFR-R5)
+  → POST /api/cron/reconcile-tier  [CRON_SECRET]
+    → reconcile-tier.ts: Stripe tier vs subscription_tier → drift ⇒ Sentry page before it affects access (NFR-R5)
 ```
 
 ---
@@ -1391,8 +1515,9 @@ Vercel Cron (per cycle)
 | Platform & Security (FR41–45) | `src/lib/schema/validator.ts`, `src/middleware.ts`, `public/manifest.json`, `tests/integration/rls-isolation.test.ts` |
 | Schema Explainability (FR46–47) | `src/lib/gemini/schema-generator.ts` (emits `reason`), `src/components/generation/ReasonBadge.tsx`, `org_schemas` JSON |
 | Data Import (FR48–52) | `src/app/api/import/`, `src/lib/import/`, `src/components/import/`, `src/hooks/useImport.ts` |
-| Billing — Usage Metering (FR53–55) | `src/app/api/cron/`, `src/app/api/usage/`, `src/lib/billing/`, `src/components/billing/UsageMeter.tsx` + `SpendCapSettings.tsx` |
-| Growth traceability (FR56–61) | Not built at MVP; substrate reserved: `public.org_activity_log`, `src/lib/billing/metering.ts` counts feed it — see §Data Architecture |
+| Billing — Flat Tiers (FR53–55) | `src/app/api/cron/reconcile-tier/`, `src/lib/billing/` (tiers, reconcile-tier), `src/components/billing/TierCard.tsx` + `TierChangePrompt.tsx` |
+| Invoicing, Payments & Delivery (FR82–95) | `src/app/api/invoices/`, `src/app/api/business-profile/`, `src/app/i/[token]/`, `src/app/invoices/`, `src/lib/invoicing/`, `src/components/invoices/`, `src/hooks/useInvoices.ts`; tables `business_profiles`/`invoices`/`invoice_line_items`/`invoice_tax_lines`/`credit_notes`/`invoice_payments` — see §Invoicing, Payments & Delivery |
+| Growth traceability (FR56–61) | Not built at MVP; substrate reserved: `public.org_activity_log` — see §Data Architecture |
 | Phase-3 traceability (FR62–69) | Neither MVP nor Growth; only the MVP seams exist: `src/lib/data/mutate.ts` (guarded RLS-scoped writes), `lib/` logic callable out-of-band, action-allowlist model from `src/lib/schema/validator.ts` — see §Forward-Compatibility Seams |
 
 **Cross-Cutting Concern Locations:**
@@ -1424,22 +1549,24 @@ The feature-based directory structure maps directly to FR categories. Every cros
 
 **Functional Requirements Coverage:**
 
-All 55 MVP FRs are architecturally supported; the MVP relationship FRs (FR70–FR78) are
-supported by §Relationships; the Growth-phase FRs (FR56–FR61, plus advanced relations
-FR79–FR81) are traced but intentionally not built at MVP; and the 8 Phase-3 FRs (FR62–69)
-are traced to the Forward-Compatibility seams but are neither MVP nor Growth scope:
+All MVP FRs are architecturally supported; the MVP relationship FRs (FR70–FR78) are
+supported by §Relationships; the invoicing FRs (FR82–FR95) by §Invoicing, Payments &
+Delivery; the Growth-phase FRs (FR56–FR61, plus advanced relations FR79–FR81) are traced
+but intentionally not built at MVP; and the 8 Phase-3 FRs (FR62–69) are traced to the
+Forward-Compatibility seams but are neither MVP nor Growth scope:
 - FR1–FR5 (App Generation): `api/generate/` pipeline + Gemini + Schema Validator + fallback
 - FR70–FR78 (Relationships & Lookups, MVP): §Relationships — `relationConfig` on `SchemaField`, batched forward label resolution, JSONB-containment reverse related list, reference-count delete guard in `lib/data/mutate.ts`, Validator target-table check (NFR-S7)
 - FR6–FR12 (Data Management): DataTable/CardList + RecordForm + Supabase Realtime
 - FR13–FR17 (Conversational Editor): `api/schema-mutate/` + append-only Validator + SchemaDiffPreview
 - FR18–FR24 (Auth/Permissions): Supabase Auth magic links + role metadata + admin gate in all schema routes
 - FR25–FR28 (Intake Forms): `api/intake/[slug]/` + public `forms/[slug]/page.tsx` + Realtime push + Resend email (FR28 email-only MVP; no VAPID/web push infrastructure)
-- FR29–FR33 (Billing): Stripe Checkout + Customer Portal (base + metered price) + webhook handler + subscription_status cache
+- FR29–FR33 (Billing): Stripe Checkout + Customer Portal (fixed per-tier price) + webhook handler + subscription_status cache
 - FR34–FR40 (Localization/Compliance): next-intl + `api/export/` + PIPEDA consent in ClaimFlow + cascade delete via Stripe webhook
 - FR41–FR45 (Platform/Security): PWA manifest + Schema Validator + RLS isolation test + Sentry logging
 - **FR46–FR47 (Schema Explainability):** `reason` emitted by `schema-generator.ts`, surfaced via `ReasonBadge.tsx` at generation; override reuses append-only hide
 - **FR48–FR52 (Data Import):** `api/import/{analyze,commit}` + `lib/import/*` + `MappingPreview` + Gemini mapping + non-destructive replace
-- **FR53–FR55 (Usage Metering):** `lib/billing/metering.ts` + `api/cron/report-usage` + `UsageMeter` + `assertUnderCap` spend-cap guard
+- **FR53–FR55 (Flat Tiers):** `subscription_tier` on the org + Stripe fixed per-tier price + `TierCard`/`TierChangePrompt` (tier-change prompt, no metering/overage)
+- **FR82–FR95 (Invoicing, Payments & Delivery):** dedicated typed tables + `lib/invoicing/*` (assertIssuable gate, HST calc, per-org numbering, @react-pdf/renderer PDF frozen to Supabase Storage) + out-of-band `invoice_payments` + Unpaid/Overdue default view + Web Share/Resend/`/i/[token]` delivery + Ontario-now/Quebec-later province seam
 - **FR56–FR61 (Growth, traced not built):** reserved `org_activity_log` substrate; workflow execution engine, suggestion layer, learned patterns, and Business Snapshot are Growth-phase (see §Data Architecture and Areas for Future Enhancement)
 - **FR62–FR69 (Phase 3 — Autonomous Operations, traced not built):** the autonomous operator, per-action-type trust threshold, digital-crew roles (FR68), and connected external tools via MCP (FR69) are gated on proven retention + records-growth; the MVP claims only the Forward-Compatibility seams (guarded mutation layer, authoritative event stream, out-of-band worker seam, action-allowlist generalization) — see §Forward-Compatibility Seams
 
@@ -1454,13 +1581,13 @@ are traced to the Forward-Compatibility seams but are neither MVP nor Growth sco
 - NFR-SC1–SC3 (scalability): Vercel auto-scaling + explicit 20-table/50K-row upgrade prompt
 - NFR-A1–A4 (accessibility): shadcn/ui Radix primitives, 48×48px targets, schema-derived ARIA labels, visible form labels
 - NFR-R1–R4 (reliability): CRUD independent of LLM, fallback schema at timeout, subscription_status cached
-- **NFR-R5 (usage reconciliation ±1%):** `reconcile-usage` cron compares reported vs. live counts, Sentry-alerts and blocks the next report on drift
+- **NFR-R5 (tier reconciliation):** `reconcile-tier` cron compares the Stripe subscription tier vs. `subscription_tier` in Supabase each cycle, Sentry-pages on drift before it can affect access
 - **NFR-FC1 (guarded, RLS-scoped mutation layer):** all tenant writes route through `src/lib/data/mutate.ts` under the user's org-scoped RLS client; service role never writes tenant rows (see §Forward-Compatibility Seams, §Authentication & Security)
 - **NFR-FC2 (authoritative append-only event stream):** `org_activity_log` (Growth) is a monotonic per-org sequence read via a replayable cursor; Realtime/`NOTIFY` is a wake-up hint only (see §Data Architecture)
 - **NFR-FC3 (out-of-band compute seam):** tenant logic lives in `lib/` callable by a route or a future worker; MVP already exercises the shape via `CRON_SECRET`-protected Vercel Cron routes
 - **NFR-FC4 (action-allowlist generalization):** the Schema Validator allowlist model is the reference pattern for a future real-world action allowlist, logged before/after execution
 
-**Decision Completeness:** All 14 MVP systems have documented technology choices with verified package versions. LLM integration, Schema Validator, RLS strategy, auth flows, data import, and usage metering are fully specified with code patterns.
+**Decision Completeness:** All 14 MVP systems have documented technology choices with verified package versions. LLM integration, Schema Validator, RLS strategy, auth flows, data import, flat-tier billing, and the invoicing module are fully specified with code patterns.
 
 **Structure Completeness:** Complete project tree with 80+ named files/directories. All integration points documented. API boundaries explicit. Requirements mapped to specific file locations.
 
@@ -1474,7 +1601,8 @@ are traced to the Forward-Compatibility seams but are neither MVP nor Growth sco
 - PWA service worker caching strategy deferred — install prompt works without a SW caching strategy at MVP
 - `next-pwa` vs manual service worker not specified — implementation story can decide; both are acceptable
 - Specific Stripe webhook event handling for `invoice.payment_failed` needs implementation detail (retry logic)
-- Exact usage-report cron cadence (per-cycle vs. daily incremental) and the Stripe metered-price tiering (included allotment size, overage rate) are open PRD questions — the architecture supports either; values are configuration, not structure
+- Exact flat-tier prices (Solo/Crew/Shop) and the invoice-volume bands (invoices issued per cycle) that place a business in each tier are open PRD questions pending willingness-to-pay validation — values are configuration (`lib/billing/tiers.ts`), not structure
+- The invoice PDF template's exact layout/branding is a design detail (one clean template renders from `business_profiles`); the compliance fields it must carry are fixed (see §Invoicing) — and the lawyer/CPA ship-gate review is a release blocker, not an architecture gap
 - Import of very large files (near the 5,000-row ceiling) may need streamed parsing; `parser.ts` should stream rather than buffer the whole file to hold NFR-P7
 - Confidence threshold for flagging a column as `unmapped` (FR51) is a tunable — start conservative (flag more) to protect real data
 
@@ -1515,8 +1643,8 @@ are traced to the Forward-Compatibility seams but are neither MVP nor Growth sco
 - Generative pipeline is well-bounded with explicit fallback at two failure modes
 - Multi-tenancy is foundational and total: one static, membership-based RLS policy on one `records` table — no per-table policy to forget, no runtime RLS creation, one isolation guarantee to prove
 - The generative engine produces *metadata + rows*, never SQL/DDL — collapsing the largest security surface (LLM→DDL), the migration-engineering burden, and provisioning latency in a single decision
-- All 55 MVP FRs map to specific files and API routes; the 6 Growth FRs are traced to a reserved substrate
-- Import and metering reuse existing seams (Gemini generation for column mapping; a single `assertUnderCap` guard on every insert) rather than adding parallel systems
+- All MVP FRs map to specific files and API routes; the Growth FRs are traced to a reserved substrate
+- Import reuses the generation seam (Gemini for column mapping) rather than adding a parallel system; invoicing is deliberately the one *fixed* module — dedicated typed tables give it the compliance guarantees (numbering, immutability, tax-line integrity) the JSONB store cannot
 - Gemini remains the LLM (PRD's OpenAI/Groq mention superseded) — architecture is LLM-agnostic at the boundary, Schema Validator is the contract
 - Off-the-shelf mandate honored: Stripe Portal, Supabase Auth, shadcn/ui defaults throughout
 - Forward-compatible without over-building: the Phase-3 operator is kept alive as four cheap MVP seams (guarded RLS-scoped mutation layer, authoritative event stream, out-of-band worker seam, action-allowlist generalization) rather than premature agent infrastructure — the security fence extends to real-world actions instead of being rebuilt
@@ -1564,16 +1692,17 @@ Subsequent implementation order:
 2. Auth flow (anonymous session → magic link → claim → PIPEDA consent)
 3. Generation pipeline — single Gemini call → { schema, seedRows } → Validator (metadata) → provisioner (org_schemas upsert + seed `records`), emitting explainability `reason` (FR46–47)
 4. Dynamic UI renderer (DataTable + CardList + RecordForm from schema) + `ReasonBadge`
-5. **Data import (CSV/Excel + AI column mapping)** — primary activation event; `assertUnderCap` guard lands here alongside the insert path
-6. **Usage metering** — `org_usage`/`org_billing_settings` tables, cron report + reconcile, live meter, spend cap (cheap now, expensive to retrofit)
-7. Conversational Editor (append-only, Schema Validator gate)
-8. Real-time sync (Supabase Realtime + TanStack Query cache)
-9. EN/FR toggle (next-intl)
-10. Intake form generator
-11. Stripe billing integration (base + metered price; Checkout + Portal + webhooks)
-12. PWA setup + PIPEDA compliance (export, offboarding cascade)
+5. **Core relationships** — generation links + lookup pickers + related lists (PRD Build Priority item 4; cheapest before real data accumulates)
+6. **Data import (CSV/Excel + AI column mapping)** — primary activation event; unmetered
+7. **Invoicing, Payments & Delivery** — invoicing tables + Business Profile + `assertIssuable` gate + HST calc + PDF render/freeze to storage + out-of-band payment tracking + Web Share/Resend/`/i/[token]` delivery (PRD Build Priority item 4b; the product heart; lawyer/CPA ship-gate review before go-live)
+8. Conversational Editor (append-only, Schema Validator gate)
+9. Real-time sync (Supabase Realtime + TanStack Query cache)
+10. EN/FR toggle (next-intl)
+11. Intake form generator
+12. Stripe flat-tier billing integration (fixed per-tier price; Checkout + Portal + webhooks + tier-reconcile cron)
+13. PWA setup + PIPEDA compliance (export, offboarding cascade — **excluding** invoices/PDFs under six-year statutory retention)
 
-> **Build-priority note:** the PRD ranks usage metering and schema explainability as
-> low-effort MVP items to land early (cheap now, expensive to retrofit once customers sit
-> on legacy plans); import is the medium-effort primary-activation gate. Items 5–6 are
-> pulled forward accordingly.
+> **Build-priority note:** the PRD's own Build Priority makes invoicing (item 4b) a High-effort
+> MVP item and the product's retention driver; flat-tier billing is low-effort and no longer
+> needs to land early (there is no legacy-metering-plan retrofit risk). Import remains the
+> medium-effort primary-activation gate.
