@@ -27,7 +27,7 @@ import { reportRejection } from "@/lib/observability/report";
  *   (a) no Business Profile, or a blank `legal_name`               -> legalIdentityMissing
  *   (b) a tax line is present but the business lacks a `gst_hst_number`
  *       OR the registration is not effective as of the issue date   -> taxWithoutRegistration
- *   (c) more than one tax line, or a tax line split into components  -> taxSplit
+ *   (c) more than one tax line (the MVP Ontario path is one HST line)  -> taxSplit
  *   (d) the STORED subtotal/tax_total/total or any line amount does not
  *       equal a fresh recomputation against the real issue_date      -> totalsMismatch
  *   (e) zero line items                                              -> lineItemsRequired

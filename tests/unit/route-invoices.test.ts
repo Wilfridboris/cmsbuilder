@@ -25,6 +25,7 @@ const getInvoiceWithLineItems = vi.fn();
 const customerRecordBelongsToOrg = vi.fn();
 const saveInvoiceDraft = vi.fn();
 const discardInvoiceDraft = vi.fn();
+const issueInvoice = vi.fn();
 
 type MaybeSingle = { data: unknown; error: unknown };
 let orgRead: MaybeSingle; // organizations lookup inside resolveOrgIdentity (RLS)
@@ -65,6 +66,7 @@ vi.mock("@/lib/data/invoices", () => ({
 vi.mock("@/lib/data/invoice-mutate", () => ({
   saveInvoiceDraft,
   discardInvoiceDraft,
+  issueInvoice,
 }));
 vi.mock("@/lib/observability/report", () => ({ reportError: vi.fn() }));
 
@@ -92,6 +94,10 @@ beforeEach(() => {
   customerRecordBelongsToOrg.mockResolvedValue(true);
   saveInvoiceDraft.mockResolvedValue({ data: { id: "inv-1", version: 1 }, error: null });
   discardInvoiceDraft.mockResolvedValue({ data: { id: "inv-1" }, error: null });
+  issueInvoice.mockResolvedValue({
+    data: { id: "inv-1", version: 2, invoice_number: 1 },
+    error: null,
+  });
   getInvoiceWithLineItems.mockResolvedValue({
     data: { invoice: { id: "inv-1", version: 2 }, lineItems: [], customerLabel: null },
     error: null,
@@ -259,6 +265,72 @@ describe("PUT /api/invoices/[id] (update draft)", () => {
     const res = await PUT(bodyReq({ ...VALID_BODY, version: 1 }), idParams("inv-1"));
     expect(res.status).toBe(403);
     expect(saveInvoiceDraft).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/invoices/[id]/issue (issue invoice)", () => {
+  const ISSUE_BODY = { slug: "acme", version: 2 };
+
+  it("issues a validated draft and returns 200 with the minted number", async () => {
+    const { POST } = await import("@/app/api/invoices/[id]/issue/route");
+    const res = await POST(bodyReq(ISSUE_BODY), idParams("inv-1"));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data).toEqual({
+      id: "inv-1",
+      version: 2,
+      invoice_number: 1,
+    });
+    const [, input] = issueInvoice.mock.calls[0];
+    expect(input).toEqual({ invoiceId: "inv-1", version: 2 });
+  });
+
+  it("401 unauthorized before any write", async () => {
+    const { POST } = await import("@/app/api/invoices/[id]/issue/route");
+    getCurrentUser.mockResolvedValue(null);
+    const res = await POST(bodyReq(ISSUE_BODY), idParams("inv-1"));
+    expect(res.status).toBe(401);
+    expect(issueInvoice).not.toHaveBeenCalled();
+  });
+
+  it("403 forbidden for a Member before any write", async () => {
+    const { POST } = await import("@/app/api/invoices/[id]/issue/route");
+    requireAdmin.mockRejectedValue(new AppError(403, "forbidden"));
+    const res = await POST(bodyReq(ISSUE_BODY), idParams("inv-1"));
+    expect(res.status).toBe(403);
+    expect(issueInvoice).not.toHaveBeenCalled();
+  });
+
+  it("403 forbidden for a cross-org Admin (slug mismatch) before any write", async () => {
+    const { POST } = await import("@/app/api/invoices/[id]/issue/route");
+    requireAdmin.mockResolvedValue({ organization_id: "org-2", role: "admin", slug: "other" });
+    const res = await POST(bodyReq(ISSUE_BODY), idParams("inv-1"));
+    expect(res.status).toBe(403);
+    expect(issueInvoice).not.toHaveBeenCalled();
+  });
+
+  it("422 surfaces the assertIssuable block reason (no write to status)", async () => {
+    const { POST } = await import("@/app/api/invoices/[id]/issue/route");
+    issueInvoice.mockRejectedValue(
+      new AppError(422, "Invoice.error.legalIdentityMissing"),
+    );
+    const res = await POST(bodyReq(ISSUE_BODY), idParams("inv-1"));
+    expect(res.status).toBe(422);
+    expect((await res.json()).error).toBe("Invoice.error.legalIdentityMissing");
+  });
+
+  it("409 versionConflict for a stale / non-draft row", async () => {
+    const { POST } = await import("@/app/api/invoices/[id]/issue/route");
+    issueInvoice.mockRejectedValue(new AppError(409, "versionConflict"));
+    const res = await POST(bodyReq(ISSUE_BODY), idParams("inv-1"));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("versionConflict");
+  });
+
+  it("400 when the version is missing (schema rejects, no write)", async () => {
+    const { POST } = await import("@/app/api/invoices/[id]/issue/route");
+    const res = await POST(bodyReq({ slug: "acme" }), idParams("inv-1"));
+    expect(res.status).toBe(400);
+    expect(issueInvoice).not.toHaveBeenCalled();
   });
 });
 

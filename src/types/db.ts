@@ -208,12 +208,48 @@ export type InvoiceStatus = "draft" | "issued" | "paid" | "overdue" | "void";
 export type InvoiceLanguage = "en" | "fr";
 
 /**
+ * Frozen supplier identity + payment instructions snapshot (Story 12.4, I6). Captured
+ * from the Business Profile INSIDE the issue transaction; after issue all rendering
+ * reads from here, never the live `business_profiles` row. `null` before issue.
+ */
+export type SupplierSnapshot = {
+  legal_name: string;
+  operating_name: string | null;
+  entity_type: BusinessEntityType | null;
+  jurisdiction: string | null;
+  gst_hst_number: string | null;
+  gst_hst_effective_date: string | null;
+  logo_path: string | null;
+  business_address: string | null;
+  mailing_address: string | null;
+  default_payment_terms: string | null;
+  payment_etransfer_email: string | null;
+  payment_cheque_payable_to: string | null;
+  payment_cheque_address: string | null;
+  payment_card_link: string | null;
+  language: BusinessProfileLanguage;
+};
+
+/**
+ * Frozen linked-customer snapshot (Story 12.4, I6). Captures the linked record's
+ * identity at issue; `null` for a standalone invoice (no `customer_record_id`). After
+ * issue `customer_record_id` is a back-reference only — rendering reads from here.
+ */
+export type CustomerSnapshot = {
+  record_id: string;
+  table_key: string;
+  display_label: string | null;
+  data: Record<string, unknown>;
+};
+
+/**
  * Typed platform invoice parent row (Story 12.2) — NOT the JSONB records store.
- * Mirrors every column of `20260928120200_invoices.sql`. Drafting only: `status`
- * is always `'draft'` in 12.2. The money totals, supplier/customer snapshots,
- * `invoice_number`, `share_token`, and `pdf_path` columns are added by 12.3-12.5.
- * `customer_record_id` is a LOOSE reference to `records.id` (ON DELETE SET NULL);
- * the customer label resolves at read time, never stored here.
+ * Mirrors every column of `20260928120200_invoices.sql` (money columns from 12.3;
+ * issue columns from 12.4). Drafting starts at `status='draft'`; 12.4 flips it to
+ * `'issued'` and freezes `invoice_number` / `issue_date` / the snapshots /
+ * `share_token`. `pdf_path` is added by 12.5. `customer_record_id` is a LOOSE
+ * reference to `records.id` (ON DELETE SET NULL); the customer label resolves at read
+ * time for a draft and from `customer_snapshot` after issue.
  */
 export type InvoiceRow = {
   id: string;
@@ -234,6 +270,17 @@ export type InvoiceRow = {
   subtotal: number | string;
   tax_total: number | string;
   total: number | string;
+  /**
+   * Issue-time frozen columns (Story 12.4). All null until issued. `invoice_number`
+   * is the gap-free per-org integer (I1; PostgREST returns bigint as a string);
+   * `issue_date` is the server-authoritative `YYYY-MM-DD`; the snapshots freeze
+   * supplier/customer identity (I6); `share_token` is the one-time 128-bit token (I4).
+   */
+  invoice_number: number | string | null;
+  issue_date: string | null;
+  supplier_snapshot: SupplierSnapshot | null;
+  customer_snapshot: CustomerSnapshot | null;
+  share_token: string | null;
   created_at: string;
   updated_at: string;
 };

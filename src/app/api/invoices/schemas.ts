@@ -71,6 +71,19 @@ export const draftBodySchema = z.object({
 
 export type DraftBody = z.infer<typeof draftBodySchema>;
 
+/**
+ * The issue-invoice body (Story 12.4): the org `slug` and the REQUIRED `version` the
+ * caller last read (the optimistic-concurrency gate — issuing a stale or non-draft row
+ * is a 409). No `issue_date` is accepted: it is server-authoritative (TODAY), never
+ * client-supplied (no back/forward dating).
+ */
+export const issueBodySchema = z.object({
+  slug: z.string().trim().min(1),
+  version: z.number().int().nonnegative(),
+});
+
+export type IssueBody = z.infer<typeof issueBodySchema>;
+
 /** The GET list query: just the org slug. */
 export const listQuerySchema = z.object({
   slug: z.string().trim().min(1),

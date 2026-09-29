@@ -2,6 +2,7 @@ import type { ApiResponse } from "@/types/api";
 import type { InvoiceRow } from "@/types/db";
 import type { DraftBody } from "@/app/api/invoices/schemas";
 import type { CreatedInvoicePayload } from "@/app/api/invoices/route";
+import type { IssuedInvoicePayload } from "@/app/api/invoices/[id]/issue/route";
 import type { InvoiceWithLineItems } from "@/lib/data/invoices";
 
 /**
@@ -87,6 +88,27 @@ export async function updateInvoice(
     body: JSON.stringify({ slug, ...input }),
   });
   return parseEnvelope<CreatedInvoicePayload>(res);
+}
+
+/**
+ * Issue a validated draft (Story 12.4). `version` must be the version last read; the
+ * server runs the `assertIssuable` compliance gate first and throws an
+ * `InvoiceApiError` carrying the specific `Invoice.error.*` code (legalIdentityMissing,
+ * taxWithoutRegistration, taxSplit, totalsMismatch, lineItemsRequired) on any block, or
+ * `versionConflict` / `notDraft` on a stale / non-draft row. Returns the issued
+ * invoice's id, new version, and minted number.
+ */
+export async function issueInvoice(
+  slug: string,
+  id: string,
+  version: number,
+): Promise<IssuedInvoicePayload> {
+  const res = await fetch(`/api/invoices/${encodeURIComponent(id)}/issue`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ slug, version }),
+  });
+  return parseEnvelope<IssuedInvoicePayload>(res);
 }
 
 /** Discard (hard-delete) a draft. A non-draft throws `InvoiceApiError("notDraft")`. */

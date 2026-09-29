@@ -11,6 +11,10 @@ import { resolveOrgIdentity } from "@/lib/api/route-helpers";
 import { getSchema } from "@/lib/data/records";
 import { visibleTables } from "@/lib/schema/overrides";
 import { isRegistrationEffective } from "@/lib/invoicing/tax";
+import {
+  getInvoiceWithLineItems,
+  type InvoiceWithLineItems,
+} from "@/lib/data/invoices";
 
 /**
  * Shared server-side gate + context loader for the Admin-gated `/{slug}/invoices`
@@ -118,4 +122,52 @@ export async function loadInvoicePageContext(
   }
 
   return { slug, tables, defaultProvince, defaultLanguage, taxRegistered };
+}
+
+/**
+ * Load an invoice for the `/{slug}/invoices/[id]` page so it can branch draft vs issued
+ * (Story 12.4). Runs the SAME Admin gate as `loadInvoicePageContext` (redirects on any
+ * auth failure), then reads the invoice + its line/tax rows under the caller's RLS
+ * client. Returns `null` when the invoice does not exist under this org (RLS-hidden or
+ * unknown id) so the page can render a not-found state. A page load error degrades to
+ * null rather than crashing.
+ */
+export async function loadInvoiceForPage(
+  slug: string,
+  invoiceId: string,
+): Promise<InvoiceWithLineItems | null> {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login?auth=required");
+  }
+
+  try {
+    const membership = await requireAdmin(user, createAdminClient());
+    if (membership.slug !== slug) {
+      redirect(`/${slug}`);
+    }
+  } catch (err) {
+    if (err instanceof AppError) {
+      redirect(`/${slug}`);
+    }
+    throw err;
+  }
+
+  // Resolve identity + read under RLS. An AppError here (org RLS-hidden, or a transient
+  // read failure) degrades to null so the page renders the not-found state rather than
+  // crashing — honoring this function's contract, like the sibling loadInvoicePageContext.
+  // The redirects above run before this block, so no redirect() control flow is caught.
+  try {
+    const { client, orgId } = await resolveOrgIdentity(slug, user.id);
+    const result = await getInvoiceWithLineItems(client, orgId, invoiceId);
+    if (result.error || !result.data) {
+      return null;
+    }
+    return result.data;
+  } catch (err) {
+    if (err instanceof AppError) {
+      return null;
+    }
+    throw err;
+  }
 }

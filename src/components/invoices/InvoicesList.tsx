@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import type { InvoiceRow, InvoiceStatus } from "@/types/db";
+import { formatInvoiceNumber } from "@/lib/invoicing/tax";
 import { InvoiceApiError, listInvoices } from "@/lib/data/invoices-client";
 
 /**
@@ -162,6 +163,7 @@ export function InvoicesList({
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>{t("colNumber")}</TableHead>
                 <TableHead>{t("colStatus")}</TableHead>
                 <TableHead>{t("colUpdated")}</TableHead>
                 <TableHead className="text-right">{t("colAction")}</TableHead>
@@ -170,6 +172,16 @@ export function InvoicesList({
             <TableBody>
               {invoices.map((invoice) => (
                 <TableRow key={invoice.id}>
+                  <TableCell className="font-medium tabular-nums text-foreground">
+                    {invoice.invoice_number !== null &&
+                    invoice.invoice_number !== undefined
+                      ? formatInvoiceNumber(
+                          typeof invoice.invoice_number === "string"
+                            ? Number(invoice.invoice_number)
+                            : invoice.invoice_number,
+                        )
+                      : t("numberPlaceholder")}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={STATUS_VARIANT[invoice.status]}>
                       {t(STATUS_LABEL_KEY[invoice.status])}

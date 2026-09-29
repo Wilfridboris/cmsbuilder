@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   CheckCircle2,
+  FileCheck2,
   Link2,
   Loader2,
   Plus,
@@ -41,6 +42,7 @@ import {
   getInvoice,
   updateInvoice,
   discardInvoice,
+  issueInvoice,
   type InvoiceDraftInput,
 } from "@/lib/data/invoices-client";
 import { LinkedRecordPicker } from "@/components/invoices/LinkedRecordPicker";
@@ -84,6 +86,10 @@ const ERROR_KEYS = new Set([
   "amountInvalid",
   "lineItemsRequired",
   "customerRecordInvalid",
+  "legalIdentityMissing",
+  "taxWithoutRegistration",
+  "taxSplit",
+  "totalsMismatch",
   "versionConflict",
   "notDraft",
   "notFound",
@@ -153,6 +159,8 @@ export function InvoiceDraftForm({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [discardOpen, setDiscardOpen] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [issuing, setIssuing] = useState(false);
 
   const provinceId = useId();
   const languageId = useId();
@@ -299,6 +307,25 @@ export function InvoiceDraftForm({
       setError(resolveError(code));
       setDiscarding(false);
       setDiscardOpen(false);
+    }
+  };
+
+  // Issue the invoice (Story 12.4). The version must be the one last read; the server
+  // runs assertIssuable first and maps a block to a specific translated code. On success
+  // the row is now non-draft, so we push to the invoice view (the read-only issued view).
+  const handleIssue = async () => {
+    if (!invoiceId || version === null) return;
+    setIssuing(true);
+    setError(null);
+    try {
+      await issueInvoice(slug, invoiceId, version);
+      router.push(`/${slug}/invoices/${invoiceId}`);
+      router.refresh();
+    } catch (err) {
+      const code = err instanceof InvoiceApiError ? err.code : null;
+      setError(resolveError(code));
+      setIssuing(false);
+      setIssueOpen(false);
     }
   };
 
@@ -632,15 +659,27 @@ export function InvoiceDraftForm({
         </Button>
 
         {isEdit ? (
-          <Button
-            type="button"
-            variant="outline"
-            className="min-h-12 gap-2"
-            onClick={() => setDiscardOpen(true)}
-          >
-            <Trash2 aria-hidden="true" className="size-4" />
-            {t("discard")}
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-12 gap-2"
+              disabled={version === null || issuing}
+              onClick={() => setIssueOpen(true)}
+            >
+              <FileCheck2 aria-hidden="true" className="size-4" />
+              {t("issue")}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-12 gap-2"
+              onClick={() => setDiscardOpen(true)}
+            >
+              <Trash2 aria-hidden="true" className="size-4" />
+              {t("discard")}
+            </Button>
+          </>
         ) : null}
 
         <AnimatePresence>
@@ -681,6 +720,38 @@ export function InvoiceDraftForm({
           clearFeedback();
         }}
       />
+
+      <Dialog open={issueOpen} onOpenChange={setIssueOpen}>
+        <DialogContent closeLabel={t("issueCancel")}>
+          <DialogHeader>
+            <DialogTitle>{t("issueConfirmTitle")}</DialogTitle>
+            <DialogDescription>{t("issueConfirmBody")}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="min-h-12"
+              onClick={() => setIssueOpen(false)}
+            >
+              {t("issueCancel")}
+            </Button>
+            <Button
+              type="button"
+              className="min-h-12 gap-2"
+              disabled={issuing}
+              onClick={handleIssue}
+            >
+              {issuing ? (
+                <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+              ) : (
+                <FileCheck2 aria-hidden="true" className="size-4" />
+              )}
+              {issuing ? t("issuing") : t("issueConfirm")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={discardOpen} onOpenChange={setDiscardOpen}>
         <DialogContent closeLabel={t("discardCancel")}>

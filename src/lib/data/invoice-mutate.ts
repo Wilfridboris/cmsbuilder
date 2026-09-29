@@ -1,12 +1,17 @@
+import { randomBytes } from "node:crypto";
+
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
+import type { CustomerSnapshot, SupplierSnapshot } from "@/types/db";
 import {
   computeInvoiceTotals,
   computeLineAmount,
   isRegistrationEffective,
 } from "@/lib/invoicing/tax";
+import { assertIssuable } from "@/lib/invoicing/validate";
+import { getInvoiceWithLineItems } from "@/lib/data/invoices";
 import type { WritableDraft } from "@/app/api/invoices/schemas";
 
 /**
@@ -171,6 +176,246 @@ export async function saveInvoiceDraft(
 
     return {
       data: { id: row.id as string, version: row.version as number },
+      error: null,
+    };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/** The result of issuing an invoice: its id, resulting version, and minted number. */
+export type IssueInvoiceResult = {
+  id: string;
+  version: number;
+  invoice_number: number;
+};
+
+/** The distinguishable Postgres error text raised by `issue_invoice`. */
+const ISSUE_CONFLICT_MARKER = "invoice_issue_conflict";
+
+/** The base62url alphabet for the share token (fixed alphabet, Invariant I4). */
+const BASE62 =
+  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+/** Largest multiple of 62 that fits in a byte (62 * 4). Bytes >= this are rejected. */
+const BASE62_REJECT = 248;
+
+/**
+ * Mint a 128-bit base62url share token (Invariant I4): 22 base62 chars (~131 bits of
+ * entropy) from a cryptographically secure source. Fixed alphabet + length, generated
+ * server-side, minted ONCE in the issue transaction and never rotated. No `+`/`/`/`=`,
+ * so it is URL-safe for the future public `/i/[token]` route (12.6).
+ *
+ * Each character is chosen by REJECTION SAMPLING: a random byte is drawn and any byte
+ * >= 248 (the largest multiple of 62 under 256) is discarded before `% 62`, so every
+ * base62 symbol is equally likely (no modulo bias) and the 22 chars carry their full
+ * uniform keyspace.
+ */
+function mintShareToken(): string {
+  let out = "";
+  while (out.length < 22) {
+    // Draw a small pool at a time; discard biased bytes (>= 248) and map the rest.
+    for (const b of randomBytes(32)) {
+      if (b >= BASE62_REJECT) {
+        continue;
+      }
+      out += BASE62[b % 62];
+      if (out.length === 22) {
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Issue a validated draft (Story 12.4): the deliberate, validated, irreversible step
+ * that mints a gap-free per-org number, freezes supplier/customer identity + the issue
+ * date + a one-time share token, and flips `status` to `issued` in one transaction.
+ *
+ * The flow (all under the caller's RLS client, never the service role):
+ *   1. Load the draft (invoice + line items + tax lines + resolved customer label) and
+ *      the org's Business Profile.
+ *   2. Compute the SERVER-AUTHORITATIVE `issue_date` = TODAY (never client-supplied,
+ *      no back/forward dating) and `taxApplies` via the SHARED `isRegistrationEffective`
+ *      predicate against that date (I3).
+ *   3. Run the synchronous `assertIssuable` gate (FR87): it recomputes with the same
+ *      canonical `computeInvoiceTotals` (I2) and BLOCKS with a specific translated code
+ *      on legal-identity/tax-registration/tax-split/totals-mismatch/no-line-items —
+ *      nothing is written.
+ *   4. Build `supplier_snapshot` / `customer_snapshot` (I6) and mint `share_token` (I4).
+ *   5. Call the `issue_invoice` RPC (version + status='draft' + org gated); a 0-row
+ *      conflict raises `invoice_issue_conflict` -> mapped to 409 `versionConflict`.
+ *
+ * `assertIssuable` throws its own 422 `Invoice.error.*`; a missing draft is 404; a
+ * stale/non-draft row is 409.
+ */
+export async function issueInvoice(
+  identity: InvoiceMutateIdentity,
+  input: { invoiceId: string; version: number },
+): Promise<ApiResponse<IssueInvoiceResult>> {
+  try {
+    const { client, actorId, orgId } = identity;
+
+    // 1a. Load the draft (invoice + line items + tax lines + resolved customer label)
+    // under RLS. A missing row (unknown id / RLS-hidden) is a 404.
+    const loaded = await getInvoiceWithLineItems(client, orgId, input.invoiceId);
+    if (loaded.error) {
+      throw new AppError(500, "loadFailed", loaded.error);
+    }
+    if (!loaded.data) {
+      throw new AppError(404, "notFound");
+    }
+    const { invoice, lineItems, taxLines, customerLabel } = loaded.data;
+
+    // A non-draft invoice cannot be re-issued. Surface a 409 before any further work
+    // (the RPC would also reject it, but this gives the precise `notDraft` reason).
+    if (invoice.status !== "draft") {
+      throw new AppError(409, "notDraft");
+    }
+
+    // 1b. Load the org's full Business Profile (the snapshot source) under RLS.
+    const { data: profile, error: profileError } = await client
+      .from("business_profiles")
+      .select("*")
+      .eq("organization_id", orgId)
+      .maybeSingle();
+    if (profileError) {
+      throw new AppError(500, "writeFailed", profileError.message);
+    }
+
+    // 2. Server-authoritative issue date (TODAY) + shared registration predicate.
+    const issueDate = new Date().toISOString().slice(0, 10);
+
+    // 3. The synchronous compliance gate (FR87). Throws a 422 Invoice.error.* on any
+    // failure — nothing is written. It reuses computeInvoiceTotals (I2) to verify the
+    // STORED figures reconcile against the real issue date, never rewriting them.
+    assertIssuable({
+      invoice: {
+        place_of_supply_province: invoice.place_of_supply_province,
+        subtotal: invoice.subtotal,
+        tax_total: invoice.tax_total,
+        total: invoice.total,
+      },
+      lineItems: lineItems.map((item) => ({
+        description: item.description,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        amount: item.amount,
+      })),
+      taxLines: taxLines.map((line) => ({
+        label: line.label,
+        rate: line.rate,
+        base: line.base,
+        tax_amount: line.tax_amount,
+      })),
+      profile: profile
+        ? {
+            legal_name: (profile.legal_name as string | null) ?? null,
+            gst_hst_number: (profile.gst_hst_number as string | null) ?? null,
+            gst_hst_effective_date:
+              (profile.gst_hst_effective_date as string | null) ?? null,
+          }
+        : null,
+      issueDate,
+    });
+
+    // 4. Freeze the supplier identity + payment instructions (I6). assertIssuable
+    // already guaranteed a profile with a non-blank legal name.
+    const supplierSnapshot: SupplierSnapshot = {
+      legal_name: String(profile!.legal_name),
+      operating_name: (profile!.operating_name as string | null) ?? null,
+      entity_type:
+        (profile!.entity_type as SupplierSnapshot["entity_type"]) ?? null,
+      jurisdiction: (profile!.jurisdiction as string | null) ?? null,
+      gst_hst_number: (profile!.gst_hst_number as string | null) ?? null,
+      gst_hst_effective_date:
+        (profile!.gst_hst_effective_date as string | null) ?? null,
+      logo_path: (profile!.logo_path as string | null) ?? null,
+      business_address: (profile!.business_address as string | null) ?? null,
+      mailing_address: (profile!.mailing_address as string | null) ?? null,
+      default_payment_terms:
+        (profile!.default_payment_terms as string | null) ?? null,
+      payment_etransfer_email:
+        (profile!.payment_etransfer_email as string | null) ?? null,
+      payment_cheque_payable_to:
+        (profile!.payment_cheque_payable_to as string | null) ?? null,
+      payment_cheque_address:
+        (profile!.payment_cheque_address as string | null) ?? null,
+      payment_card_link: (profile!.payment_card_link as string | null) ?? null,
+      language:
+        (profile!.default_language as SupplierSnapshot["language"]) ?? "en",
+    };
+
+    // Freeze the linked customer (I6), or null for a standalone invoice. The record's
+    // data is read under RLS so a cross-org id never leaks.
+    let customerSnapshot: CustomerSnapshot | null = null;
+    if (invoice.customer_record_id) {
+      const { data: record, error: recordError } = await client
+        .from("records")
+        .select("table_key, data")
+        .eq("id", invoice.customer_record_id)
+        .eq("organization_id", orgId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      // A genuine read error is SURFACED rather than silently freezing an EMPTY customer
+      // identity into an immutable invoice. A legitimately absent/deleted record (no row,
+      // which maybeSingle returns as error=null) is not an error and degrades to a
+      // standalone-style snapshot below.
+      if (recordError) {
+        throw new AppError(500, "writeFailed", recordError.message);
+      }
+      customerSnapshot = {
+        record_id: invoice.customer_record_id,
+        table_key: (record?.table_key as string | null) ?? "",
+        display_label: customerLabel,
+        data: ((record?.data as Record<string, unknown> | null) ?? {}) as Record<
+          string,
+          unknown
+        >,
+      };
+    }
+
+    // Mint the one-time share token (I4) — generated here, passed to the RPC.
+    const shareToken = mintShareToken();
+
+    // 5. The atomic issue transaction (version + status='draft' + org gated).
+    const { data, error } = await client.rpc("issue_invoice", {
+      p_org: orgId,
+      p_invoice_id: input.invoiceId,
+      p_expected_version: input.version,
+      p_actor: actorId,
+      p_issue_date: issueDate,
+      p_supplier_snapshot: supplierSnapshot,
+      p_customer_snapshot: customerSnapshot,
+      p_share_token: shareToken,
+    });
+
+    if (error) {
+      // A 0-row match (stale version OR no longer a draft) raises the distinguishable
+      // conflict marker. Match the stable message marker, never a SQLSTATE: the RPC
+      // raises P0001 (a deterministic conflict), NOT the retryable 40001 the pooler
+      // would auto-retry.
+      if (error.message?.includes(ISSUE_CONFLICT_MARKER)) {
+        throw new AppError(409, "versionConflict");
+      }
+      throw new AppError(500, "writeFailed", error.message);
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) {
+      throw new AppError(500, "writeFailed");
+    }
+
+    return {
+      data: {
+        id: row.id as string,
+        version: row.version as number,
+        invoice_number: Number(row.invoice_number),
+      },
       error: null,
     };
   } catch (err) {
