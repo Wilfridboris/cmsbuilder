@@ -282,6 +282,14 @@ export type InvoiceRow = {
   customer_snapshot: CustomerSnapshot | null;
   share_token: string | null;
   /**
+   * Optional owner-set due date (Story 12.7, `YYYY-MM-DD`). Set on the draft via
+   * `save_invoice_draft` and frozen at issue by the immutability trigger (not in the
+   * mutable whitelist). Drives the read-time Overdue label on the Invoices receivables
+   * view (an issued invoice whose `due_date` is before today), which is derived only —
+   * `overdue` is never written to `status`. Null means Unpaid but never Overdue.
+   */
+  due_date: string | null;
+  /**
    * The bucket-relative object key of the frozen invoice PDF in the private
    * `invoice-pdfs` bucket (Story 12.5, I5): `{organization_id}/{invoice_id}.pdf`.
    * Null until the post-issue `ensureInvoicePdf` freeze succeeds; the immutability
@@ -335,4 +343,31 @@ export type InvoiceTaxLineRow = {
   sort_order: number;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * The closed vocabulary of out-of-band payment methods (Story 12.7) — matches the DB
+ * CHECK on `invoice_payments.method`. Scheza never processes, holds, or moves money;
+ * these only record HOW the owner received the payment out of band.
+ */
+export type PaymentMethod = "etransfer" | "cheque" | "card" | "other";
+
+/**
+ * A single recorded out-of-band payment (Story 12.7) — the child that flips an invoice
+ * to `paid`. Mirrors every column of `20260928121300_invoice_payments.sql`. Exactly one
+ * per invoice (`UNIQUE(invoice_id)`; partial/multiple payments are deferred). Deliberately
+ * OUTSIDE the immutability triggers (I7): it stays freely mutable while the parent invoice
+ * is frozen. Numeric columns come back as strings from PostgREST, so `amount` is typed
+ * `number | string` at the row boundary.
+ */
+export type InvoicePaymentRow = {
+  id: string;
+  invoice_id: string;
+  organization_id: string;
+  method: PaymentMethod;
+  paid_date: string;
+  amount: number | string;
+  reference: string | null;
+  actor_id: string | null;
+  created_at: string;
 };

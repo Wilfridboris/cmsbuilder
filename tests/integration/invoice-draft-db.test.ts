@@ -71,6 +71,7 @@ function draft(
   version: number | null,
   lineItems: { description: string; quantity: number; unitPrice: number }[],
   province = "ON",
+  dueDate: string | null = null,
 ) {
   return {
     invoiceId,
@@ -78,6 +79,7 @@ function draft(
     province,
     language: "en" as const,
     version,
+    dueDate,
     lineItems,
     referenceDate: new Date().toISOString().slice(0, 10),
   };
@@ -114,7 +116,7 @@ describeDb("invoice draft write path (real Supabase)", () => {
   async function invoiceRow(invoiceId: string) {
     const { data } = await admin
       .from("invoices")
-      .select("id, status, version, subtotal, tax_total, total")
+      .select("id, status, version, subtotal, tax_total, total, due_date")
       .eq("id", invoiceId)
       .maybeSingle();
     return data;
@@ -241,6 +243,34 @@ describeDb("invoice draft write path (real Supabase)", () => {
     expect(lines).toHaveLength(1); // replace-all: the two original lines are gone
     expect(lines[0].description).toBe("Only one");
     expect(Number(lines[0].amount)).toBe(10);
+  });
+
+  it("persists the owner-set due_date on the draft and round-trips it (Story 12.7)", async () => {
+    // Save with a non-null due date -> it must land in invoices.due_date.
+    const created = await saveInvoiceDraft(
+      identity,
+      draft(null, null, [{ description: "Work", quantity: 1, unitPrice: 10 }], "ON", "2026-12-01"),
+    );
+    expect(created.error).toBeNull();
+    expect((await invoiceRow(created.data!.id))?.due_date).toBe("2026-12-01");
+
+    const id = created.data!.id;
+
+    // Re-save with a DIFFERENT due date -> the update persists.
+    const changed = await saveInvoiceDraft(
+      identity,
+      draft(id, 1, [{ description: "Work", quantity: 1, unitPrice: 10 }], "ON", "2027-01-15"),
+    );
+    expect(changed.error).toBeNull();
+    expect((await invoiceRow(id))?.due_date).toBe("2027-01-15");
+
+    // Clearing it (null) is valid -> Unpaid but never Overdue.
+    const cleared = await saveInvoiceDraft(
+      identity,
+      draft(id, 2, [{ description: "Work", quantity: 1, unitPrice: 10 }], "ON", null),
+    );
+    expect(cleared.error).toBeNull();
+    expect((await invoiceRow(id))?.due_date).toBeNull();
   });
 
   it("rejects a stale-version save with versionConflict and leaves line items intact", async () => {

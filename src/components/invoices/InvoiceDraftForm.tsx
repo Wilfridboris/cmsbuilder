@@ -84,6 +84,7 @@ type LineRow = {
 const ERROR_KEYS = new Set([
   "descriptionRequired",
   "amountInvalid",
+  "dateInvalid",
   "lineItemsRequired",
   "customerRecordInvalid",
   "legalIdentityMissing",
@@ -154,6 +155,7 @@ export function InvoiceDraftForm({
   const [customerMissing, setCustomerMissing] = useState(false);
   const [province, setProvince] = useState(defaultProvince);
   const [language, setLanguage] = useState<InvoiceLanguage>(defaultLanguage);
+  const [dueDate, setDueDate] = useState("");
   const [rows, setRows] = useState<LineRow[]>([newRow()]);
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -164,6 +166,7 @@ export function InvoiceDraftForm({
 
   const provinceId = useId();
   const languageId = useId();
+  const dueDateId = useId();
   const errorId = useId();
 
   const resolveError = (code: string | null): string => {
@@ -186,6 +189,7 @@ export function InvoiceDraftForm({
         setVersion(payload.invoice.version);
         setProvince(payload.invoice.place_of_supply_province ?? defaultProvince);
         setLanguage(payload.invoice.language);
+        setDueDate(payload.invoice.due_date ?? "");
         if (payload.invoice.customer_record_id) {
           if (payload.customerLabel) {
             setCustomer({
@@ -265,6 +269,7 @@ export function InvoiceDraftForm({
     province: province.trim() === "" ? undefined : province.trim(),
     language,
     version: version ?? undefined,
+    dueDate: dueDate.trim() === "" ? undefined : dueDate.trim(),
     lineItems: rows.map((r) => ({
       description: r.description.trim(),
       quantity: toNumber(r.quantity),
@@ -470,6 +475,23 @@ export function InvoiceDraftForm({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={dueDateId}>{t("dueDateLabel")}</Label>
+            <Input
+              id={dueDateId}
+              type="date"
+              value={dueDate}
+              className="min-h-12"
+              onChange={(e) => {
+                setDueDate(e.target.value);
+                clearFeedback();
+              }}
+            />
+            <p className="text-sm text-muted-foreground text-pretty">
+              {t("dueDateHint")}
+            </p>
           </div>
         </div>
       </fieldset>

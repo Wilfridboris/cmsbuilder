@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { InvoiceDraftForm } from "@/components/invoices/InvoiceDraftForm";
 import { IssuedInvoiceView } from "@/components/invoices/IssuedInvoiceView";
 import { InvoiceDeliveryActions } from "@/components/invoices/InvoiceDeliveryActions";
+import { InvoicePaymentActions } from "@/components/invoices/InvoicePaymentActions";
 import { formatInvoiceNumber } from "@/lib/invoicing/tax";
 import { loadInvoicePageContext, loadInvoiceForPage } from "../_shared";
 
@@ -32,6 +33,16 @@ function customerEmailPrefill(
     }
   }
   return null;
+}
+
+/**
+ * Coerce a PostgREST numeric-boundary total to a plain "1234.56" string for the mark-paid
+ * amount default (Story 12.7). The dialog's amount field is a bare number input, so a raw
+ * 2-decimal string (no currency symbol/grouping) is the correct editable default.
+ */
+function invoiceTotalString(value: number | string): string {
+  const n = typeof value === "number" ? value : Number(value);
+  return (Number.isFinite(n) ? n : 0).toFixed(2);
 }
 
 /**
@@ -82,6 +93,16 @@ export default async function InvoicePage({
             taxLines={loaded.taxLines}
             locale={await getLocale()}
           />
+          {/* Mark paid: only for an issued invoice (hidden for draft/paid/void). */}
+          {loaded.invoice.status === "issued" ? (
+            <InvoicePaymentActions
+              slug={slug}
+              invoiceId={loaded.invoice.id}
+              version={loaded.invoice.version}
+              invoiceTotal={invoiceTotalString(loaded.invoice.total)}
+              language={loaded.invoice.language}
+            />
+          ) : null}
           {DELIVERABLE_STATUSES.has(loaded.invoice.status) &&
           loaded.invoice.share_token ? (
             <InvoiceDeliveryActions

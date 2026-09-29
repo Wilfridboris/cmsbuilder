@@ -7,6 +7,7 @@ import type { ApiResponse } from "@/types/api";
 import type {
   CustomerSnapshot,
   InvoiceLanguage,
+  PaymentMethod,
   SupplierSnapshot,
 } from "@/types/db";
 import {
@@ -161,6 +162,7 @@ export async function saveInvoiceDraft(
       p_tax_total: totals.taxTotal,
       p_total: totals.total,
       p_tax_lines: taxLines,
+      p_due_date: input.dueDate ?? null,
     });
 
     if (error) {
@@ -433,6 +435,122 @@ export async function issueInvoice(
         version: row.version as number,
         invoice_number: Number(row.invoice_number),
       },
+      error: null,
+    };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/** The result of recording a payment: the invoice's id and its resulting version. */
+export type RecordPaymentResult = { id: string; version: number };
+
+/** The distinguishable Postgres error text raised by `record_invoice_payment`. */
+const PAYMENT_CONFLICT_MARKER = "invoice_payment_conflict";
+
+/** The valid out-of-band payment methods (mirrors the DB CHECK + `PaymentMethod`). */
+const PAYMENT_METHODS: readonly PaymentMethod[] = [
+  "etransfer",
+  "cheque",
+  "card",
+  "other",
+];
+
+/**
+ * Record a single out-of-band payment against an ISSUED invoice and flip it to `paid`
+ * (Story 12.7). Scheza never processes, holds, or moves money — this only RECORDS what
+ * the owner received out of band (method, date, amount, optional reference).
+ *
+ * All under the caller's RLS client (never the service role, NFR-FC1):
+ *   1. Load the invoice under RLS. A missing row is 404; the precise `alreadyPaid` /
+ *      `notIssued` reasons are surfaced HERE from the current status before the RPC
+ *      (the RPC would also reject them, but this gives the specific 409 reason).
+ *   2. Call the `record_invoice_payment` RPC (version + status='issued' + org gated),
+ *      which in ONE transaction inserts exactly one `invoice_payments` row and updates
+ *      the invoice `status -> 'paid'` with `version`/`updated_at`/`actor_id`.
+ *
+ * A 0-row gate match (stale version or a status that changed under us) raises
+ * `invoice_payment_conflict` -> 409 `versionConflict`; a UNIQUE(invoice_id) race raises
+ * 23505 -> 409 `alreadyPaid`. Identity is passed explicitly; `actor_id` is recorded.
+ */
+export async function recordPayment(
+  identity: InvoiceMutateIdentity,
+  input: {
+    invoiceId: string;
+    version: number;
+    method: PaymentMethod;
+    paidDate: string;
+    amount: number;
+    reference: string | null;
+  },
+): Promise<ApiResponse<RecordPaymentResult>> {
+  try {
+    const { client, actorId, orgId } = identity;
+
+    // Defensive: the method must be one of the closed vocabulary (the zod schema already
+    // gates this on the route path, but the mutation layer never trusts its caller).
+    if (!PAYMENT_METHODS.includes(input.method)) {
+      throw new AppError(400, "methodInvalid");
+    }
+
+    // 1. Load the invoice under RLS. A missing row (unknown id / RLS-hidden) is a 404.
+    const loaded = await getInvoiceWithLineItems(client, orgId, input.invoiceId);
+    if (loaded.error) {
+      throw new AppError(500, "loadFailed", loaded.error);
+    }
+    if (!loaded.data) {
+      throw new AppError(404, "notFound");
+    }
+    const { invoice } = loaded.data;
+
+    // Surface the precise reason from the loaded status before the RPC. An already-paid
+    // invoice cannot be paid again; a draft/void/overdue invoice is not payable here
+    // (only an issued invoice flips issued->paid).
+    if (invoice.status === "paid") {
+      throw new AppError(409, "alreadyPaid");
+    }
+    if (invoice.status !== "issued") {
+      throw new AppError(409, "notIssued");
+    }
+
+    // 2. The atomic record-payment transaction (version + status='issued' + org gated).
+    const { data, error } = await client.rpc("record_invoice_payment", {
+      p_org: orgId,
+      p_invoice_id: input.invoiceId,
+      p_expected_version: input.version,
+      p_actor: actorId,
+      p_method: input.method,
+      p_paid_date: input.paidDate,
+      p_amount: input.amount,
+      p_reference: input.reference,
+    });
+
+    if (error) {
+      // A UNIQUE(invoice_id) race (a concurrent mark-paid) surfaces as 23505 -> the
+      // invoice is already paid.
+      if (error.code === "23505") {
+        throw new AppError(409, "alreadyPaid");
+      }
+      // A 0-row gate match (stale version, or the status changed under us) raises the
+      // distinguishable marker. Match the stable message marker, never a SQLSTATE: the
+      // RPC raises P0001 (a deterministic conflict), NOT the retryable 40001 the pooler
+      // would auto-retry.
+      if (error.message?.includes(PAYMENT_CONFLICT_MARKER)) {
+        throw new AppError(409, "versionConflict");
+      }
+      throw new AppError(500, "writeFailed", error.message);
+    }
+
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) {
+      throw new AppError(500, "writeFailed");
+    }
+
+    return {
+      data: { id: row.id as string, version: row.version as number },
       error: null,
     };
   } catch (err) {

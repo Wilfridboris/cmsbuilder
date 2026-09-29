@@ -87,6 +87,7 @@ function issuedLoaded(): InvoiceWithLineItems {
       total: "226.00",
       invoice_number: "1",
       issue_date: "2026-09-29",
+      due_date: null,
       supplier_snapshot: SUPPLIER_SNAPSHOT,
       customer_snapshot: null,
       share_token: "0123456789ABCDEFGHIJKL",

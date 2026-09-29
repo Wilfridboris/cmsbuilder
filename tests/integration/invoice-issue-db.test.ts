@@ -259,6 +259,15 @@ describeDb("invoice issue path (real Supabase)", () => {
     expect(upd.error).not.toBeNull();
     expect(upd.error?.message).toContain("invoice_immutable");
 
+    // due_date is frozen at issue too (Story 12.7): it is not in the mutable whitelist,
+    // so an UPDATE on the issued invoice is rejected by the same trigger.
+    const dueUpd = await admin
+      .from("invoices")
+      .update({ due_date: "2027-01-01" })
+      .eq("id", d.id);
+    expect(dueUpd.error).not.toBeNull();
+    expect(dueUpd.error?.message).toContain("invoice_immutable");
+
     // A DELETE of a non-draft invoice is blocked.
     const del = await admin.from("invoices").delete().eq("id", d.id);
     expect(del.error).not.toBeNull();

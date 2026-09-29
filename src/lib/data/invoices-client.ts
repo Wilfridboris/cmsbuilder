@@ -4,6 +4,8 @@ import type { DraftBody } from "@/app/api/invoices/schemas";
 import type { CreatedInvoicePayload } from "@/app/api/invoices/route";
 import type { IssuedInvoicePayload } from "@/app/api/invoices/[id]/issue/route";
 import type { SentInvoicePayload } from "@/app/api/invoices/[id]/send/route";
+import type { PaidInvoicePayload } from "@/app/api/invoices/[id]/pay/route";
+import type { PaymentMethod } from "@/types/db";
 import type { InvoiceWithLineItems } from "@/lib/data/invoices";
 
 /**
@@ -129,6 +131,35 @@ export async function sendInvoice(
     body: JSON.stringify({ slug, to: input.to }),
   });
   return parseEnvelope<SentInvoicePayload>(res);
+}
+
+/** The mark-paid payload the form submits (minus the org `slug`, added by the fetcher). */
+export type RecordPaymentInput = {
+  version: number;
+  method: PaymentMethod;
+  paidDate: string;
+  amount: number;
+  reference?: string;
+};
+
+/**
+ * Record a single out-of-band payment against an issued invoice and flip it to `paid`
+ * (Story 12.7). `version` must be the version last read; the server records one payment
+ * row and flips the status in one transaction. Throws `InvoiceApiError` carrying
+ * `alreadyPaid` / `notIssued` / `versionConflict` / `methodInvalid` / `amountInvalid` /
+ * `dateInvalid` / a shared code on failure. Returns the invoice's id + new version.
+ */
+export async function recordPayment(
+  slug: string,
+  id: string,
+  input: RecordPaymentInput,
+): Promise<PaidInvoicePayload> {
+  const res = await fetch(`/api/invoices/${encodeURIComponent(id)}/pay`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ slug, ...input }),
+  });
+  return parseEnvelope<PaidInvoicePayload>(res);
 }
 
 /** Discard (hard-delete) a draft. A non-draft throws `InvoiceApiError("notDraft")`. */

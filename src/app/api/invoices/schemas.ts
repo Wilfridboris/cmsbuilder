@@ -17,6 +17,28 @@ import { z } from "zod";
 /** Invoice language vocabulary — matches the DB CHECK on `invoices.language`. */
 export const INVOICE_LANGUAGES = ["en", "fr"] as const;
 
+/** Out-of-band payment methods (Story 12.7) — matches the DB CHECK on `invoice_payments.method`. */
+export const PAYMENT_METHODS = ["etransfer", "cheque", "card", "other"] as const;
+
+/**
+ * A `YYYY-MM-DD` calendar-date validator that also rejects impossible dates (e.g.
+ * `2026-02-31`). Used for the server-authoritative-free payment `paid_date` and the
+ * draft `due_date`.
+ */
+const isoDate = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Invoice.error.dateInvalid")
+  .refine((v) => {
+    const [y, m, d] = v.split("-").map(Number);
+    const date = new Date(Date.UTC(y, m - 1, d));
+    return (
+      date.getUTCFullYear() === y &&
+      date.getUTCMonth() === m - 1 &&
+      date.getUTCDate() === d
+    );
+  }, "Invoice.error.dateInvalid");
+
 /**
  * A free-text field that treats "" as absent: trims, then maps an empty string to
  * `undefined` so the row stores NULL rather than "".
@@ -64,6 +86,12 @@ export const draftBodySchema = z.object({
   province: optionalText,
   language: z.enum(INVOICE_LANGUAGES).default("en"),
   version: z.number().int().nonnegative().optional(),
+  // Optional owner-set due date (Story 12.7). "" is treated as absent (a blank due date
+  // is valid — Unpaid but never Overdue); a non-empty value must be a real YYYY-MM-DD.
+  dueDate: z
+    .union([isoDate, z.literal("")])
+    .transform((v) => (v === "" ? undefined : v))
+    .optional(),
   lineItems: z
     .array(lineItemSchema)
     .min(1, "Invoice.error.lineItemsRequired"),
@@ -99,6 +127,30 @@ export const sendBodySchema = z.object({
 });
 
 export type SendBody = z.infer<typeof sendBodySchema>;
+
+/**
+ * The record-payment body (Story 12.7): the org `slug`, the REQUIRED `version` the caller
+ * last read (the optimistic-concurrency gate — marking a stale or non-issued row is a 409),
+ * the out-of-band `method`, the `paidDate` (`YYYY-MM-DD`), the `amount` (a finite positive
+ * number — a payment of zero or negative is rejected), and an optional free-text
+ * `reference`. Scheza never processes money; this only records what the owner received.
+ */
+export const recordPaymentSchema = z.object({
+  slug: z.string().trim().min(1),
+  version: z.number().int().nonnegative(),
+  method: z.enum(PAYMENT_METHODS, { message: "Invoice.error.methodInvalid" }),
+  paidDate: isoDate,
+  amount: z
+    .number({ message: "Invoice.error.amountInvalid" })
+    .finite("Invoice.error.amountInvalid")
+    .positive("Invoice.error.amountInvalid")
+    // Bound to the DB `numeric(15,2)` range so an out-of-range amount is a clean 400
+    // (Invoice.error.amountInvalid) rather than a Postgres 22003 -> opaque 500 writeFailed.
+    .max(9_999_999_999_999.99, "Invoice.error.amountInvalid"),
+  reference: optionalText,
+});
+
+export type RecordPaymentBody = z.infer<typeof recordPaymentSchema>;
 
 /** The GET list query: just the org slug. */
 export const listQuerySchema = z.object({
@@ -137,6 +189,8 @@ export type WritableDraft = {
   province: string | null;
   language: (typeof INVOICE_LANGUAGES)[number];
   version: number | null;
+  /** Optional owner-set due date (`YYYY-MM-DD`) or null/absent (Story 12.7). */
+  dueDate?: string | null;
   lineItems: WritableLineItem[];
 };
 
@@ -146,6 +200,7 @@ export function toWritableDraft(body: DraftBody): WritableDraft {
     province: body.province ?? null,
     language: body.language,
     version: body.version ?? null,
+    dueDate: body.dueDate ?? null,
     lineItems: body.lineItems.map((item) => ({
       description: item.description,
       quantity: item.quantity,
