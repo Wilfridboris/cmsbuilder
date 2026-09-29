@@ -2,6 +2,7 @@ import { getTranslations } from "next-intl/server";
 import { FileCheck2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { PaymentInstructionsBlock } from "@/components/invoices/PaymentInstructionsBlock";
 import { formatInvoiceNumber } from "@/lib/invoicing/tax";
 import type {
   InvoiceLineItemRow,
@@ -236,6 +237,10 @@ export async function IssuedInvoiceView({
           </div>
         </dl>
       </div>
+
+      {/* Payment instructions (Story 12.6, I6): the frozen supplier snapshot's
+          payment_* fields, null fields omitted. */}
+      <PaymentInstructionsBlock supplier={supplier} />
     </section>
   );
 }

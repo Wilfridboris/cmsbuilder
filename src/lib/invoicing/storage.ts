@@ -59,3 +59,35 @@ export async function uploadInvoicePdf(
 
   return { pdfPath: key };
 }
+
+/**
+ * Download a frozen invoice PDF object's bytes from the private `invoice-pdfs`
+ * bucket (Story 12.6). The caller supplies the client:
+ *   - the SERVICE-ROLE admin client for the public `/i/[token]` proxy (no session);
+ *   - the ACTING user's RLS client for the owner's authed email send (NFR-FC1).
+ *
+ * Returns the raw bytes as a `Uint8Array`, or `null` when there is no key, the
+ * object is missing, or the download fails (a caller renders its own 404 / repairs
+ * the freeze). Never leaks raw storage output. Mirrors `downloadLogoDataUrl` in
+ * `src/lib/storage/logo.ts`.
+ */
+export async function downloadInvoicePdf(
+  client: SupabaseClient,
+  pdfPath: string | null,
+): Promise<Uint8Array | null> {
+  if (!pdfPath) {
+    return null;
+  }
+  try {
+    const { data, error } = await client.storage
+      .from(INVOICE_PDF_BUCKET)
+      .download(pdfPath);
+    if (error || !data) {
+      return null;
+    }
+    const bytes = new Uint8Array(await data.arrayBuffer());
+    return bytes.byteLength > 0 ? bytes : null;
+  } catch {
+    return null;
+  }
+}

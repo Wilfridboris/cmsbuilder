@@ -516,6 +516,8 @@
       "taxWithoutRegistration": "Cette facture facture une taxe, mais votre profil d'entreprise n'a pas d'inscription TPS/TVH en vigueur à ce jour. Ajoutez une inscription valide ou retirez la taxe.",
       "taxSplit": "La taxe doit tenir sur une seule ligne. Les lignes de taxe fractionnées ne sont pas autorisées.",
       "totalsMismatch": "Les totaux enregistrés ne correspondent plus à cette facture. Enregistrez de nouveau le brouillon, puis émettez-la.",
+      "recipientInvalid": "Saisissez une adresse courriel valide.",
+      "sendFailed": "Nous n'avons pas pu envoyer le courriel. Veuillez réessayer.",
       "versionConflict": "Ce brouillon a changé depuis que vous l'avez ouvert. Rechargez et réessayez.",
       "notDraft": "Cette facture n'est plus un brouillon et ne peut pas être modifiée.",
       "notFound": "Nous n'avons pas trouvé cette facture.",
@@ -548,5 +550,40 @@
     "paymentCheque": "Chèque à l'ordre de",
     "paymentChequeAddress": "Envoyer le chèque à",
     "paymentCard": "Payer par carte"
+  },
+  "InvoiceDelivery": {
+    "heading": "Transmettre cette facture",
+    "subtitle": "Envoyez le PDF depuis votre propre téléphone ou boîte de réception, ou partagez-en un lien privé.",
+    "share": "Partager",
+    "shareInvoice": "Partager le PDF de la facture",
+    "shareText": "Facture {number}",
+    "copyLink": "Copier le lien",
+    "copyLinkAria": "Copier le lien privé de la facture",
+    "copied": "Lien copié",
+    "copyFailed": "Impossible de copier le lien. Copiez-le manuellement.",
+    "download": "Télécharger le PDF",
+    "downloadAria": "Télécharger le PDF de la facture",
+    "email": "Envoyer par courriel",
+    "emailDialogTitle": "Envoyer cette facture par courriel",
+    "emailDialogBody": "Nous enverrons le PDF dans un courriel strictement transactionnel. Les réponses vous parviennent directement. Confirmez le destinataire avant l'envoi.",
+    "recipientLabel": "Courriel du destinataire",
+    "recipientPlaceholder": "client@exemple.com",
+    "sendEmail": "Envoyer le courriel",
+    "sending": "Envoi...",
+    "sent": "Facture envoyée",
+    "cancel": "Annuler",
+    "closeDialog": "Fermer",
+    "error": {
+      "recipientInvalid": "Saisissez une adresse courriel valide.",
+      "sendFailed": "Nous n'avons pas pu envoyer le courriel. Veuillez réessayer.",
+      "genericError": "Une erreur s'est produite. Veuillez réessayer."
+    }
+  },
+  "InvoiceEmail": {
+    "subject": "Facture {number}",
+    "greeting": "Bonjour,",
+    "body": "Veuillez trouver ci-joint la facture {number} au format PDF. Pour toute question, il vous suffit de répondre à ce courriel.",
+    "linkIntro": "Vous pouvez aussi consulter la facture en ligne :",
+    "signature": "Merci"
   }
 }

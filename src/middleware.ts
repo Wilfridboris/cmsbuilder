@@ -32,6 +32,10 @@ const PUBLIC_TOP_LEVEL = new Set([
   // Story 2.2: the returning-user login entry point is public and is NOT a
   // tenant slug (so an unauthenticated visit is not bounced back to itself).
   "login",
+  // Story 12.6: the public invoice-PDF proxy `/i/[token]` is the product's second
+  // (and last) unauthenticated surface — a token holder must reach it without a
+  // session, so it must never be treated as a protected tenant slug.
+  "i",
 ]);
 
 export async function middleware(request: NextRequest): Promise<NextResponse> {

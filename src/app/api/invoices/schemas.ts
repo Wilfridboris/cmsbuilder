@@ -84,6 +84,22 @@ export const issueBodySchema = z.object({
 
 export type IssueBody = z.infer<typeof issueBodySchema>;
 
+/**
+ * The send-invoice body (Story 12.6): the org `slug` and the confirmed `to` recipient.
+ * `to` must be a valid email (`recipientInvalid`) — the owner always confirms/edits the
+ * address before sending; a standalone / email-less snapshot simply opens with an empty
+ * required field.
+ */
+export const sendBodySchema = z.object({
+  slug: z.string().trim().min(1),
+  to: z
+    .string()
+    .trim()
+    .email("Invoice.error.recipientInvalid"),
+});
+
+export type SendBody = z.infer<typeof sendBodySchema>;
+
 /** The GET list query: just the org slug. */
 export const listQuerySchema = z.object({
   slug: z.string().trim().min(1),

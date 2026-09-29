@@ -59,4 +59,14 @@ describe("middleware — tenant-route protection", () => {
 
     expect(res.headers.get("location")).toBeNull();
   });
+
+  it("treats /i/[token] (public invoice PDF proxy) as public — no redirect for an unauthenticated visitor (Story 12.6)", async () => {
+    const { middleware } = await import("@/middleware");
+    // A customer opening a shared invoice link has no session. Dropping "i" from
+    // PUBLIC_TOP_LEVEL would make `firstSegment === "i"` a protected slug and bounce
+    // them to /login — silently breaking every delivered link/email.
+    const res = await middleware(req("/i/some-unguessable-share-token"));
+
+    expect(res.headers.get("location")).toBeNull();
+  });
 });

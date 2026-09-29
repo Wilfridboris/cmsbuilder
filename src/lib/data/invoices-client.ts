@@ -3,6 +3,7 @@ import type { InvoiceRow } from "@/types/db";
 import type { DraftBody } from "@/app/api/invoices/schemas";
 import type { CreatedInvoicePayload } from "@/app/api/invoices/route";
 import type { IssuedInvoicePayload } from "@/app/api/invoices/[id]/issue/route";
+import type { SentInvoicePayload } from "@/app/api/invoices/[id]/send/route";
 import type { InvoiceWithLineItems } from "@/lib/data/invoices";
 
 /**
@@ -109,6 +110,25 @@ export async function issueInvoice(
     body: JSON.stringify({ slug, version }),
   });
   return parseEnvelope<IssuedInvoicePayload>(res);
+}
+
+/**
+ * Email an issued invoice with the frozen PDF attached (Story 12.6). `to` is the
+ * confirmed recipient address; the server validates it, repairs a missing freeze,
+ * attaches the PDF, and sends transactionally with reply-to the acting admin. Throws
+ * `InvoiceApiError` carrying `recipientInvalid` / `sendFailed` / a shared code on failure.
+ */
+export async function sendInvoice(
+  slug: string,
+  id: string,
+  input: { to: string },
+): Promise<SentInvoicePayload> {
+  const res = await fetch(`/api/invoices/${encodeURIComponent(id)}/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ slug, to: input.to }),
+  });
+  return parseEnvelope<SentInvoicePayload>(res);
 }
 
 /** Discard (hard-delete) a draft. A non-draft throws `InvoiceApiError("notDraft")`. */

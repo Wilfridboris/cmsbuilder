@@ -1,5 +1,5 @@
 # generated: 2026-09-23
-# last_updated: 2026-09-29 (12.4, 12.5 done)
+# last_updated: 2026-09-29 (12.6 review)
 # project: Scheza
 # project_key: NOKEY
 # tracking_system: file-system
@@ -147,7 +147,7 @@ development_status:
   12-3-totals-ontario-hst-place-of-supply: done
   12-4-issue-an-invoice-validate-number-freeze-identity-lock: done
   12-5-render-freeze-the-invoice-pdf: done
-  12-6-deliver-the-invoice-owner-s-own-channels: backlog
+  12-6-deliver-the-invoice-owner-s-own-channels: review
   12-7-track-payment-out-of-band-no-processing: backlog
   12-8-correct-an-issued-invoice-via-credit-note: backlog
   epic-12-retrospective: optional

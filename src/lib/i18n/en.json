@@ -516,6 +516,8 @@
       "taxWithoutRegistration": "This invoice charges tax, but your business profile has no effective GST/HST registration as of today. Add a valid registration or remove the tax.",
       "taxSplit": "Tax must be a single line. Split tax lines are not allowed.",
       "totalsMismatch": "The stored totals no longer match this invoice. Save the draft again, then issue it.",
+      "recipientInvalid": "Enter a valid email address.",
+      "sendFailed": "We could not send the email. Please try again.",
       "versionConflict": "This draft changed since you opened it. Reload and try again.",
       "notDraft": "This invoice is no longer a draft and cannot be changed.",
       "notFound": "We could not find that invoice.",
@@ -548,5 +550,40 @@
     "paymentCheque": "Cheque payable to",
     "paymentChequeAddress": "Mail cheque to",
     "paymentCard": "Pay by card"
+  },
+  "InvoiceDelivery": {
+    "heading": "Deliver this invoice",
+    "subtitle": "Send the PDF from your own phone or inbox, or share a private link to it.",
+    "share": "Share",
+    "shareInvoice": "Share invoice PDF",
+    "shareText": "Invoice {number}",
+    "copyLink": "Copy link",
+    "copyLinkAria": "Copy the private invoice link",
+    "copied": "Link copied",
+    "copyFailed": "Could not copy the link. Copy it manually.",
+    "download": "Download PDF",
+    "downloadAria": "Download the invoice PDF",
+    "email": "Email invoice",
+    "emailDialogTitle": "Email this invoice",
+    "emailDialogBody": "We will send the PDF as a strictly transactional email. Replies go to your own address. Confirm the recipient before sending.",
+    "recipientLabel": "Recipient email",
+    "recipientPlaceholder": "customer@example.com",
+    "sendEmail": "Send email",
+    "sending": "Sending...",
+    "sent": "Invoice sent",
+    "cancel": "Cancel",
+    "closeDialog": "Close",
+    "error": {
+      "recipientInvalid": "Enter a valid email address.",
+      "sendFailed": "We could not send the email. Please try again.",
+      "genericError": "Something went wrong. Please try again."
+    }
+  },
+  "InvoiceEmail": {
+    "subject": "Invoice {number}",
+    "greeting": "Hello,",
+    "body": "Please find invoice {number} attached as a PDF. If you have any questions, simply reply to this email.",
+    "linkIntro": "You can also view the invoice online:",
+    "signature": "Thank you"
   }
 }

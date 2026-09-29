@@ -181,6 +181,38 @@ async function resolveCustomerLabel(
 }
 
 /**
+ * Look up one invoice by its exact `share_token` for the PUBLIC `/i/[token]` proxy
+ * (Story 12.6, I4/I5). The caller passes the SERVICE-ROLE admin client because the
+ * public route has no authenticated session (there is no `auth.uid()`, so an
+ * RLS-scoped client would return nothing) — this is a documented narrow bootstrap
+ * path (the same category as the pre-auth demo read), and the route exposes ONLY the
+ * frozen PDF bytes it gates on, never any other invoice field.
+ *
+ * Matches on the full token via `.eq("share_token", token).maybeSingle()` (mirroring
+ * the `finalizeClaim` token lookup): an unknown/empty token simply returns `null`.
+ * The token is a 128-bit non-enumerable secret (I4), so an exact match is the entire
+ * authorization for the read.
+ */
+export async function getInvoiceByShareToken(
+  adminClient: SupabaseClient,
+  token: string,
+): Promise<InvoiceRow | null> {
+  if (!token) {
+    return null;
+  }
+  const { data, error } = await adminClient
+    .from("invoices")
+    .select("*")
+    .eq("share_token", token)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+  return data as InvoiceRow;
+}
+
+/**
  * Verify a `customerRecordId` belongs to the caller's org before a draft write
  * (the matrix's cross-org-link row). Reads the record under the caller's RLS
  * client scoped `id + org + deleted_at IS NULL`; a foreign / dangling / deleted id

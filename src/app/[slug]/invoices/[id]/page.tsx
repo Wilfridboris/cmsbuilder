@@ -6,7 +6,33 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { InvoiceDraftForm } from "@/components/invoices/InvoiceDraftForm";
 import { IssuedInvoiceView } from "@/components/invoices/IssuedInvoiceView";
+import { InvoiceDeliveryActions } from "@/components/invoices/InvoiceDeliveryActions";
+import { formatInvoiceNumber } from "@/lib/invoicing/tax";
 import { loadInvoicePageContext, loadInvoiceForPage } from "../_shared";
+
+/** Statuses whose issued view shows the delivery bar (hidden for draft and void). */
+const DELIVERABLE_STATUSES = new Set(["issued", "paid", "overdue"]);
+
+/**
+ * Extract an email-looking recipient from a frozen customer snapshot's `data` (Story
+ * 12.6). Prefills the send dialog ONLY when the snapshot holds a plausible email — the
+ * owner always confirms/edits before sending, so a loose heuristic is safe. Standalone
+ * / email-less snapshots yield null (an empty required field).
+ */
+function customerEmailPrefill(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  if (!data) return null;
+  for (const value of Object.values(data)) {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+        return trimmed;
+      }
+    }
+  }
+  return null;
+}
 
 /**
  * Admin-only invoice page at `/{slug}/invoices/[id]` (Story 12.2 + 12.4). Both the
@@ -49,12 +75,31 @@ export default async function InvoicePage({
       ) : loaded.invoice.status === "draft" ? (
         <InvoiceDraftFormWrapper slug={slug} id={id} />
       ) : (
-        <IssuedInvoiceView
-          invoice={loaded.invoice}
-          lineItems={loaded.lineItems}
-          taxLines={loaded.taxLines}
-          locale={await getLocale()}
-        />
+        <>
+          <IssuedInvoiceView
+            invoice={loaded.invoice}
+            lineItems={loaded.lineItems}
+            taxLines={loaded.taxLines}
+            locale={await getLocale()}
+          />
+          {DELIVERABLE_STATUSES.has(loaded.invoice.status) &&
+          loaded.invoice.share_token ? (
+            <InvoiceDeliveryActions
+              slug={slug}
+              invoiceId={loaded.invoice.id}
+              shareToken={loaded.invoice.share_token}
+              invoiceNumber={formatInvoiceNumber(
+                loaded.invoice.invoice_number === null
+                  ? null
+                  : Number(loaded.invoice.invoice_number),
+              )}
+              language={loaded.invoice.language}
+              customerEmailPrefill={customerEmailPrefill(
+                loaded.invoice.customer_snapshot?.data,
+              )}
+            />
+          ) : null}
+        </>
       )}
     </main>
   );
