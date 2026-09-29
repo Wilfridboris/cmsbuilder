@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { InviteForm } from "@/components/settings/InviteForm";
+import { BusinessProfileForm } from "@/components/settings/BusinessProfileForm";
 
 /**
  * Admin-only Settings surface at `/{slug}/settings` (Story 2.3).
@@ -60,16 +61,22 @@ export default async function SettingsPage({
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-8 px-6 py-16">
-      <header className="flex flex-col gap-2">
-        <h1 className="text-2xl font-semibold tracking-tight text-balance">
-          {t("title")}
-        </h1>
-        <p className="text-sm text-muted-foreground text-pretty">
-          {t("subtitle")}
-        </p>
-      </header>
-      <InviteForm />
+    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-12 px-6 py-16">
+      <section className="flex flex-col gap-8">
+        <header className="flex flex-col gap-2">
+          <h1 className="text-2xl font-semibold tracking-tight text-balance">
+            {t("title")}
+          </h1>
+          <p className="text-sm text-muted-foreground text-pretty">
+            {t("subtitle")}
+          </p>
+        </header>
+        <InviteForm />
+      </section>
+
+      <hr className="border-border" />
+
+      <BusinessProfileForm slug={slug} />
     </main>
   );
 }

@@ -156,3 +156,43 @@ export type RecordData = {
   version: number;
   data: Record<string, unknown>;
 };
+
+/** Business entity type (text + CHECK in the DB, never a Postgres enum). */
+export type BusinessEntityType =
+  | "sole_proprietor"
+  | "partnership"
+  | "corporation"
+  | "nonprofit"
+  | "other";
+
+/** Default invoice language (text + CHECK in the DB). */
+export type BusinessProfileLanguage = "en" | "fr";
+
+/**
+ * Singleton-per-org Business Profile row (Story 12.1) — the typed platform table
+ * that captures the owner's legal identity, tax registration, addresses, default
+ * terms/language, and a structured payment-instructions block once. Keyed by
+ * `organization_id` (one row per org). Mirrors every column of
+ * `20260928120000_business_profiles.sql`. NOT the JSONB records store.
+ */
+export type BusinessProfileRow = {
+  organization_id: string;
+  legal_name: string;
+  operating_name: string | null;
+  entity_type: BusinessEntityType | null;
+  jurisdiction: string | null;
+  gst_hst_number: string | null;
+  gst_hst_effective_date: string | null;
+  logo_path: string | null;
+  business_address: string | null;
+  mailing_address: string | null;
+  default_payment_terms: string | null;
+  default_language: BusinessProfileLanguage;
+  payment_etransfer_email: string | null;
+  payment_cheque_payable_to: string | null;
+  payment_cheque_address: string | null;
+  payment_card_link: string | null;
+  actor_id: string | null;
+  created_at: string;
+  updated_at: string;
+};

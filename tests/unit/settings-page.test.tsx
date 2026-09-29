@@ -39,6 +39,13 @@ vi.mock("@/lib/auth/rbac", () => ({ requireAdmin }));
 // recognizable marker so we can assert it renders for a same-org Admin.
 const InviteFormStub = () => null;
 vi.mock("@/components/settings/InviteForm", () => ({ InviteForm: InviteFormStub }));
+// Likewise stub the Business Profile form (Story 12.1) so this node test never
+// pulls its client deps (framer-motion / next-intl client); a recognizable marker
+// lets us assert it renders for a same-org Admin.
+const BusinessProfileFormStub = () => null;
+vi.mock("@/components/settings/BusinessProfileForm", () => ({
+  BusinessProfileForm: BusinessProfileFormStub,
+}));
 
 async function importPage() {
   const mod = await import("@/app/[slug]/settings/page");
@@ -114,6 +121,7 @@ describe("SettingsPage admin gate", () => {
     const types: unknown[] = [];
     collectTypes(tree, types);
     expect(types).toContain(InviteFormStub);
+    expect(types).toContain(BusinessProfileFormStub);
   });
 
   it("re-throws a non-AppError from the guard (no silent redirect)", async () => {
