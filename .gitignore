@@ -59,6 +59,10 @@ next-env.d.ts
 /.agents/
 /.opencode/
 
+# Scheza Marketing Site — decoupled Astro/Cloudflare sub-project (its own repo/deploy,
+# AD-12). Kept out of the cmsbuilder (Next.js) tree to avoid tooling/dependency conflicts.
+/scheza-marketing/
+
 # Playwright MCP test artifacts (screenshots, snapshots, console logs)
 .playwright-mcp/
 
