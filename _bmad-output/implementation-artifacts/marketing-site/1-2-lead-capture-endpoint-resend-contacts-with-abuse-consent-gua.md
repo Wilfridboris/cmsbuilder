@@ -129,6 +129,15 @@ context:
 - **Remaining `astro check` hints (2):** `resend.audiences.*` deprecation in
   `resend-setup.mjs` — unavoidable, it is the only SDK path to create a segment; behavior
   verified working. Not errors; CI stays green.
+- **Post-review manual check (Playwright on `astro dev`) caught a runtime crash the unit
+  tests + SDK smoke test missed.** Every POST 500'd because `resolveEnv` read
+  `context.locals.runtime.env`, which Astro v6 / adapter v14 turned into a *throwing* getter
+  (removed). Fixed: `resolveEnv` now reads solely from `import('cloudflare:workers').env`
+  (the frozen-boundary-mandated source), no `locals` access, empty-env fail-safe off-runtime.
+  Re-verified live on `astro dev`: GET→405+Allow, tokenless→400, bad email→400, forged
+  source→400, token present→403 (Turnstile fail-closed), malformed→400; EN/FR homepages
+  still render. This is the seam the reviewers flagged as untested (runtime-only, not
+  unit-testable) — the manual check is its coverage.
 
 ## Spec Change Log
 
