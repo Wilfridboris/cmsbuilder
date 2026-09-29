@@ -28,6 +28,7 @@ function baseModel(
       operatingName: "Maple Leaf Plumbing",
       gstHstNumber: "123456789 RT0001",
       businessAddress: "1 King St W, Toronto, ON",
+      logoDataUrl: null,
       paymentTerms: "Net 30",
       paymentEtransferEmail: "pay@mapleleaf.example",
       paymentChequePayableTo: "Maple Leaf Plumbing Ltd.",
@@ -68,6 +69,23 @@ describe("renderInvoicePdf", () => {
     );
     expect(buf.subarray(0, 5).toString("latin1")).toBe(PDF_MAGIC);
     expect(buf.byteLength).toBeGreaterThan(0);
+  }, 30_000);
+
+  it("actually embeds a supplier logo as an image XObject (not just renders)", async () => {
+    // A 1x1 PNG data URL — enough to exercise the <Image> path.
+    const png =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const withLogo = await renderInvoicePdf(
+      baseModel({ supplier: { ...baseModel().supplier, logoDataUrl: png } }),
+    );
+    const noLogo = await renderInvoicePdf(
+      baseModel({ supplier: { ...baseModel().supplier, logoDataUrl: null } }),
+    );
+    expect(withLogo.subarray(0, 5).toString("latin1")).toBe(PDF_MAGIC);
+    // The logo must produce an image XObject in the PDF and add real bytes —
+    // proving the <Image> is embedded, not silently dropped.
+    expect(withLogo.toString("latin1")).toContain("/Image");
+    expect(withLogo.byteLength).toBeGreaterThan(noLogo.byteLength);
   }, 30_000);
 });
 

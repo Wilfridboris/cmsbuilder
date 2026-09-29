@@ -5,6 +5,7 @@ import {
   Page,
   Text,
   View,
+  Image,
   StyleSheet,
   renderToBuffer,
 } from "@react-pdf/renderer";
@@ -37,6 +38,8 @@ export type InvoiceDocumentSupplier = {
   operatingName: string | null;
   gstHstNumber: string | null;
   businessAddress: string | null;
+  /** The frozen supplier logo as a self-contained PNG/JPEG data URL, or null. */
+  logoDataUrl: string | null;
   paymentTerms: string | null;
   paymentEtransferEmail: string | null;
   paymentChequePayableTo: string | null;
@@ -193,6 +196,15 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 24,
   },
+  headerLeft: {
+    flexDirection: "column",
+  },
+  logo: {
+    height: 44,
+    maxWidth: 180,
+    objectFit: "contain",
+    marginBottom: 8,
+  },
   title: {
     fontSize: 22,
     fontFamily: "Helvetica-Bold",
@@ -320,9 +332,14 @@ function InvoiceDocument({ model }: { model: InvoiceDocumentModel }) {
   return (
     <Document title={`${t.documentTitle} ${model.number}`}>
       <Page size="A4" style={styles.page}>
-        {/* Header: title + number/date meta */}
+        {/* Header: logo + title (left) + number/date meta (right) */}
         <View style={styles.header}>
-          <Text style={styles.title}>{t.documentTitle}</Text>
+          <View style={styles.headerLeft}>
+            {model.supplier.logoDataUrl ? (
+              <Image src={model.supplier.logoDataUrl} style={styles.logo} />
+            ) : null}
+            <Text style={styles.title}>{t.documentTitle}</Text>
+          </View>
           <View style={styles.metaRight}>
             <Text style={styles.metaLabel}>{t.invoiceNumberLabel}</Text>
             <Text style={styles.metaValue}>{model.number}</Text>

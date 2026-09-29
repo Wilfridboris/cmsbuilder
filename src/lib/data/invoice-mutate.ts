@@ -19,6 +19,7 @@ import { assertIssuable } from "@/lib/invoicing/validate";
 import { getInvoiceWithLineItems } from "@/lib/data/invoices";
 import { renderInvoicePdf, type InvoiceDocumentModel } from "@/lib/invoicing/pdf";
 import { uploadInvoicePdf } from "@/lib/invoicing/storage";
+import { downloadLogoDataUrl } from "@/lib/storage/logo";
 import { reportError } from "@/lib/observability/report";
 import type { WritableDraft } from "@/app/api/invoices/schemas";
 
@@ -513,6 +514,11 @@ export async function ensureInvoicePdf(
 
     const taxLine = taxLines.length === 1 ? taxLines[0] : null;
 
+    // Embed the supplier logo from the FROZEN snapshot's `logo_path` (I6) as a
+    // self-contained data URL. Best-effort: a missing/unreadable logo degrades to a
+    // logoless PDF rather than failing the freeze.
+    const logoDataUrl = await downloadLogoDataUrl(client, supplier.logo_path);
+
     const model: InvoiceDocumentModel = {
       documentType: "invoice",
       number: formatInvoiceNumber(
@@ -525,6 +531,7 @@ export async function ensureInvoicePdf(
         operatingName: supplier.operating_name,
         gstHstNumber: supplier.gst_hst_number,
         businessAddress: supplier.business_address,
+        logoDataUrl,
         paymentTerms: supplier.default_payment_terms,
         paymentEtransferEmail: supplier.payment_etransfer_email,
         paymentChequePayableTo: supplier.payment_cheque_payable_to,

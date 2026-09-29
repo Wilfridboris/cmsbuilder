@@ -95,6 +95,49 @@ export async function uploadLogo(
 }
 
 /**
+ * Download a private logo and return it as a self-contained base64 data URL
+ * (`data:image/png;base64,...`) for embedding in a server-rendered PDF (Story
+ * 12.5). The MIME is derived from the object-key extension we control
+ * (`{org}/logo.{png|jpg}`) and restricted to the PNG/JPEG that `@react-pdf/renderer`
+ * can decode. RLS-scoped client only. Best-effort: returns `null` on a missing
+ * key, a download error, an unsupported extension, or an empty/oversize object —
+ * so a logo problem degrades to a logoless PDF rather than failing the freeze.
+ */
+export async function downloadLogoDataUrl(
+  client: SupabaseClient,
+  logoPath: string | null,
+): Promise<string | null> {
+  if (!logoPath) {
+    return null;
+  }
+  const ext = logoPath.split(".").pop()?.toLowerCase();
+  const mime =
+    ext === "png"
+      ? "image/png"
+      : ext === "jpg" || ext === "jpeg"
+        ? "image/jpeg"
+        : null;
+  if (!mime) {
+    return null;
+  }
+  try {
+    const { data, error } = await client.storage
+      .from(LOGO_BUCKET)
+      .download(logoPath);
+    if (error || !data) {
+      return null;
+    }
+    const bytes = Buffer.from(await data.arrayBuffer());
+    if (bytes.byteLength === 0 || bytes.byteLength > MAX_LOGO_BYTES) {
+      return null;
+    }
+    return `data:${mime};base64,${bytes.toString("base64")}`;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Mint a short-lived signed URL to read a private logo back for display. Returns
  * `null` when there is no key or the sign fails (a missing preview is non-fatal —
  * the form still renders). Never a public URL; the URL expires after
