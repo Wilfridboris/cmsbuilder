@@ -2,7 +2,7 @@
 title: 'Scaffold the Astro + Cloudflare project and deploy pipeline'
 type: 'feature'
 created: '2026-09-28'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 baseline_commit: '87e495d88fbc3feec3ce8d2ba0b8b5acfe3e54ce'
 review_loop_iteration: 0
