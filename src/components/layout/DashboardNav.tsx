@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
-import { LayoutDashboard, Settings, Upload } from "lucide-react";
+import { FileText, LayoutDashboard, Settings, Upload } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
@@ -61,6 +61,16 @@ export async function DashboardNav({
             >
               <Upload aria-hidden="true" className="size-4" />
               <span>{t("import")}</span>
+            </Link>
+            <Link
+              href={`/${slug}/invoices`}
+              className={cn(
+                buttonVariants({ variant: "ghost", size: "sm" }),
+                "gap-2",
+              )}
+            >
+              <FileText aria-hidden="true" className="size-4" />
+              <span>{t("invoices")}</span>
             </Link>
             <Link
               href={`/${slug}/settings`}

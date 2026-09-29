@@ -196,3 +196,55 @@ export type BusinessProfileRow = {
   created_at: string;
   updated_at: string;
 };
+
+/**
+ * Full invoice lifecycle status (text + CHECK in the DB, never a Postgres enum).
+ * The whole vocabulary is defined now (Story 12.2 migration) so 12.3-12.8 need no
+ * ALTER; Story 12.2 only ever writes `'draft'`. Transitions are owned by 12.4+.
+ */
+export type InvoiceStatus = "draft" | "issued" | "paid" | "overdue" | "void";
+
+/** The invoice language (text + CHECK in the DB). */
+export type InvoiceLanguage = "en" | "fr";
+
+/**
+ * Typed platform invoice parent row (Story 12.2) — NOT the JSONB records store.
+ * Mirrors every column of `20260928120200_invoices.sql`. Drafting only: `status`
+ * is always `'draft'` in 12.2. The money totals, supplier/customer snapshots,
+ * `invoice_number`, `share_token`, and `pdf_path` columns are added by 12.3-12.5.
+ * `customer_record_id` is a LOOSE reference to `records.id` (ON DELETE SET NULL);
+ * the customer label resolves at read time, never stored here.
+ */
+export type InvoiceRow = {
+  id: string;
+  organization_id: string;
+  customer_record_id: string | null;
+  place_of_supply_province: string | null;
+  language: InvoiceLanguage;
+  status: InvoiceStatus;
+  version: number;
+  actor_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Typed invoice line-item row (Story 12.2) — a child of `invoices`. Mirrors every
+ * column of `20260928120300_invoice_line_items.sql`. `organization_id` is
+ * denormalized from the parent for RLS. `amount = round(quantity * unit_price, 2)`
+ * is computed server-side by the single canonical `computeLineAmount` (I2) and
+ * stored — never recomputed in SQL. Numeric columns come back as strings from
+ * PostgREST, so they are typed `number | string` at the row boundary.
+ */
+export type InvoiceLineItemRow = {
+  id: string;
+  invoice_id: string;
+  organization_id: string;
+  description: string;
+  quantity: number | string;
+  unit_price: number | string;
+  amount: number | string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
