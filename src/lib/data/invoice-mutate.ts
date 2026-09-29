@@ -4,14 +4,22 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
-import type { CustomerSnapshot, SupplierSnapshot } from "@/types/db";
+import type {
+  CustomerSnapshot,
+  InvoiceLanguage,
+  SupplierSnapshot,
+} from "@/types/db";
 import {
   computeInvoiceTotals,
   computeLineAmount,
+  formatInvoiceNumber,
   isRegistrationEffective,
 } from "@/lib/invoicing/tax";
 import { assertIssuable } from "@/lib/invoicing/validate";
 import { getInvoiceWithLineItems } from "@/lib/data/invoices";
+import { renderInvoicePdf, type InvoiceDocumentModel } from "@/lib/invoicing/pdf";
+import { uploadInvoicePdf } from "@/lib/invoicing/storage";
+import { reportError } from "@/lib/observability/report";
 import type { WritableDraft } from "@/app/api/invoices/schemas";
 
 /**
@@ -410,6 +418,14 @@ export async function issueInvoice(
       throw new AppError(500, "writeFailed");
     }
 
+    // 6. Freeze the PDF (Story 12.5). The issue transaction has ALREADY committed and
+    // is irreversible; the PDF render/upload/write lives OUTSIDE it and is best-effort.
+    // A failure here must NEVER overturn the issued result — it is reported and
+    // swallowed, leaving `pdf_path` null and the one-time `null->value` write available
+    // for a later retry. Awaited so a fast freeze is visible immediately, but its
+    // failure cannot throw to the issue caller.
+    await ensureInvoicePdf(identity, input.invoiceId);
+
     return {
       data: {
         id: row.id as string,
@@ -423,6 +439,151 @@ export async function issueInvoice(
       throw err;
     }
     throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/**
+ * Idempotently render and freeze an issued invoice's PDF to private storage
+ * (Story 12.5, I5/I6/I8) and record its bucket-relative `pdf_path`.
+ *
+ * Runs right after the issue RPC commits (and is safe to call again from a later
+ * retry — 12.6 delivery may call it before sending). It:
+ *   1. Reloads the issued invoice (invoice + line items + tax line + customer label)
+ *      under the caller's RLS client.
+ *   2. No-ops when the invoice is missing, still a draft, or already has a `pdf_path`
+ *      (idempotent — no re-render, no second write).
+ *   3. Builds the neutral {@link InvoiceDocumentModel} from the FROZEN snapshots + the
+ *      stored rows only (never live records/business_profiles, I6), renders it via the
+ *      single shared `renderInvoicePdf` path (I8), uploads it under the org's prefix,
+ *      and writes `pdf_path` with `update ... where id = :id and pdf_path is null`.
+ *
+ * NEVER throws: the issue transaction is already committed and irreversible, so any
+ * render/upload/write failure is reported through the observability seam and swallowed
+ * (never un-issues, never rolls back, never fatally fails the issue request). The
+ * caller does not depend on the return value.
+ */
+export async function ensureInvoicePdf(
+  identity: InvoiceMutateIdentity,
+  invoiceId: string,
+): Promise<void> {
+  const { client, orgId } = identity;
+
+  try {
+    // 1. Reload the issued invoice under RLS.
+    const loaded = await getInvoiceWithLineItems(client, orgId, invoiceId);
+    if (loaded.error || !loaded.data) {
+      // A read failure (or a vanished/RLS-hidden row) leaves pdf_path null and the
+      // freeze retryable — never fatal.
+      if (loaded.error) {
+        reportError(new Error(`ensureInvoicePdf load: ${loaded.error}`), {
+          invoiceId,
+          orgId,
+          stage: "ensureInvoicePdf",
+        });
+      }
+      return;
+    }
+
+    const { invoice, lineItems, taxLines } = loaded.data;
+
+    // 2. Idempotency guards: only an issued (non-draft) invoice with no PDF yet.
+    if (invoice.status === "draft") {
+      return;
+    }
+    if (typeof invoice.pdf_path === "string" && invoice.pdf_path !== "") {
+      // Already frozen — no re-render, no second write.
+      return;
+    }
+
+    // A non-draft invoice always carries a frozen supplier snapshot; without it there
+    // is nothing to render from (I6). Guard defensively rather than throw.
+    const supplier = invoice.supplier_snapshot;
+    if (!supplier) {
+      reportError(new Error("ensureInvoicePdf: missing supplier snapshot"), {
+        invoiceId,
+        orgId,
+        stage: "ensureInvoicePdf",
+      });
+      return;
+    }
+
+    // 3. Build the neutral document model from the FROZEN snapshots + stored rows.
+    const language: InvoiceLanguage =
+      invoice.language === "fr" ? "fr" : "en";
+
+    const taxLine = taxLines.length === 1 ? taxLines[0] : null;
+
+    const model: InvoiceDocumentModel = {
+      documentType: "invoice",
+      number: formatInvoiceNumber(
+        invoice.invoice_number === null ? null : Number(invoice.invoice_number),
+      ),
+      issueDate: invoice.issue_date ?? "",
+      language,
+      supplier: {
+        legalName: supplier.legal_name,
+        operatingName: supplier.operating_name,
+        gstHstNumber: supplier.gst_hst_number,
+        businessAddress: supplier.business_address,
+        paymentTerms: supplier.default_payment_terms,
+        paymentEtransferEmail: supplier.payment_etransfer_email,
+        paymentChequePayableTo: supplier.payment_cheque_payable_to,
+        paymentChequeAddress: supplier.payment_cheque_address,
+        paymentCardLink: supplier.payment_card_link,
+      },
+      // Render from the FROZEN snapshot label ONLY (I6) — never the live read-time
+      // label, so a later re-freeze can never inject a post-issue value. Null
+      // snapshot => standalone invoice.
+      customer: invoice.customer_snapshot
+        ? { displayLabel: invoice.customer_snapshot.display_label }
+        : null,
+      lineItems: lineItems.map((item) => ({
+        description: item.description,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unit_price),
+        amount: Number(item.amount),
+      })),
+      taxLine: taxLine
+        ? {
+            label: taxLine.label,
+            rate: Number(taxLine.rate),
+            amount: Number(taxLine.tax_amount),
+          }
+        : null,
+      subtotal: Number(invoice.subtotal),
+      total: Number(invoice.total),
+    };
+
+    // Render (I8) then upload under the org's prefix (I5), both under RLS.
+    const pdf = await renderInvoicePdf(model);
+    const { pdfPath } = await uploadInvoicePdf(
+      client,
+      orgId,
+      invoiceId,
+      new Uint8Array(pdf),
+    );
+
+    // Write the one-time null->value pdf_path. The `pdf_path is null` guard makes a
+    // concurrent double-freeze a no-op (0 rows), and the immutability trigger permits
+    // exactly this single write on a non-draft invoice.
+    const { error: updateError } = await client
+      .from("invoices")
+      .update({ pdf_path: pdfPath, updated_at: new Date().toISOString() })
+      .eq("id", invoiceId)
+      .eq("organization_id", orgId)
+      .is("pdf_path", null);
+
+    if (updateError) {
+      reportError(new Error(`ensureInvoicePdf write: ${updateError.message}`), {
+        invoiceId,
+        orgId,
+        stage: "ensureInvoicePdf",
+      });
+    }
+  } catch (err) {
+    // Best-effort: the issue is already committed. Report and swallow — pdf_path stays
+    // null and the freeze remains retryable.
+    reportError(err, { invoiceId, orgId, stage: "ensureInvoicePdf" });
   }
 }
 

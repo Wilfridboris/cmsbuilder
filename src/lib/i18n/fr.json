@@ -525,5 +525,28 @@
       "writeFailed": "Nous n'avons pas pu enregistrer votre facture. Veuillez réessayer.",
       "genericError": "Une erreur s'est produite. Veuillez réessayer."
     }
+  },
+  "InvoicePdf": {
+    "documentTitle": "Facture",
+    "invoiceNumberLabel": "Numéro de facture",
+    "issueDateLabel": "Date d'émission",
+    "fromHeading": "De",
+    "billedToHeading": "Facturé à",
+    "standaloneCustomer": "Aucun client lié",
+    "gstHstLabel": "Numéro de TPS/TVH",
+    "colDescription": "Description",
+    "colQuantity": "Quantité",
+    "colUnitPrice": "Prix unitaire",
+    "colAmount": "Montant",
+    "subtotalLabel": "Sous-total",
+    "taxHst": "TVH",
+    "taxLineLabel": "{tax} ({rate} %)",
+    "totalLabel": "Total",
+    "paymentHeading": "Instructions de paiement",
+    "paymentTerms": "Conditions de paiement",
+    "paymentEtransfer": "Virement Interac",
+    "paymentCheque": "Chèque à l'ordre de",
+    "paymentChequeAddress": "Envoyer le chèque à",
+    "paymentCard": "Payer par carte"
   }
 }

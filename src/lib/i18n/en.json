@@ -525,5 +525,28 @@
       "writeFailed": "We could not save your invoice. Please try again.",
       "genericError": "Something went wrong. Please try again."
     }
+  },
+  "InvoicePdf": {
+    "documentTitle": "Invoice",
+    "invoiceNumberLabel": "Invoice number",
+    "issueDateLabel": "Issue date",
+    "fromHeading": "From",
+    "billedToHeading": "Billed to",
+    "standaloneCustomer": "No linked customer",
+    "gstHstLabel": "GST/HST number",
+    "colDescription": "Description",
+    "colQuantity": "Quantity",
+    "colUnitPrice": "Unit price",
+    "colAmount": "Amount",
+    "subtotalLabel": "Subtotal",
+    "taxHst": "HST",
+    "taxLineLabel": "{tax} ({rate}%)",
+    "totalLabel": "Total",
+    "paymentHeading": "Payment instructions",
+    "paymentTerms": "Payment terms",
+    "paymentEtransfer": "Interac e-Transfer",
+    "paymentCheque": "Cheque payable to",
+    "paymentChequeAddress": "Mail cheque to",
+    "paymentCard": "Pay by card"
   }
 }

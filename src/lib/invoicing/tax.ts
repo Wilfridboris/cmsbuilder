@@ -200,3 +200,35 @@ export function formatInvoiceNumber(n: number | null | undefined): string {
   }
   return String(Math.trunc(n)).padStart(6, "0");
 }
+
+// --- Story 12.5: CAD money formatting for the rendered PDF --------------------
+
+/**
+ * Format a CAD monetary amount for display on the invoice PDF (Story 12.5).
+ * Client-safe (pure `Intl.NumberFormat`, no server-only dependency) so the one
+ * shared render path — and any future preview — can reuse it.
+ *
+ * The invoice's `language` selects the Canadian locale: `en` -> `en-CA`
+ * (`$1,234.56`) and `fr` -> `fr-CA` (`1 234,56 $`, with the currency symbol
+ * trailing and a non-breaking space group separator, per Canadian French
+ * convention). Every amount renders with exactly two fraction digits.
+ *
+ * A non-finite amount degrades to `0` (formatted) rather than propagating `NaN`
+ * onto a legal document.
+ */
+export function formatMoney(
+  amount: number,
+  language: InvoiceLanguageCode,
+): string {
+  const value = Number.isFinite(amount) ? amount : 0;
+  const locale = language === "fr" ? "fr-CA" : "en-CA";
+  return new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "CAD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+/** The two invoice languages (mirrors `InvoiceLanguage` without a server import). */
+export type InvoiceLanguageCode = "en" | "fr";

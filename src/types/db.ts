@@ -281,6 +281,14 @@ export type InvoiceRow = {
   supplier_snapshot: SupplierSnapshot | null;
   customer_snapshot: CustomerSnapshot | null;
   share_token: string | null;
+  /**
+   * The bucket-relative object key of the frozen invoice PDF in the private
+   * `invoice-pdfs` bucket (Story 12.5, I5): `{organization_id}/{invoice_id}.pdf`.
+   * Null until the post-issue `ensureInvoicePdf` freeze succeeds; the immutability
+   * trigger permits exactly one `null->value` write of this column on a non-draft
+   * invoice, so a failed freeze stays retryable.
+   */
+  pdf_path: string | null;
   created_at: string;
   updated_at: string;
 };
