@@ -43,6 +43,7 @@ export default async function NewInvoicePage({
         tables={context.tables}
         defaultProvince={context.defaultProvince}
         defaultLanguage={context.defaultLanguage}
+        taxRegistered={context.taxRegistered}
       />
     </main>
   );

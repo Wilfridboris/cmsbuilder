@@ -160,9 +160,15 @@ export async function PUT(
       }
     }
 
+    // A draft has no issue date (that is set at issue, 12.4), so the registration
+    // predicate is evaluated against TODAY as a provisional reference (YYYY-MM-DD).
+    // Story 12.4 recomputes authoritatively against the real issue date.
+    const referenceDate = new Date().toISOString().slice(0, 10);
+
     const result = await saveInvoiceDraft(identity, {
       ...writable,
       invoiceId: id,
+      referenceDate,
     });
     if (result.error || !result.data) {
       throw new AppError(500, "writeFailed");

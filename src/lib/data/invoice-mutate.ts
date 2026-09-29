@@ -2,7 +2,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
-import { computeLineAmount } from "@/lib/invoicing/tax";
+import {
+  computeInvoiceTotals,
+  computeLineAmount,
+  isRegistrationEffective,
+} from "@/lib/invoicing/tax";
 import type { WritableDraft } from "@/app/api/invoices/schemas";
 
 /**
@@ -16,14 +20,23 @@ import type { WritableDraft } from "@/app/api/invoices/schemas";
  * `invoice_line_items` tenant-isolation policies scope it to the caller's own org
  * — a cross-tenant write is impossible.
  *
- * A draft save spans two tables (invoice + its line items), so the write goes
- * through the `save_invoice_draft` SECURITY INVOKER RPC, which upserts the invoice
- * and REPLACES its line items in one transaction under the caller's RLS. Each line
- * `amount` is computed HERE with the canonical `computeLineAmount` (Invariant I2)
- * and passed precomputed to the RPC — no SQL re-implements line amount.
+ * A draft save spans three tables (invoice + its line items + its tax lines), so
+ * the write goes through the `save_invoice_draft` SECURITY INVOKER RPC, which
+ * upserts the invoice and REPLACES its line + tax lines in one transaction under
+ * the caller's RLS. Each line `amount`, the subtotal/tax/total, and the tax line(s)
+ * are computed HERE with the canonical `computeLineAmount` / `computeInvoiceTotals`
+ * (Invariants I2/I3) and passed precomputed to the RPC — no SQL re-implements any
+ * money math.
  *
- * Drafting only: this never computes HST, writes invoice-level totals, freezes a
- * snapshot, mints a number, or transitions status (those are 12.3-12.8).
+ * Tax (Story 12.3): the business's GST/HST registration is loaded under the caller's
+ * RLS client and `taxApplies = number present && isRegistrationEffective(effective,
+ * referenceDate)` is evaluated with the SHARED predicate. A draft has no issue date,
+ * so the route supplies TODAY as the provisional `referenceDate`; Story 12.4
+ * recomputes authoritatively against the real issue date. HST is Ontario-only in the
+ * MVP (the province/language seam is stored for a later Quebec path).
+ *
+ * Drafting only: this never freezes a snapshot, mints a number, or transitions
+ * status (those are 12.4-12.8). Totals are stored on `draft` rows only.
  */
 
 export type InvoiceMutateIdentity = {
@@ -42,13 +55,19 @@ export type SaveInvoiceResult = { id: string; version: number };
 const DRAFT_CONFLICT_MARKER = "invoice_draft_conflict";
 
 /**
- * Save (create or update) an invoice draft and its full line-item set atomically.
+ * Save (create or update) an invoice draft with its line items, totals, and tax
+ * line(s) atomically.
  *
- * `input.version` null → create a new draft; set → a version-gated update. Each
- * line `amount` is computed with `computeLineAmount` (I2) before the RPC call. A
- * stale version OR a non-`draft` row makes the RPC raise `invoice_draft_conflict`
- * (SQLSTATE 40001), which is mapped to a 409 `versionConflict` here — nothing is
- * written (the RPC body is one transaction). Returns the invoice id + version.
+ * `input.version` null → create a new draft; set → a version-gated update. Each line
+ * `amount` is computed with `computeLineAmount` (I2), and the invoice `subtotal` /
+ * `tax_total` / `total` plus its tax line(s) are computed with `computeInvoiceTotals`
+ * (I2/I3) before the RPC call — the DB stores exactly that output. The business's
+ * GST/HST registration is loaded under the caller's RLS client and evaluated with
+ * the shared `isRegistrationEffective` predicate against `input.referenceDate`
+ * (TODAY for a draft; supplied by the route). A stale version OR a non-`draft` row
+ * makes the RPC raise `invoice_draft_conflict` (SQLSTATE P0001), mapped to a 409
+ * `versionConflict` here — nothing is written (the RPC body is one transaction).
+ * Returns the invoice id + version.
  *
  * `invoiceId` is the target row on an update (null on create). The caller has
  * already verified any `customerRecordId` belongs to the org (route-level, under
@@ -56,7 +75,7 @@ const DRAFT_CONFLICT_MARKER = "invoice_draft_conflict";
  */
 export async function saveInvoiceDraft(
   identity: InvoiceMutateIdentity,
-  input: WritableDraft & { invoiceId: string | null },
+  input: WritableDraft & { invoiceId: string | null; referenceDate: string },
 ): Promise<ApiResponse<SaveInvoiceResult>> {
   try {
     const { client, actorId, orgId } = identity;
@@ -71,6 +90,50 @@ export async function saveInvoiceDraft(
       sort_order: index,
     }));
 
+    // Load this org's GST/HST registration under the caller's RLS client to decide
+    // whether tax applies. A genuine read error is SURFACED (writeFailed) rather than
+    // silently understating a registered org's totals to tax_total=0; a legitimately
+    // absent profile (no row) is not an error and correctly yields no tax.
+    let taxApplies = false;
+    {
+      const { data: profile, error: profileError } = await client
+        .from("business_profiles")
+        .select("gst_hst_number, gst_hst_effective_date")
+        .eq("organization_id", orgId)
+        .maybeSingle();
+      if (profileError) {
+        throw new AppError(500, "writeFailed", profileError.message);
+      }
+      const hasNumber =
+        typeof profile?.gst_hst_number === "string" &&
+        profile.gst_hst_number.trim() !== "";
+      taxApplies =
+        hasNumber &&
+        isRegistrationEffective(
+          (profile?.gst_hst_effective_date as string | null) ?? null,
+          input.referenceDate,
+        );
+    }
+
+    // Compute the invoice totals + tax line(s) from the SINGLE canonical function
+    // (I2/I3). The DB stores exactly this — no SQL re-implements subtotal or tax.
+    const totals = computeInvoiceTotals({
+      lineItems: input.lineItems.map((item) => ({
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+      })),
+      province: input.province,
+      taxApplies,
+    });
+
+    const taxLines = totals.taxLines.map((line, index) => ({
+      label: line.label,
+      rate: line.rate,
+      base: line.base,
+      tax_amount: line.tax_amount,
+      sort_order: index,
+    }));
+
     const { data, error } = await client.rpc("save_invoice_draft", {
       p_org: orgId,
       p_invoice_id: input.invoiceId,
@@ -80,6 +143,10 @@ export async function saveInvoiceDraft(
       p_language: input.language,
       p_actor: actorId,
       p_line_items: lineItems,
+      p_subtotal: totals.subtotal,
+      p_tax_total: totals.taxTotal,
+      p_total: totals.total,
+      p_tax_lines: taxLines,
     });
 
     if (error) {

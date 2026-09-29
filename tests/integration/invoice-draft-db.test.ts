@@ -61,21 +61,35 @@ function userClient(accessToken: string): SupabaseClient {
   });
 }
 
-/** Build a draft-save input (the shape the route's `toWritableDraft` produces). */
+/**
+ * Build a draft-save input (the shape the route's `toWritableDraft` produces, plus
+ * the provisional `referenceDate` the route supplies — TODAY for a draft, Story
+ * 12.3). `province` defaults to ON but is overridable to exercise the non-ON path.
+ */
 function draft(
   invoiceId: string | null,
   version: number | null,
   lineItems: { description: string; quantity: number; unitPrice: number }[],
+  province = "ON",
 ) {
   return {
     invoiceId,
     customerRecordId: null,
-    province: "ON",
+    province,
     language: "en" as const,
     version,
     lineItems,
+    referenceDate: new Date().toISOString().slice(0, 10),
   };
 }
+
+const TODAY = new Date().toISOString().slice(0, 10);
+const YESTERDAY = new Date(Date.now() - 86_400_000)
+  .toISOString()
+  .slice(0, 10);
+const TOMORROW = new Date(Date.now() + 86_400_000)
+  .toISOString()
+  .slice(0, 10);
 
 describeDb("invoice draft write path (real Supabase)", () => {
   const admin = HAS_ENV ? adminClient() : (null as unknown as SupabaseClient);
@@ -100,10 +114,41 @@ describeDb("invoice draft write path (real Supabase)", () => {
   async function invoiceRow(invoiceId: string) {
     const { data } = await admin
       .from("invoices")
-      .select("id, status, version")
+      .select("id, status, version, subtotal, tax_total, total")
       .eq("id", invoiceId)
       .maybeSingle();
     return data;
+  }
+
+  async function taxLinesOf(invoiceId: string) {
+    const { data, error } = await admin
+      .from("invoice_tax_lines")
+      .select("label, rate, base, tax_amount, sort_order")
+      .eq("invoice_id", invoiceId)
+      .order("sort_order", { ascending: true });
+    if (error) throw error;
+    return data ?? [];
+  }
+
+  /** Set (upsert) or clear the org's GST/HST registration for the tax-path tests. */
+  async function setRegistration(
+    gstHstNumber: string | null,
+    effectiveDate: string | null,
+  ) {
+    const { error } = await admin.from("business_profiles").upsert(
+      {
+        organization_id: orgId,
+        legal_name: `Invoice Org ${runId}`,
+        gst_hst_number: gstHstNumber,
+        gst_hst_effective_date: effectiveDate,
+      },
+      { onConflict: "organization_id" },
+    );
+    if (error) throw error;
+  }
+
+  async function clearRegistration() {
+    await admin.from("business_profiles").delete().eq("organization_id", orgId);
   }
 
   beforeAll(async () => {
@@ -262,5 +307,112 @@ describeDb("invoice draft write path (real Supabase)", () => {
 
     expect(await invoiceRow(id)).toBeNull();
     expect(await lineItemsOf(id)).toHaveLength(0);
+  });
+
+  // --- Story 12.3: totals + Ontario HST (place of supply) --------------------
+
+  describe("totals & Ontario HST (Story 12.3)", () => {
+    afterAll(async () => {
+      if (HAS_ENV) await clearRegistration();
+    });
+
+    it("registered ON draft: stores one HST line + subtotal/tax_total/total", async () => {
+      await setRegistration("123456789RT0001", YESTERDAY);
+
+      const result = await saveInvoiceDraft(
+        identity,
+        draft(null, null, [
+          { description: "Consulting", quantity: 2, unitPrice: 50 }, // 100.00
+          { description: "Parts", quantity: 1, unitPrice: 25 }, // 25.00
+        ]),
+      );
+      const id = result.data!.id;
+
+      const row = await invoiceRow(id);
+      // subtotal 125.00, HST 13% = 16.25, total 141.25 — all from computeInvoiceTotals.
+      expect(Number(row?.subtotal)).toBe(125);
+      expect(Number(row?.tax_total)).toBe(16.25);
+      expect(Number(row?.total)).toBe(141.25);
+
+      const taxLines = await taxLinesOf(id);
+      expect(taxLines).toHaveLength(1);
+      expect(taxLines[0].label).toBe("HST");
+      expect(Number(taxLines[0].rate)).toBe(0.13);
+      expect(Number(taxLines[0].base)).toBe(125);
+      expect(Number(taxLines[0].tax_amount)).toBe(16.25);
+
+      // Reload matches: read via the read layer through the same admin figures.
+      expect(Number(row?.total)).toBe(
+        Number(row?.subtotal) + Number(row?.tax_total),
+      );
+    });
+
+    it("unregistered draft: no tax line, tax_total 0, total = subtotal", async () => {
+      await clearRegistration();
+
+      const result = await saveInvoiceDraft(
+        identity,
+        draft(null, null, [{ description: "Work", quantity: 3, unitPrice: 10 }]),
+      );
+      const id = result.data!.id;
+
+      const row = await invoiceRow(id);
+      expect(Number(row?.subtotal)).toBe(30);
+      expect(Number(row?.tax_total)).toBe(0);
+      expect(Number(row?.total)).toBe(30);
+      expect(await taxLinesOf(id)).toHaveLength(0);
+    });
+
+    it("future-effective registration: no tax line, tax_total 0", async () => {
+      await setRegistration("123456789RT0001", TOMORROW);
+
+      const result = await saveInvoiceDraft(
+        identity,
+        draft(null, null, [{ description: "Work", quantity: 4, unitPrice: 10 }]),
+      );
+      const id = result.data!.id;
+
+      const row = await invoiceRow(id);
+      expect(Number(row?.tax_total)).toBe(0);
+      expect(Number(row?.total)).toBe(40);
+      expect(await taxLinesOf(id)).toHaveLength(0);
+    });
+
+    it("non-Ontario province (registered): no active tax line in MVP", async () => {
+      await setRegistration("123456789RT0001", YESTERDAY);
+
+      const result = await saveInvoiceDraft(
+        identity,
+        draft(null, null, [{ description: "Work", quantity: 2, unitPrice: 100 }], "QC"),
+      );
+      const id = result.data!.id;
+
+      const row = await invoiceRow(id);
+      expect(Number(row?.subtotal)).toBe(200);
+      expect(Number(row?.tax_total)).toBe(0); // QC absent from PROVINCE_TAX (MVP)
+      expect(Number(row?.total)).toBe(200);
+      expect(await taxLinesOf(id)).toHaveLength(0);
+    });
+
+    it("re-save replaces the tax line: registered -> unregistered clears it", async () => {
+      await setRegistration("123456789RT0001", YESTERDAY);
+      const created = await saveInvoiceDraft(
+        identity,
+        draft(null, null, [{ description: "Work", quantity: 1, unitPrice: 100 }]),
+      );
+      const id = created.data!.id;
+      expect(await taxLinesOf(id)).toHaveLength(1);
+
+      // Clear registration, then re-save: the tax line must be replaced away.
+      await clearRegistration();
+      await saveInvoiceDraft(
+        identity,
+        draft(id, 1, [{ description: "Work", quantity: 1, unitPrice: 100 }]),
+      );
+      expect(await taxLinesOf(id)).toHaveLength(0);
+      const row = await invoiceRow(id);
+      expect(Number(row?.tax_total)).toBe(0);
+      expect(Number(row?.total)).toBe(100);
+    });
   });
 });

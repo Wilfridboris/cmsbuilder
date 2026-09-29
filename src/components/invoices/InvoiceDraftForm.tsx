@@ -32,7 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { computeLineAmount } from "@/lib/invoicing/tax";
+import { computeInvoiceTotals, computeLineAmount } from "@/lib/invoicing/tax";
 import { INVOICE_LANGUAGES } from "@/app/api/invoices/schemas";
 import type { InvoiceLanguage } from "@/types/db";
 import {
@@ -46,19 +46,26 @@ import {
 import { LinkedRecordPicker } from "@/components/invoices/LinkedRecordPicker";
 
 /**
- * InvoiceDraftForm (Story 12.2) — the Admin-only create + edit surface for an
- * invoice DRAFT. It edits an inline line-items table (description / quantity /
- * unit price, add + remove rows, a per-row amount and a client-side running
- * subtotal for display only), links a customer via the schema-agnostic
- * `LinkedRecordPicker` (FR82), and edits the place-of-supply province + language.
+ * InvoiceDraftForm (Story 12.2 + 12.3) — the Admin-only create + edit surface for
+ * an invoice DRAFT. It edits an inline line-items table (description / quantity /
+ * unit price, add + remove rows, a per-row amount), links a customer via the
+ * schema-agnostic `LinkedRecordPicker` (FR82), and edits the place-of-supply
+ * province + language.
+ *
+ * Totals (Story 12.3): the footer shows the subtotal, a single HST line (translated
+ * name + rate, e.g. `HST (13%)`), and the total, all recomputed LIVE from the SAME
+ * canonical `computeInvoiceTotals` the server stores from (I2/I3). It degrades to
+ * subtotal-only when no tax applies — driven by the server-evaluated `taxRegistered`
+ * flag (present && effective as of today) and the active-province rate map. This is
+ * a preview; the server recomputes and stores authoritatively on save.
  *
  * On create it POSTs a new draft; on edit it loads via GET then PUTs, version-
  * gated. Mirrors `BusinessProfileForm`'s proven patterns: `useId()` ARIA wiring,
  * inline `<p role="alert">` errors, motion gated by `useReducedMotion`, and server
  * error codes mapped to translated inline messages (a raw error never shows).
  *
- * Drafting only: no HST, no totals written, no snapshot, no number, no PDF, no
- * issue — those are Stories 12.3-12.8. The subtotal shown here is display-only.
+ * Drafting only: no snapshot, no number, no PDF, no issue — those are Stories
+ * 12.4-12.8. Totals are stored on the draft row only.
  */
 
 type OrgTable = { key: string; label: string };
@@ -105,6 +112,7 @@ export function InvoiceDraftForm({
   tables,
   defaultProvince,
   defaultLanguage,
+  taxRegistered,
 }: {
   slug: string;
   /** null = create; a uuid = edit an existing draft. */
@@ -114,6 +122,14 @@ export function InvoiceDraftForm({
   defaultProvince: string;
   /** Language default from the Business Profile, falling back to en. */
   defaultLanguage: InvoiceLanguage;
+  /**
+   * Whether the business's GST/HST registration is effective as of today (Story
+   * 12.3). Drives the live tax preview: passed as `taxApplies` into
+   * `computeInvoiceTotals`, so the HST line shows only when the business is
+   * registered AND the province has an active rate. Matches the server's provisional
+   * reference date for a draft.
+   */
+  taxRegistered: boolean;
 }) {
   const t = useTranslations("Invoices");
   const router = useRouter();
@@ -224,10 +240,17 @@ export function InvoiceDraftForm({
     clearFeedback();
   };
 
-  const subtotal = rows.reduce(
-    (sum, r) => sum + computeLineAmount(toNumber(r.quantity), toNumber(r.unitPrice)),
-    0,
-  );
+  // Live totals from the SAME canonical function the server stores from (I2/I3).
+  // The HST line appears only when the business is tax-registered AND the province
+  // has an active rate; otherwise it degrades to subtotal-only.
+  const totals = computeInvoiceTotals({
+    lineItems: rows.map((r) => ({
+      quantity: toNumber(r.quantity),
+      unitPrice: toNumber(r.unitPrice),
+    })),
+    province,
+    taxApplies: taxRegistered,
+  });
 
   const buildInput = (): InvoiceDraftInput => ({
     customerRecordId: customer?.id,
@@ -531,17 +554,47 @@ export function InvoiceDraftForm({
             {t("addLine")}
           </Button>
 
-          <div className="flex flex-col items-end gap-1">
-            <div className="flex items-center gap-3">
-              <span className="text-sm font-medium text-muted-foreground">
-                {t("subtotalLabel")}
-              </span>
-              <span className="text-base font-semibold tabular-nums text-foreground">
-                {subtotal.toFixed(2)}
-              </span>
-            </div>
+          <div className="flex flex-col items-end gap-2">
+            <dl className="flex flex-col gap-1.5 text-right">
+              <div className="flex items-center justify-end gap-6">
+                <dt className="text-sm font-medium text-muted-foreground">
+                  {t("subtotalLabel")}
+                </dt>
+                <dd className="min-w-24 text-sm font-medium tabular-nums text-foreground">
+                  {totals.subtotal.toFixed(2)}
+                </dd>
+              </div>
+
+              {totals.taxLines.map((line) => (
+                <div
+                  key={line.label}
+                  className="flex items-center justify-end gap-6"
+                >
+                  <dt className="text-sm font-medium text-muted-foreground">
+                    {t("taxLineLabel", {
+                      tax: t("taxHst"),
+                      rate: Math.round(line.rate * 100),
+                    })}
+                  </dt>
+                  <dd className="min-w-24 text-sm font-medium tabular-nums text-foreground">
+                    {line.tax_amount.toFixed(2)}
+                  </dd>
+                </div>
+              ))}
+
+              <div className="mt-1 flex items-center justify-end gap-6 border-t border-border pt-2">
+                <dt className="text-sm font-semibold text-foreground">
+                  {t("totalLabel")}
+                </dt>
+                <dd className="min-w-24 text-base font-semibold tabular-nums text-foreground">
+                  {totals.total.toFixed(2)}
+                </dd>
+              </div>
+            </dl>
             <p className="max-w-xs text-right text-xs text-muted-foreground text-pretty">
-              {t("subtotalHint")}
+              {totals.taxLines.length > 0
+                ? t("totalsHint")
+                : t("subtotalHint")}
             </p>
           </div>
         </div>

@@ -3,7 +3,11 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { ApiResponse } from "@/types/api";
-import type { InvoiceLineItemRow, InvoiceRow } from "@/types/db";
+import type {
+  InvoiceLineItemRow,
+  InvoiceRow,
+  InvoiceTaxLineRow,
+} from "@/types/db";
 import { getSchema } from "@/lib/data/records";
 import { resolvedDisplayFieldKey } from "@/lib/schema/relations";
 
@@ -20,10 +24,15 @@ import { resolvedDisplayFieldKey } from "@/lib/schema/relations";
  * null label so the caller renders the translated "unavailable" note (no crash).
  */
 
-/** An invoice plus its ordered line items and the resolved customer label. */
+/**
+ * An invoice plus its ordered line items, its ordered tax lines (Story 12.3; zero
+ * or one HST row for the MVP Ontario path), and the resolved customer label.
+ */
 export type InvoiceWithLineItems = {
   invoice: InvoiceRow;
   lineItems: InvoiceLineItemRow[];
+  /** The stored tax line(s), ordered — empty when no tax applies (Story 12.3). */
+  taxLines: InvoiceTaxLineRow[];
   /** The linked customer record's display label, or null (standalone / missing). */
   customerLabel: string | null;
 };
@@ -89,6 +98,19 @@ export async function getInvoiceWithLineItems(
     return { data: null, error: "Failed to load invoice line items." };
   }
 
+  // The stored tax line(s), ordered (Story 12.3). Zero or one HST row for the MVP
+  // Ontario path; loaded so the form/render show the persisted values on reload.
+  const { data: taxLines, error: taxError } = await client
+    .from("invoice_tax_lines")
+    .select("*")
+    .eq("invoice_id", invoiceId)
+    .eq("organization_id", orgId)
+    .order("sort_order", { ascending: true });
+
+  if (taxError) {
+    return { data: null, error: "Failed to load invoice tax lines." };
+  }
+
   const customerLabel = await resolveCustomerLabel(
     client,
     orgId,
@@ -99,6 +121,7 @@ export async function getInvoiceWithLineItems(
     data: {
       invoice: invoiceRow,
       lineItems: (lines ?? []) as InvoiceLineItemRow[],
+      taxLines: (taxLines ?? []) as InvoiceTaxLineRow[],
       customerLabel,
     },
     error: null,

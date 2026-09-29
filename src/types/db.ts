@@ -224,6 +224,16 @@ export type InvoiceRow = {
   status: InvoiceStatus;
   version: number;
   actor_id: string | null;
+  /**
+   * Money totals (Story 12.3). Written ONLY from `computeInvoiceTotals` output on
+   * every draft save (Invariant I2): `subtotal = Σ line amounts`, `tax_total =
+   * Σ tax lines` (0 when no tax applies), `total = subtotal + tax_total`. Existing
+   * 12.2 drafts read as 0 until their next save. PostgREST returns numeric columns
+   * as strings, so they are typed `number | string` at the row boundary.
+   */
+  subtotal: number | string;
+  tax_total: number | string;
+  total: number | string;
   created_at: string;
   updated_at: string;
 };
@@ -244,6 +254,29 @@ export type InvoiceLineItemRow = {
   quantity: number | string;
   unit_price: number | string;
   amount: number | string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Typed invoice tax-line row (Story 12.3) — a child of `invoices`. Mirrors every
+ * column of `20260928120500_invoice_totals_and_tax_lines.sql`. `organization_id` is
+ * denormalized from the parent for RLS. For the MVP Ontario path there is exactly
+ * ONE HST row per invoice when tax applies; `tax_amount = round(base × rate, 2)` is
+ * computed once on the subtotal by the canonical `computeInvoiceTotals` (I3) and
+ * stored — never recomputed in SQL. `label` is the canonical stored name (`HST`);
+ * the form/PDF translate it for display. Numeric columns come back as strings from
+ * PostgREST, so they are typed `number | string` at the row boundary.
+ */
+export type InvoiceTaxLineRow = {
+  id: string;
+  invoice_id: string;
+  organization_id: string;
+  label: string;
+  rate: number | string;
+  base: number | string;
+  tax_amount: number | string;
   sort_order: number;
   created_at: string;
   updated_at: string;

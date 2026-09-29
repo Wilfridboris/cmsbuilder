@@ -10,6 +10,7 @@ import { requireAdmin } from "@/lib/auth/rbac";
 import { resolveOrgIdentity } from "@/lib/api/route-helpers";
 import { getSchema } from "@/lib/data/records";
 import { visibleTables } from "@/lib/schema/overrides";
+import { isRegistrationEffective } from "@/lib/invoicing/tax";
 
 /**
  * Shared server-side gate + context loader for the Admin-gated `/{slug}/invoices`
@@ -30,6 +31,13 @@ export type InvoicePageContext = {
   defaultProvince: string;
   /** Language default: Business Profile default_language, falling back to en. */
   defaultLanguage: InvoiceLanguage;
+  /**
+   * Whether the business's GST/HST registration is effective as of TODAY (Story
+   * 12.3): a `gst_hst_number` is present AND `isRegistrationEffective` against
+   * today's date. Passed to the form so its live tax preview matches the server's
+   * provisional reference date for a draft. False when unregistered or future-dated.
+   */
+  taxRegistered: boolean;
 };
 
 /**
@@ -63,6 +71,7 @@ export async function loadInvoicePageContext(
   let tables: OrgTableOption[] = [];
   let defaultProvince = "ON";
   let defaultLanguage: InvoiceLanguage = "en";
+  let taxRegistered = false;
   try {
     const { client, orgId } = await resolveOrgIdentity(slug, user.id);
 
@@ -76,7 +85,9 @@ export async function loadInvoicePageContext(
 
     const { data: profile } = await client
       .from("business_profiles")
-      .select("jurisdiction, default_language")
+      .select(
+        "jurisdiction, default_language, gst_hst_number, gst_hst_effective_date",
+      )
       .eq("organization_id", orgId)
       .maybeSingle();
     if (profile) {
@@ -88,10 +99,23 @@ export async function loadInvoicePageContext(
       if (lang === "en" || lang === "fr") {
         defaultLanguage = lang;
       }
+      // Registration is effective when a number is present AND its effective date
+      // is on or before TODAY (the same provisional reference a draft save uses).
+      // Uses the SHARED predicate (I3) so the preview matches the stored figures.
+      const hasNumber =
+        typeof profile.gst_hst_number === "string" &&
+        profile.gst_hst_number.trim() !== "";
+      const referenceDate = new Date().toISOString().slice(0, 10);
+      taxRegistered =
+        hasNumber &&
+        isRegistrationEffective(
+          (profile.gst_hst_effective_date as string | null) ?? null,
+          referenceDate,
+        );
     }
   } catch {
-    // Degrade to defaults (empty tables / ON / en) — the pages still render.
+    // Degrade to defaults (empty tables / ON / en / no tax) — the pages still render.
   }
 
-  return { slug, tables, defaultProvince, defaultLanguage };
+  return { slug, tables, defaultProvince, defaultLanguage, taxRegistered };
 }

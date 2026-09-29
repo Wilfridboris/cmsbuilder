@@ -46,3 +46,139 @@ export function computeLineAmount(quantity: number, unitPrice: number): number {
   }
   return roundMoney(quantity * unitPrice);
 }
+
+// --- Story 12.3: subtotal / tax / total (Ontario HST, place of supply) --------
+
+/** A single line item as consumed by the totals computation. */
+export type TotalsLineItem = {
+  quantity: number;
+  unitPrice: number;
+};
+
+/**
+ * One stored tax line (Invariant I3, FR84). For the MVP Ontario path there is
+ * ALWAYS exactly one of these when tax applies — HST computed once on the subtotal,
+ * never per line, never split into federal/provincial. `label` is the canonical
+ * stored name (`HST`); the form/PDF translate it for display.
+ */
+export type TaxLine = {
+  /** Canonical stored tax label (e.g. `HST`). */
+  label: string;
+  /** The tax rate applied to `base` (e.g. `0.13`). */
+  rate: number;
+  /** The base the tax is computed on — the invoice subtotal. */
+  base: number;
+  /** `round(base × rate, 2)`. */
+  tax_amount: number;
+};
+
+/** The full computed money picture for an invoice (Invariant I2). */
+export type InvoiceTotals = {
+  /** `Σ computeLineAmount` over the line items. */
+  subtotal: number;
+  /** Zero or one tax line (MVP Ontario). Empty when no tax applies. */
+  taxLines: TaxLine[];
+  /** `Σ taxLines[].tax_amount` (a single value for the Ontario path). */
+  taxTotal: number;
+  /** `subtotal + taxTotal`. */
+  total: number;
+};
+
+/**
+ * The active place-of-supply tax rates. Ontario/HST is the only active path in the
+ * MVP; every other province (including `QC`) is deliberately ABSENT so no active tax
+ * line is emitted for it — the province/language seam is stored so Quebec (GST +
+ * QST) can be enabled later with no re-architecture (FR95). Keyed by the normalized
+ * (trimmed, uppercased) province code.
+ */
+export const PROVINCE_TAX: Record<string, { label: string; rate: number }> = {
+  ON: { label: "HST", rate: 0.13 },
+};
+
+/** Trim + uppercase a province code so lookups are stable (`" on " -> "ON"`). */
+export function normalizeProvince(province: string | null | undefined): string {
+  return (province ?? "").trim().toUpperCase();
+}
+
+/**
+ * The SINGLE shared registration-effectiveness predicate (Invariant I3, FR84):
+ * a GST/HST registration is effective when its effective date is on or before the
+ * reference date. Story 12.3's totals and Story 12.4's issuance gate (`validate.ts`)
+ * both import THIS helper — there is no second implementation anywhere.
+ *
+ * Pure and date-injected: the caller supplies both dates as `YYYY-MM-DD` strings
+ * (this module never calls `Date`). A null/absent `effectiveDate` means "not
+ * effective" (false) — a business with no recorded effective date charges no tax.
+ * Comparison is lexicographic, which is correct for zero-padded ISO `YYYY-MM-DD`.
+ */
+export function isRegistrationEffective(
+  effectiveDate: string | null | undefined,
+  referenceDate: string,
+): boolean {
+  if (!effectiveDate) {
+    return false;
+  }
+  return effectiveDate <= referenceDate;
+}
+
+/**
+ * Sum every line's canonical amount into the invoice subtotal (Invariant I2):
+ * `subtotal = Σ computeLineAmount(quantity, unitPrice)`. Reuses the sole line-amount
+ * helper — no second implementation. The sum is re-rounded to guard against any
+ * float drift accumulating across many already-rounded 2-decimal amounts.
+ */
+export function computeSubtotal(lineItems: TotalsLineItem[]): number {
+  const sum = lineItems.reduce(
+    (acc, item) => acc + computeLineAmount(item.quantity, item.unitPrice),
+    0,
+  );
+  return roundMoney(sum);
+}
+
+/**
+ * The canonical invoice totals computation (Invariant I2, I3, FR84) — the ONLY
+ * place invoice-level money is computed. The DB stores exactly what this returns
+ * (on every draft save), and Story 12.4's issuance gate calls this same function to
+ * verify equality against the frozen figures.
+ *
+ * A tax line is emitted only when BOTH `taxApplies` is true (the caller has already
+ * evaluated `gst_hst_number present && isRegistrationEffective(...)` against the
+ * reference date) AND the normalized province has an active rate in `PROVINCE_TAX`.
+ * When emitted it is exactly ONE line: HST computed once on the subtotal
+ * (`round(subtotal × rate, 2)`), never per line, never split. Otherwise there is no
+ * tax line, `taxTotal = 0`, and `total = subtotal`.
+ *
+ * Pure: `taxApplies` is passed as a boolean (not a raw date) so the client preview
+ * can reuse this with a server-evaluated flag while the date predicate stays the
+ * single shared helper.
+ */
+export function computeInvoiceTotals({
+  lineItems,
+  province,
+  taxApplies,
+}: {
+  lineItems: TotalsLineItem[];
+  province: string | null | undefined;
+  taxApplies: boolean;
+}): InvoiceTotals {
+  const subtotal = computeSubtotal(lineItems);
+
+  const provinceTax = PROVINCE_TAX[normalizeProvince(province)];
+  const taxLines: TaxLine[] = [];
+
+  if (taxApplies && provinceTax) {
+    taxLines.push({
+      label: provinceTax.label,
+      rate: provinceTax.rate,
+      base: subtotal,
+      tax_amount: roundMoney(subtotal * provinceTax.rate),
+    });
+  }
+
+  const taxTotal = roundMoney(
+    taxLines.reduce((acc, line) => acc + line.tax_amount, 0),
+  );
+  const total = roundMoney(subtotal + taxTotal);
+
+  return { subtotal, taxLines, taxTotal, total };
+}
