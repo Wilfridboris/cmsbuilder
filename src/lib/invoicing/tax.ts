@@ -182,3 +182,21 @@ export function computeInvoiceTotals({
 
   return { subtotal, taxLines, taxTotal, total };
 }
+
+// --- Story 12.4: invoice-number display format (Invariant I1) ----------------
+
+/**
+ * The one documented display format for a per-org invoice number (Invariant I1):
+ * 6-digit zero-padded, no prefix (e.g. `1` -> `000001`). The stored integer is
+ * authoritative; this width is display-only. Kept here with the numbering concern
+ * (rather than in the `server-only` validate.ts) so the list + issued view — both
+ * client components — can render it. A number wider than 6 digits is shown in full
+ * (never truncated); a null/non-finite number degrades to an empty string so a
+ * still-draft row renders a dash at the call site.
+ */
+export function formatInvoiceNumber(n: number | null | undefined): string {
+  if (n === null || n === undefined || !Number.isFinite(n)) {
+    return "";
+  }
+  return String(Math.trunc(n)).padStart(6, "0");
+}
