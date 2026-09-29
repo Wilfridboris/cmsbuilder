@@ -49,7 +49,7 @@ story_location: _bmad-output/implementation-artifacts/marketing-site
 development_status:
   epic-1: in-progress
   1-1-scaffold-the-astro-cloudflare-project-and-deploy-pipeline: review
-  1-2-lead-capture-endpoint-resend-contacts-with-abuse-consent-gua: backlog
+  1-2-lead-capture-endpoint-resend-contacts-with-abuse-consent-gua: review
   1-3-homepage-hero-and-waitlist-signup: backlog
   1-4-taste-of-magic-trade-city-preview: backlog
   1-5-positioning-content-blocks-difference-belonging-direction: backlog
