@@ -75,10 +75,19 @@ export type InvoiceDocumentTaxLine = {
  * for credit notes.
  */
 export type InvoiceDocumentModel = {
-  /** The localized document title key selector: an invoice today; a credit note later. */
-  documentType: "invoice";
-  /** Display invoice number (already zero-padded via `formatInvoiceNumber`). */
+  /**
+   * The localized document title key selector: an invoice or a credit note (Story 12.8,
+   * I8). The one shared render path produces both; a credit note titles the document
+   * "Credit Note" and shows a `creditNoteReference` line naming the corrected invoice.
+   */
+  documentType: "invoice" | "creditNote";
+  /** Display document number (already zero-padded via `formatInvoiceNumber`). */
   number: string;
+  /**
+   * The corrected invoice's display number (already formatted), shown on a credit note
+   * only (Story 12.8). Absent/null for an invoice.
+   */
+  creditNoteReference?: string | null;
   /** The frozen issue date (`YYYY-MM-DD`). */
   issueDate: string;
   /** The document language — drives copy AND CAD formatting. */
@@ -140,24 +149,45 @@ function formatQuantity(quantity: number, language: InvoiceLanguageCode): string
 /** The language- and content-dependent display strings resolved from the model. */
 export type InvoicePdfStrings = {
   documentTitle: string;
+  /** The document-number label ("Invoice number" / "Credit note number"), by type. */
+  numberLabel: string;
+  /**
+   * The "Corrects invoice N" reference line for a credit note, or "" for an invoice /
+   * a credit note with no reference. Localized.
+   */
+  creditNoteReferenceText: string;
   supplierName: string;
   customerLabel: string;
   taxLabelText: string;
 };
 
 /**
- * Resolve the branch-dependent display strings from the model: the localized
- * document title (language branch), the supplier heading, the billed-to label
- * (which falls back to the localized standalone line when no customer is present),
- * and the tax-line label (empty when no tax applies). Extracted from the render
- * tree and exported so the language / standalone-customer / tax-presence branches
- * — which the AC pins but the rendered PDF binary would otherwise hide — can be
- * unit-tested deterministically.
+ * Resolve the branch-dependent display strings from the model: the localized document
+ * title (documentType + language branch), the number label, the credit-note reference
+ * line (empty for an invoice), the supplier heading, the billed-to label (which falls
+ * back to the localized standalone line when no customer is present), and the tax-line
+ * label (empty when no tax applies). Extracted from the render tree and exported so the
+ * document-type / language / standalone-customer / tax-presence branches — which the AC
+ * pins but the rendered PDF binary would otherwise hide — can be unit-tested
+ * deterministically.
  */
 export function resolveInvoicePdfStrings(
   model: InvoiceDocumentModel,
 ): InvoicePdfStrings {
   const t = CATALOGS[model.language];
+
+  const isCreditNote = model.documentType === "creditNote";
+  const documentTitle = isCreditNote ? t.creditNoteTitle : t.documentTitle;
+  const numberLabel = isCreditNote
+    ? t.creditNoteNumberLabel
+    : t.invoiceNumberLabel;
+
+  const creditNoteReferenceText =
+    isCreditNote &&
+    model.creditNoteReference &&
+    model.creditNoteReference.trim() !== ""
+      ? t.creditNoteReference.replace("{number}", model.creditNoteReference)
+      : "";
 
   const supplierName =
     model.supplier.operatingName &&
@@ -177,7 +207,14 @@ export function resolveInvoicePdfStrings(
         .replace("{rate}", formatRatePercent(model.taxLine.rate))
     : "";
 
-  return { documentTitle: t.documentTitle, supplierName, customerLabel, taxLabelText };
+  return {
+    documentTitle,
+    numberLabel,
+    creditNoteReferenceText,
+    supplierName,
+    customerLabel,
+    taxLabelText,
+  };
 }
 
 // Neutral, print-oriented styles. No external fonts (Helvetica is built in) so the
@@ -208,6 +245,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontFamily: "Helvetica-Bold",
+  },
+  reference: {
+    fontSize: 9,
+    color: "#666666",
+    marginTop: 4,
   },
   metaRight: {
     textAlign: "right",
@@ -319,8 +361,14 @@ function InvoiceDocument({ model }: { model: InvoiceDocumentModel }) {
   const t = CATALOGS[model.language];
   const lang = model.language;
 
-  const { supplierName, customerLabel, taxLabelText } =
-    resolveInvoicePdfStrings(model);
+  const {
+    documentTitle,
+    numberLabel,
+    creditNoteReferenceText,
+    supplierName,
+    customerLabel,
+    taxLabelText,
+  } = resolveInvoicePdfStrings(model);
 
   const hasAnyPayment =
     Boolean(model.supplier.paymentTerms) ||
@@ -330,7 +378,7 @@ function InvoiceDocument({ model }: { model: InvoiceDocumentModel }) {
     Boolean(model.supplier.paymentCardLink);
 
   return (
-    <Document title={`${t.documentTitle} ${model.number}`}>
+    <Document title={`${documentTitle} ${model.number}`}>
       <Page size="A4" style={styles.page}>
         {/* Header: logo + title (left) + number/date meta (right) */}
         <View style={styles.header}>
@@ -338,10 +386,14 @@ function InvoiceDocument({ model }: { model: InvoiceDocumentModel }) {
             {model.supplier.logoDataUrl ? (
               <Image src={model.supplier.logoDataUrl} style={styles.logo} />
             ) : null}
-            <Text style={styles.title}>{t.documentTitle}</Text>
+            <Text style={styles.title}>{documentTitle}</Text>
+            {/* Credit note only: the "Corrects invoice N" reference line (I8). */}
+            {creditNoteReferenceText ? (
+              <Text style={styles.reference}>{creditNoteReferenceText}</Text>
+            ) : null}
           </View>
           <View style={styles.metaRight}>
-            <Text style={styles.metaLabel}>{t.invoiceNumberLabel}</Text>
+            <Text style={styles.metaLabel}>{numberLabel}</Text>
             <Text style={styles.metaValue}>{model.number}</Text>
             <Text style={styles.metaLabel}>{t.issueDateLabel}</Text>
             <Text style={styles.metaValue}>

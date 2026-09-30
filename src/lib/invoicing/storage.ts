@@ -30,6 +30,48 @@ export function invoicePdfObjectKey(orgId: string, invoiceId: string): string {
 }
 
 /**
+ * The bucket-relative object key for an org's frozen credit-note PDF (Story 12.8, I8):
+ * `{orgId}/credit-notes/{creditNoteId}.pdf`. Reuses the SAME private `invoice-pdfs`
+ * bucket under a `credit-notes/` sub-prefix — the bucket RLS keys off `path_tokens[1]`
+ * (the org id), which the sub-prefix leaves unchanged, so org isolation holds without a
+ * second bucket or duplicate policies.
+ */
+export function creditNotePdfObjectKey(
+  orgId: string,
+  creditNoteId: string,
+): string {
+  return `${orgId}/credit-notes/${creditNoteId}.pdf`;
+}
+
+/**
+ * Upload a rendered credit-note PDF under the org's `credit-notes/` prefix, returning the
+ * persisted `pdf_path`. Mirrors {@link uploadInvoicePdf}: RLS-scoped client only, `upsert`
+ * false (a credit note's PDF is frozen exactly once), and a storage failure masked as a
+ * generic write failure — raw storage output never leaks.
+ */
+export async function uploadCreditNotePdf(
+  client: SupabaseClient,
+  orgId: string,
+  creditNoteId: string,
+  bytes: Uint8Array,
+): Promise<{ pdfPath: string }> {
+  const key = creditNotePdfObjectKey(orgId, creditNoteId);
+
+  const { error } = await client.storage
+    .from(INVOICE_PDF_BUCKET)
+    .upload(key, bytes, {
+      contentType: "application/pdf",
+      upsert: false,
+    });
+
+  if (error) {
+    throw new AppError(500, "writeFailed", error.message);
+  }
+
+  return { pdfPath: key };
+}
+
+/**
  * Upload a rendered invoice PDF under the org's prefix, returning the persisted
  * `pdf_path` (the bucket-relative object key). RLS-scoped client only. `upsert` is
  * false: an invoice's PDF is frozen exactly once (the caller — `ensureInvoicePdf` —

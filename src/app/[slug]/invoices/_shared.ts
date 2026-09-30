@@ -15,6 +15,10 @@ import {
   getInvoiceWithLineItems,
   type InvoiceWithLineItems,
 } from "@/lib/data/invoices";
+import {
+  getCreditNoteWithLineItems,
+  type CreditNoteWithLineItems,
+} from "@/lib/data/credit-notes";
 
 /**
  * Shared server-side gate + context loader for the Admin-gated `/{slug}/invoices`
@@ -160,6 +164,49 @@ export async function loadInvoiceForPage(
   try {
     const { client, orgId } = await resolveOrgIdentity(slug, user.id);
     const result = await getInvoiceWithLineItems(client, orgId, invoiceId);
+    if (result.error || !result.data) {
+      return null;
+    }
+    return result.data;
+  } catch (err) {
+    if (err instanceof AppError) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * Load a credit note for the `/{slug}/invoices/[id]/credit-notes/[cnId]` page so it can
+ * branch draft vs issued (Story 12.8). Runs the SAME Admin gate as `loadInvoiceForPage`
+ * (redirects on any auth failure), then reads the credit note + its children under the
+ * caller's RLS client. Returns `null` when it does not exist under this org so the page
+ * renders a not-found state. A page load error degrades to null rather than crashing.
+ */
+export async function loadCreditNoteForPage(
+  slug: string,
+  creditNoteId: string,
+): Promise<CreditNoteWithLineItems | null> {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login?auth=required");
+  }
+
+  try {
+    const membership = await requireAdmin(user, createAdminClient());
+    if (membership.slug !== slug) {
+      redirect(`/${slug}`);
+    }
+  } catch (err) {
+    if (err instanceof AppError) {
+      redirect(`/${slug}`);
+    }
+    throw err;
+  }
+
+  try {
+    const { client, orgId } = await resolveOrgIdentity(slug, user.id);
+    const result = await getCreditNoteWithLineItems(client, orgId, creditNoteId);
     if (result.error || !result.data) {
       return null;
     }

@@ -8,6 +8,7 @@ import { InvoiceDraftForm } from "@/components/invoices/InvoiceDraftForm";
 import { IssuedInvoiceView } from "@/components/invoices/IssuedInvoiceView";
 import { InvoiceDeliveryActions } from "@/components/invoices/InvoiceDeliveryActions";
 import { InvoicePaymentActions } from "@/components/invoices/InvoicePaymentActions";
+import { InvoiceCreditNotes } from "@/components/invoices/InvoiceCreditNotes";
 import { formatInvoiceNumber } from "@/lib/invoicing/tax";
 import { loadInvoicePageContext, loadInvoiceForPage } from "../_shared";
 
@@ -119,6 +120,11 @@ export default async function InvoicePage({
                 loaded.invoice.customer_snapshot?.data,
               )}
             />
+          ) : null}
+          {/* Credit notes: create + linked list, for creditable (issued/paid/overdue)
+              invoices only (a correction is valid regardless of payment, Story 12.8). */}
+          {DELIVERABLE_STATUSES.has(loaded.invoice.status) ? (
+            <InvoiceCreditNotes slug={slug} invoiceId={loaded.invoice.id} />
           ) : null}
         </>
       )}

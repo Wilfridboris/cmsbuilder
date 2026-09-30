@@ -152,6 +152,66 @@ export const recordPaymentSchema = z.object({
 
 export type RecordPaymentBody = z.infer<typeof recordPaymentSchema>;
 
+/**
+ * The credit-note draft body (Story 12.8): mirrors `draftBodySchema` MINUS `dueDate` (a
+ * credit note has no due date). Carries the org `slug`, an optional loose
+ * `customerRecordId`, an optional `province`, a `language` enum, an optional `version`
+ * (present on an update for the version gate), and a non-empty `lineItems[]`. The source
+ * invoice id comes from the route path, not the body.
+ */
+export const creditNoteDraftBodySchema = z.object({
+  slug: z.string().trim().min(1),
+  customerRecordId: z
+    .string()
+    .uuid("Invoice.error.customerRecordInvalid")
+    .optional(),
+  province: optionalText,
+  language: z.enum(INVOICE_LANGUAGES).default("en"),
+  version: z.number().int().nonnegative().optional(),
+  lineItems: z
+    .array(lineItemSchema)
+    .min(1, "Invoice.error.lineItemsRequired"),
+});
+
+export type CreditNoteDraftBody = z.infer<typeof creditNoteDraftBodySchema>;
+
+/**
+ * The issue-credit-note body (Story 12.8): the org `slug` and the REQUIRED `version` the
+ * caller last read (the optimistic-concurrency gate). No `issue_date` is accepted — it is
+ * server-authoritative (TODAY). Mirrors `issueBodySchema`.
+ */
+export const issueCreditNoteBodySchema = z.object({
+  slug: z.string().trim().min(1),
+  version: z.number().int().nonnegative(),
+});
+
+export type IssueCreditNoteBody = z.infer<typeof issueCreditNoteBodySchema>;
+
+/** The write shape the credit-note mutation layer consumes (no due date, plus source). */
+export type WritableCreditNoteBody = {
+  customerRecordId: string | null;
+  province: string | null;
+  language: (typeof INVOICE_LANGUAGES)[number];
+  version: number | null;
+  lineItems: WritableLineItem[];
+};
+
+export function toWritableCreditNoteDraft(
+  body: CreditNoteDraftBody,
+): WritableCreditNoteBody {
+  return {
+    customerRecordId: body.customerRecordId ?? null,
+    province: body.province ?? null,
+    language: body.language,
+    version: body.version ?? null,
+    lineItems: body.lineItems.map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      unitPrice: item.unitPrice,
+    })),
+  };
+}
+
 /** The GET list query: just the org slug. */
 export const listQuerySchema = z.object({
   slug: z.string().trim().min(1),

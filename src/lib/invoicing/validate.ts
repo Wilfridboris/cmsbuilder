@@ -191,3 +191,21 @@ export function assertIssuable(input: AssertIssuableInput): void {
     }
   }
 }
+
+/**
+ * assertIssuableCreditNote (Story 12.8) — the pre-issue compliance gate for a credit
+ * note. A credit note mirrors an invoice's issuance compliance exactly: >= 1 line item,
+ * a legal identity present, tax not split, tax only with a valid registration as of the
+ * credit note's issue date, and the stored totals reconciling against a fresh canonical
+ * recomputation (I2/I3). Every predicate and every `Invoice.error.*` code is REUSED from
+ * `assertIssuable` — there is no second money-math or registration implementation. A
+ * credit note's line amounts are POSITIVE (like an invoice); the "Credit Note" title and
+ * its reference to the original invoice carry the reduction meaning.
+ *
+ * A thin delegator: the credit-note stored figures and children have the same shape as an
+ * invoice's, so this forwards to `assertIssuable` verbatim. Throws the same 422
+ * `Invoice.error.*` codes and reports through the same observability seam.
+ */
+export function assertIssuableCreditNote(input: AssertIssuableInput): void {
+  assertIssuable(input);
+}

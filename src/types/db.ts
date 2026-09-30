@@ -346,6 +346,111 @@ export type InvoiceTaxLineRow = {
 };
 
 /**
+ * Credit-note lifecycle status (text + CHECK in the DB, never a Postgres enum).
+ * A credit note is a correction document, not a receivable, so its vocabulary is
+ * `draft`/`issued`/`void` (no `paid`/`overdue`). Story 12.8 writes `'draft'` on create;
+ * `issue_credit_note` flips it to `'issued'`; a void leaves a permanent number gap (I1).
+ */
+export type CreditNoteStatus = "draft" | "issued" | "void";
+
+/**
+ * Typed platform credit-note parent row (Story 12.8) — NOT the JSONB records store.
+ * Mirrors every column of `20260928121500_credit_notes.sql`, which mirrors `InvoiceRow`
+ * (254-302) MINUS `due_date` and PLUS `invoice_id` (a NOT NULL FK to the source invoice)
+ * and `original_invoice_number` (the source invoice's number, frozen at issue, I6).
+ * Drafting starts at `status='draft'`; `issue_credit_note` flips it to `'issued'` and
+ * freezes `credit_note_number` / `issue_date` / the snapshots / `original_invoice_number`
+ * / `share_token`. `pdf_path` is written once post-issue. Numeric bigints come back as
+ * strings from PostgREST, so they are typed `number | string | null` at the row boundary.
+ */
+export type CreditNoteRow = {
+  id: string;
+  organization_id: string;
+  /** The source invoice this credit note corrects (NOT NULL FK; navigational, I6). */
+  invoice_id: string;
+  /**
+   * The source invoice's number, frozen at issue so the PDF shows which invoice it
+   * corrects without a live join into `invoices` (I6). Null until issued (bigint ->
+   * string from PostgREST).
+   */
+  original_invoice_number: number | string | null;
+  customer_record_id: string | null;
+  place_of_supply_province: string | null;
+  language: InvoiceLanguage;
+  status: CreditNoteStatus;
+  version: number;
+  actor_id: string | null;
+  /**
+   * Money totals (Story 12.8, I2). Written ONLY from `computeInvoiceTotals` output.
+   * Line amounts are POSITIVE; the "Credit Note" title carries the reduction meaning.
+   * PostgREST returns numeric columns as strings, so they are typed `number | string`.
+   */
+  subtotal: number | string;
+  tax_total: number | string;
+  total: number | string;
+  /**
+   * Issue-time frozen columns (Story 12.8). All null until issued. `credit_note_number`
+   * is the gap-free per-org integer in its OWN namespace disjoint from invoice numbers
+   * (I1; bigint -> string); `issue_date` is the server-authoritative `YYYY-MM-DD`; the
+   * snapshots freeze supplier/customer identity (I6); `share_token` is the one-time
+   * 128-bit token (I4).
+   */
+  credit_note_number: number | string | null;
+  issue_date: string | null;
+  supplier_snapshot: SupplierSnapshot | null;
+  customer_snapshot: CustomerSnapshot | null;
+  share_token: string | null;
+  /**
+   * The bucket-relative object key of the frozen credit-note PDF in the private
+   * `invoice-pdfs` bucket (Story 12.8, I8): `{organization_id}/credit-notes/{id}.pdf`.
+   * Null until the post-issue `ensureCreditNotePdf` freeze succeeds; the immutability
+   * trigger permits exactly one `null->value` write of this column on a non-draft row.
+   */
+  pdf_path: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Typed credit-note line-item row (Story 12.8) — a child of `credit_notes`, identical in
+ * shape to `InvoiceLineItemRow`. Mirrors `20260928121600_credit_note_line_items.sql`.
+ * `organization_id` is denormalized for RLS. `amount = round(quantity * unit_price, 2)` is
+ * computed by the canonical `computeLineAmount` (I2) and stored (POSITIVE). Numeric
+ * columns come back as strings from PostgREST.
+ */
+export type CreditNoteLineItemRow = {
+  id: string;
+  credit_note_id: string;
+  organization_id: string;
+  description: string;
+  quantity: number | string;
+  unit_price: number | string;
+  amount: number | string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
+ * Typed credit-note tax-line row (Story 12.8) — a child of `credit_notes`, identical in
+ * shape to `InvoiceTaxLineRow`. Mirrors `20260928121700_credit_note_tax_lines.sql`. For
+ * the MVP Ontario path there is exactly ONE HST row when tax applies; amounts are computed
+ * by `computeInvoiceTotals` (I3) and stored. Numeric columns come back as strings.
+ */
+export type CreditNoteTaxLineRow = {
+  id: string;
+  credit_note_id: string;
+  organization_id: string;
+  label: string;
+  rate: number | string;
+  base: number | string;
+  tax_amount: number | string;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
  * The closed vocabulary of out-of-band payment methods (Story 12.7) — matches the DB
  * CHECK on `invoice_payments.method`. Scheza never processes, holds, or moves money;
  * these only record HOW the owner received the payment out of band.

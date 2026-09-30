@@ -6,6 +6,10 @@ import {
   issueInvoice,
   type InvoiceMutateIdentity,
 } from "@/lib/data/invoice-mutate";
+import {
+  saveCreditNoteDraft,
+  issueCreditNote,
+} from "@/lib/data/credit-note-mutate";
 import { INVOICE_PDF_BUCKET } from "@/lib/invoicing/storage";
 
 /**
@@ -114,6 +118,39 @@ describeDb("public /i/[token] share route (real Supabase)", () => {
     return (data?.share_token as string | null) ?? "";
   }
 
+  /** Issue a source invoice, then draft + issue a credit note against it; return the CN id. */
+  async function newIssuedCreditNote(): Promise<string> {
+    const d = await newRegisteredDraft();
+    const issued = await issueInvoice(identity, { invoiceId: d.id, version: d.version });
+    if (issued.error) throw new Error("source invoice issue failed");
+    const cn = await saveCreditNoteDraft(identity, {
+      creditNoteId: null,
+      invoiceId: d.id,
+      customerRecordId: null,
+      province: "ON",
+      language: "en",
+      version: null,
+      lineItems: [{ description: "Overcharge", quantity: 1, unitPrice: 40 }],
+      referenceDate: TODAY,
+    });
+    if (cn.error || !cn.data) throw new Error("credit-note draft save failed");
+    const issuedCn = await issueCreditNote(identity, {
+      creditNoteId: cn.data.id,
+      version: cn.data.version,
+    });
+    if (issuedCn.error) throw new Error("credit-note issue failed");
+    return cn.data.id;
+  }
+
+  async function creditNoteShareTokenOf(cnId: string): Promise<string> {
+    const { data } = await admin
+      .from("credit_notes")
+      .select("share_token")
+      .eq("id", cnId)
+      .maybeSingle();
+    return (data?.share_token as string | null) ?? "";
+  }
+
   beforeAll(async () => {
     if (!HAS_ENV) return;
 
@@ -180,6 +217,17 @@ describeDb("public /i/[token] share route (real Supabase)", () => {
           .from(INVOICE_PDF_BUCKET)
           .remove(objs.map((o) => `${orgId}/${o.name}`));
       }
+      const { data: cnObjs } = await admin.storage
+        .from(INVOICE_PDF_BUCKET)
+        .list(`${orgId}/credit-notes`);
+      if (cnObjs && cnObjs.length > 0) {
+        await admin.storage
+          .from(INVOICE_PDF_BUCKET)
+          .remove(cnObjs.map((o) => `${orgId}/credit-notes/${o.name}`));
+      }
+      // Credit notes reference invoices ON DELETE RESTRICT; delete them first so the org
+      // cascade can then drop the invoices.
+      await admin.from("credit_notes").delete().eq("organization_id", orgId);
       await admin.from("organizations").delete().eq("id", orgId);
     }
     if (userId) await admin.auth.admin.deleteUser(userId);
@@ -250,6 +298,36 @@ describeDb("public /i/[token] share route (real Supabase)", () => {
       .from("invoices")
       .update({ status: "void" })
       .eq("id", d.id);
+    expect(voidErr).toBeNull();
+
+    const res = await GET(req(), ctx(token));
+    expect(res.status).toBe(410);
+  }, 60_000);
+
+  it("a valid token for a frozen credit note streams a %PDF as application/pdf", async () => {
+    const cnId = await newIssuedCreditNote();
+    const token = await creditNoteShareTokenOf(cnId);
+    expect(token).toBeTruthy();
+
+    const res = await GET(req(), ctx(token));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/pdf");
+    expect(res.headers.get("content-disposition")).toContain("credit-note-");
+
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    const magic = Buffer.from(bytes.subarray(0, 5)).toString("latin1");
+    expect(magic).toBe("%PDF-");
+  }, 60_000);
+
+  it("a voided credit note -> 410 Gone", async () => {
+    const cnId = await newIssuedCreditNote();
+    const token = await creditNoteShareTokenOf(cnId);
+
+    // The credit-note immutability trigger permits issued->void.
+    const { error: voidErr } = await admin
+      .from("credit_notes")
+      .update({ status: "void" })
+      .eq("id", cnId);
     expect(voidErr).toBeNull();
 
     const res = await GET(req(), ctx(token));
