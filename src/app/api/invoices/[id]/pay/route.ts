@@ -1,15 +1,15 @@
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
-import type { User } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
-import { getCurrentUser } from "@/lib/auth/session";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin } from "@/lib/auth/rbac";
-import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
-import type { OrgIdentity } from "@/lib/api/route-helpers";
+import {
+  json,
+  requireUser,
+  resolveAdminIdentity,
+  handleError,
+} from "@/lib/api/route-helpers";
 import { recordPayment } from "@/lib/data/invoice-mutate";
 import { recordPaymentSchema, firstInvoiceErrorKey } from "../../schemas";
 
@@ -35,26 +35,6 @@ export const dynamic = "force-dynamic";
 
 /** The POST response: the invoice's id + its new version after the payment. */
 export type PaidInvoicePayload = { id: string; version: number };
-
-async function requireUser(): Promise<User> {
-  const user = await getCurrentUser();
-  if (!user) {
-    throw new AppError(401, "unauthorized");
-  }
-  return user;
-}
-
-async function resolveAdminIdentity(
-  slug: string,
-  user: User,
-): Promise<OrgIdentity> {
-  const identity = await resolveOrgIdentity(slug, user.id);
-  const membership = await requireAdmin(user, createAdminClient());
-  if (membership.slug !== slug) {
-    throw new AppError(403, "forbidden");
-  }
-  return identity;
-}
 
 export async function POST(
   req: NextRequest,

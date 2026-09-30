@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { FilePlus2 } from "lucide-react";
@@ -19,6 +19,8 @@ import { cn } from "@/lib/utils";
 import { formatInvoiceNumber } from "@/lib/invoicing/tax";
 import { invoiceShareUrl } from "@/lib/invoicing/share";
 import { InvoiceApiError } from "@/lib/data/invoices-client";
+import { money } from "@/lib/invoicing/format";
+import { useIsClient } from "@/components/invoices/use-is-client";
 import {
   listCreditNotesForInvoice,
   type CreditNoteSummary,
@@ -48,23 +50,6 @@ const STATUS_VARIANT: Record<
   issued: "default",
   void: "outline",
 };
-
-function money(value: number | string): string {
-  const n = typeof value === "number" ? value : Number(value);
-  return (Number.isFinite(n) ? n : 0).toFixed(2);
-}
-
-/** No-op subscribe: mount state never changes after hydration. */
-const noopSubscribe = () => () => {};
-
-/** `true` on the client (after hydration) so the token URLs light up without SSR mismatch. */
-function useIsClient(): boolean {
-  return useSyncExternalStore(
-    noopSubscribe,
-    () => true,
-    () => false,
-  );
-}
 
 export function InvoiceCreditNotes({
   slug,

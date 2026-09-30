@@ -2,11 +2,14 @@ import "server-only";
 
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/session";
+import { requireAdmin } from "@/lib/auth/rbac";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { reportError } from "@/lib/observability/report";
 
 /**
@@ -62,6 +65,38 @@ export async function resolveOrgIdentity(
   }
 
   return { client, actorId, orgId: org.id as string };
+}
+
+/**
+ * Require an authenticated session, returning the Supabase `User` (Story 12.x, retro
+ * [A2]). Throws `401 unauthorized` when there is no session. Every invoice/business-profile
+ * route calls this BEFORE parsing the body so an unauthenticated request never reaches
+ * request-body handling — shared here so the 8 invoice routes stop each redefining it.
+ */
+export async function requireUser(): Promise<User> {
+  const user = await getCurrentUser();
+  if (!user) {
+    throw new AppError(401, "unauthorized");
+  }
+  return user;
+}
+
+/**
+ * Resolve the acting admin's org identity for `slug` (Story 12.x, retro [A2]): resolve the
+ * org under the caller's RLS client, then require the caller be an admin of the SAME org
+ * (the membership slug must equal the addressed slug, else `403 forbidden`). Mirrors the
+ * gate every invoice route repeated locally; extracted so there is one definition.
+ */
+export async function resolveAdminIdentity(
+  slug: string,
+  user: User,
+): Promise<OrgIdentity> {
+  const identity = await resolveOrgIdentity(slug, user.id);
+  const membership = await requireAdmin(user, createAdminClient());
+  if (membership.slug !== slug) {
+    throw new AppError(403, "forbidden");
+  }
+  return identity;
 }
 
 /**

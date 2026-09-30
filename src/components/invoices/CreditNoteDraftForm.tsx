@@ -83,6 +83,7 @@ const ERROR_KEYS = new Set([
   "taxWithoutRegistration",
   "taxSplit",
   "totalsMismatch",
+  "creditExceedsInvoice",
   "notIssued",
   "versionConflict",
   "notDraft",

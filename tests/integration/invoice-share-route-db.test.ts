@@ -137,6 +137,7 @@ describeDb("public /i/[token] share route (real Supabase)", () => {
     const issuedCn = await issueCreditNote(identity, {
       creditNoteId: cn.data.id,
       version: cn.data.version,
+      invoiceId: d.id,
     });
     if (issuedCn.error) throw new Error("credit-note issue failed");
     return cn.data.id;

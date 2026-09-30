@@ -1,12 +1,13 @@
 "use client";
 
-import { useId, useState, useSyncExternalStore } from "react";
+import { useId, useState } from "react";
 import { useTranslations } from "next-intl";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Check, Download, Link2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { invoiceShareUrl } from "@/lib/invoicing/share";
+import { useIsClient } from "@/components/invoices/use-is-client";
 import type { InvoiceLanguage } from "@/types/db";
 
 /**
@@ -16,18 +17,6 @@ import type { InvoiceLanguage } from "@/types/db";
  * (never re-minting the token). WCAG AA: labelled controls, `aria-live` feedback, motion
  * gated by `useReducedMotion`. Mirrors the invoice delivery bar's Copy/Download pattern.
  */
-
-/** No-op subscribe: mount state never changes after hydration. */
-const noopSubscribe = () => () => {};
-
-/** `true` on the client (after hydration) so the token URL lights up without SSR mismatch. */
-function useIsClient(): boolean {
-  return useSyncExternalStore(
-    noopSubscribe,
-    () => true,
-    () => false,
-  );
-}
 
 export function CreditNoteDeliveryActions({
   shareToken,

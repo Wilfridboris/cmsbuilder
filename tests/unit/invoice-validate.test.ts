@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { assertIssuable } from "@/lib/invoicing/validate";
+import {
+  assertIssuable,
+  assertIssuableCreditNote,
+} from "@/lib/invoicing/validate";
 import { formatInvoiceNumber } from "@/lib/invoicing/tax";
 import { AppError } from "@/types/api";
 
@@ -212,6 +215,97 @@ describe("assertIssuable", () => {
       }),
     ).not.toThrow();
   });
+});
+
+describe("assertIssuableCreditNote ceiling (retro [X1])", () => {
+  // A reconciling credit note whose own total is 141.25 (reuses the invoice shape).
+  function creditNote(ceiling: {
+    invoiceTotal: number;
+    alreadyCredited: number;
+  } | null) {
+    return { ...validInput(), ceiling };
+  }
+
+  function expectCeilingBlock(
+    input: Parameters<typeof assertIssuableCreditNote>[0],
+  ) {
+    try {
+      assertIssuableCreditNote(input);
+      throw new Error("expected assertIssuableCreditNote to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AppError);
+      expect((err as AppError).userMessage).toBe(
+        "Invoice.error.creditExceedsInvoice",
+      );
+      expect((err as AppError).statusCode).toBe(422);
+    }
+  }
+
+  it("passes when the credit equals the full invoice total (nothing credited yet)", () => {
+    expect(() =>
+      assertIssuableCreditNote(
+        creditNote({ invoiceTotal: 141.25, alreadyCredited: 0 }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("passes when the cumulative credit exactly hits the invoice total", () => {
+    // 100.00 already credited + this 141.25 would be 241.25 > 141.25 -> blocked; use a
+    // headroom case: 0.00 already credited leaves exactly the full total available.
+    expect(() =>
+      assertIssuableCreditNote(
+        creditNote({ invoiceTotal: 141.25, alreadyCredited: 0 }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("blocks a single credit note larger than the invoice total", () => {
+    expectCeilingBlock(creditNote({ invoiceTotal: 100, alreadyCredited: 0 }));
+  });
+
+  it("blocks double-crediting past the invoice total", () => {
+    // 141.25 invoice, 100.00 already credited, this note 141.25 -> 241.25 > 141.25.
+    expectCeilingBlock(
+      creditNote({ invoiceTotal: 141.25, alreadyCredited: 100 }),
+    );
+  });
+
+  it("tolerates a half-cent rounding margin at the ceiling", () => {
+    // Cumulative 141.25 vs invoiceTotal 141.25 is within the half-cent epsilon.
+    expect(() =>
+      assertIssuableCreditNote(
+        creditNote({ invoiceTotal: 141.25, alreadyCredited: 0 }),
+      ),
+    ).not.toThrow();
+  });
+
+  it("skips the ceiling when the source invoice total is unavailable (null)", () => {
+    expect(() => assertIssuableCreditNote(creditNote(null))).not.toThrow();
+  });
+
+  it("still enforces the shared invoice compliance gate under the ceiling", () => {
+    // A blank legal name must still block, ceiling notwithstanding.
+    expectCeilingBlockOrIdentity(
+      {
+        ...creditNote({ invoiceTotal: 141.25, alreadyCredited: 0 }),
+        profile: { ...registeredProfile(), legal_name: "" },
+      },
+      "legalIdentityMissing",
+    );
+  });
+
+  function expectCeilingBlockOrIdentity(
+    input: Parameters<typeof assertIssuableCreditNote>[0],
+    code: string,
+  ) {
+    try {
+      assertIssuableCreditNote(input);
+      throw new Error("expected assertIssuableCreditNote to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(AppError);
+      expect((err as AppError).userMessage).toBe(`Invoice.error.${code}`);
+    }
+  }
 });
 
 describe("formatInvoiceNumber", () => {

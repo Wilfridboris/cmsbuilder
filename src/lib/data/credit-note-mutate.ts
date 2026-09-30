@@ -1,20 +1,27 @@
-import { randomBytes } from "node:crypto";
+import "server-only";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
-import type {
-  CustomerSnapshot,
-  InvoiceLanguage,
-  SupplierSnapshot,
-} from "@/types/db";
+import type { InvoiceLanguage } from "@/types/db";
 import {
   computeInvoiceTotals,
   computeLineAmount,
   formatInvoiceNumber,
   isRegistrationEffective,
 } from "@/lib/invoicing/tax";
-import { assertIssuableCreditNote } from "@/lib/invoicing/validate";
-import { getCreditNoteWithLineItems } from "@/lib/data/credit-notes";
+import {
+  assertIssuableCreditNote,
+  type CreditNoteCeiling,
+} from "@/lib/invoicing/validate";
+import { mintShareToken } from "@/lib/invoicing/share-token";
+import {
+  buildSupplierSnapshot,
+  buildCustomerSnapshot,
+} from "@/lib/invoicing/snapshot";
+import {
+  getCreditNoteWithLineItems,
+  sumIssuedCreditNoteTotals,
+} from "@/lib/data/credit-notes";
 import { renderInvoicePdf, type InvoiceDocumentModel } from "@/lib/invoicing/pdf";
 import { uploadCreditNotePdf } from "@/lib/invoicing/storage";
 import { downloadLogoDataUrl } from "@/lib/storage/logo";
@@ -179,33 +186,12 @@ export type IssueCreditNoteResult = {
 /** The distinguishable Postgres error text raised by `issue_credit_note`. */
 const ISSUE_CONFLICT_MARKER = "credit_note_issue_conflict";
 
-/** The base62url alphabet for the share token (fixed alphabet, Invariant I4). */
-const BASE62 =
-  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-
-/** Largest multiple of 62 that fits in a byte (62 * 4). Bytes >= this are rejected. */
-const BASE62_REJECT = 248;
-
 /**
- * Mint a 128-bit base62url share token (Invariant I4): 22 base62 chars (~131 bits) via
- * REJECTION SAMPLING (no modulo bias). Fixed alphabet + length, minted ONCE in the issue
- * transaction and never rotated. Mirrors the invoice token minter.
+ * Source-invoice statuses that may be credited (retro [X4]) — mirrors the create route.
+ * A correction is valid regardless of payment; a `draft` or `void` source cannot be
+ * credited. Re-checked at issue time because the create-time check can go stale.
  */
-function mintShareToken(): string {
-  let out = "";
-  while (out.length < 22) {
-    for (const b of randomBytes(32)) {
-      if (b >= BASE62_REJECT) {
-        continue;
-      }
-      out += BASE62[b % 62];
-      if (out.length === 22) {
-        break;
-      }
-    }
-  }
-  return out;
-}
+const CREDITABLE_STATUSES = new Set(["issued", "paid", "overdue"]);
 
 /**
  * Issue a validated credit-note draft (Story 12.8): the deliberate, validated,
@@ -229,7 +215,7 @@ function mintShareToken(): string {
  */
 export async function issueCreditNote(
   identity: InvoiceMutateIdentity,
-  input: { creditNoteId: string; version: number },
+  input: { creditNoteId: string; version: number; invoiceId: string },
 ): Promise<ApiResponse<IssueCreditNoteResult>> {
   try {
     const { client, actorId, orgId } = identity;
@@ -252,24 +238,60 @@ export async function issueCreditNote(
       throw new AppError(409, "notDraft");
     }
 
-    // 2. Load the source invoice's frozen number (the reference frozen at issue, I6). Read
-    // under RLS; a genuine read error is surfaced, an absent/RLS-hidden invoice yields a
-    // null reference (the credit note still issues — invoice_id remains the FK).
+    // The credit note must belong to the invoice named in the route path (retro [X4]).
+    // A mismatch means [cnId] does not sit under [id]; treat it as not found rather than
+    // silently issuing a credit note against a different invoice than the URL claims.
+    if (creditNote.invoice_id !== input.invoiceId) {
+      throw new AppError(404, "notFound");
+    }
+
+    // 2. Load the source invoice and RE-CHECK its creditability at issue time (retro [X4]):
+    // the create-time check can go stale, so the source must still exist and be creditable
+    // (issued/paid/overdue). The same query reads the frozen `invoice_number` (the reference,
+    // I6) and `total` (the credit ceiling, retro [X1]). A missing or non-creditable source
+    // blocks with 409 notIssued — which also guarantees the ceiling below is enforceable.
     let originalInvoiceNumber: number | null = null;
+    let ceiling: CreditNoteCeiling | null = null;
     {
       const { data: sourceInvoice, error: sourceError } = await client
         .from("invoices")
-        .select("invoice_number")
+        .select("invoice_number, total, status")
         .eq("id", creditNote.invoice_id)
         .eq("organization_id", orgId)
         .maybeSingle();
       if (sourceError) {
         throw new AppError(500, "writeFailed", sourceError.message);
       }
-      const raw = sourceInvoice?.invoice_number as number | string | null;
+      if (!sourceInvoice) {
+        throw new AppError(409, "notIssued");
+      }
+      if (!CREDITABLE_STATUSES.has(sourceInvoice.status as string)) {
+        throw new AppError(409, "notIssued");
+      }
+
+      const raw = sourceInvoice.invoice_number as number | string | null;
       if (raw !== null && raw !== undefined) {
         const n = Number(raw);
         originalInvoiceNumber = Number.isFinite(n) ? n : null;
+      }
+
+      // Compute the credit ceiling: the source invoice total, against which the sum of
+      // OTHER issued credit notes plus this one must not exceed (retro [X1]).
+      const invoiceTotal = Number(sourceInvoice.total);
+      if (Number.isFinite(invoiceTotal)) {
+        const credited = await sumIssuedCreditNoteTotals(
+          client,
+          orgId,
+          creditNote.invoice_id,
+          input.creditNoteId,
+        );
+        if (credited.error) {
+          throw new AppError(500, "writeFailed", credited.error);
+        }
+        ceiling = {
+          invoiceTotal,
+          alreadyCredited: credited.data ?? 0,
+        };
       }
     }
 
@@ -315,57 +337,18 @@ export async function issueCreditNote(
           }
         : null,
       issueDate,
+      ceiling,
     });
 
-    // 5. Freeze the supplier identity + payment instructions (I6).
-    const supplierSnapshot: SupplierSnapshot = {
-      legal_name: String(profile!.legal_name),
-      operating_name: (profile!.operating_name as string | null) ?? null,
-      entity_type:
-        (profile!.entity_type as SupplierSnapshot["entity_type"]) ?? null,
-      jurisdiction: (profile!.jurisdiction as string | null) ?? null,
-      gst_hst_number: (profile!.gst_hst_number as string | null) ?? null,
-      gst_hst_effective_date:
-        (profile!.gst_hst_effective_date as string | null) ?? null,
-      logo_path: (profile!.logo_path as string | null) ?? null,
-      business_address: (profile!.business_address as string | null) ?? null,
-      mailing_address: (profile!.mailing_address as string | null) ?? null,
-      default_payment_terms:
-        (profile!.default_payment_terms as string | null) ?? null,
-      payment_etransfer_email:
-        (profile!.payment_etransfer_email as string | null) ?? null,
-      payment_cheque_payable_to:
-        (profile!.payment_cheque_payable_to as string | null) ?? null,
-      payment_cheque_address:
-        (profile!.payment_cheque_address as string | null) ?? null,
-      payment_card_link: (profile!.payment_card_link as string | null) ?? null,
-      language:
-        (profile!.default_language as SupplierSnapshot["language"]) ?? "en",
-    };
-
-    // Freeze the linked customer (I6), or null for a standalone credit note.
-    let customerSnapshot: CustomerSnapshot | null = null;
-    if (creditNote.customer_record_id) {
-      const { data: record, error: recordError } = await client
-        .from("records")
-        .select("table_key, data")
-        .eq("id", creditNote.customer_record_id)
-        .eq("organization_id", orgId)
-        .is("deleted_at", null)
-        .maybeSingle();
-      if (recordError) {
-        throw new AppError(500, "writeFailed", recordError.message);
-      }
-      customerSnapshot = {
-        record_id: creditNote.customer_record_id,
-        table_key: (record?.table_key as string | null) ?? "",
-        display_label: customerLabel,
-        data: ((record?.data as Record<string, unknown> | null) ?? {}) as Record<
-          string,
-          unknown
-        >,
-      };
-    }
+    // 5. Freeze the supplier identity + payment instructions and the linked customer (I6);
+    // a standalone credit note (no linked record) freezes a null customer snapshot.
+    const supplierSnapshot = buildSupplierSnapshot(profile!);
+    const customerSnapshot = await buildCustomerSnapshot(
+      client,
+      orgId,
+      creditNote.customer_record_id,
+      customerLabel,
+    );
 
     const shareToken = mintShareToken();
 

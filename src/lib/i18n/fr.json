@@ -650,6 +650,7 @@
       "taxWithoutRegistration": "Cette note de crédit facture une taxe, mais votre profil d'entreprise n'a pas d'inscription TPS/TVH en vigueur à ce jour. Ajoutez une inscription valide ou retirez la taxe.",
       "taxSplit": "La taxe doit tenir sur une seule ligne. Les lignes de taxe fractionnées ne sont pas autorisées.",
       "totalsMismatch": "Les totaux enregistrés ne correspondent plus à cette note de crédit. Enregistrez-la de nouveau, puis émettez-la.",
+      "creditExceedsInvoice": "Cette note de crédit dépasserait le total de la facture. Réduisez le montant pour que le total crédité ne dépasse pas la facture.",
       "notIssued": "Vous ne pouvez créditer qu'une facture qui a été émise.",
       "versionConflict": "Cette note de crédit a changé depuis que vous l'avez ouverte. Rechargez et réessayez.",
       "notDraft": "Cette note de crédit n'est plus un brouillon et ne peut pas être modifiée.",

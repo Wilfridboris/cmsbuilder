@@ -1,15 +1,10 @@
-import { randomBytes } from "node:crypto";
+import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
-import type {
-  CustomerSnapshot,
-  InvoiceLanguage,
-  PaymentMethod,
-  SupplierSnapshot,
-} from "@/types/db";
+import type { InvoiceLanguage, PaymentMethod } from "@/types/db";
 import {
   computeInvoiceTotals,
   computeLineAmount,
@@ -17,6 +12,11 @@ import {
   isRegistrationEffective,
 } from "@/lib/invoicing/tax";
 import { assertIssuable } from "@/lib/invoicing/validate";
+import { mintShareToken } from "@/lib/invoicing/share-token";
+import {
+  buildSupplierSnapshot,
+  buildCustomerSnapshot,
+} from "@/lib/invoicing/snapshot";
 import { getInvoiceWithLineItems } from "@/lib/data/invoices";
 import { renderInvoicePdf, type InvoiceDocumentModel } from "@/lib/invoicing/pdf";
 import { uploadInvoicePdf } from "@/lib/invoicing/storage";
@@ -207,41 +207,6 @@ export type IssueInvoiceResult = {
 /** The distinguishable Postgres error text raised by `issue_invoice`. */
 const ISSUE_CONFLICT_MARKER = "invoice_issue_conflict";
 
-/** The base62url alphabet for the share token (fixed alphabet, Invariant I4). */
-const BASE62 =
-  "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
-
-/** Largest multiple of 62 that fits in a byte (62 * 4). Bytes >= this are rejected. */
-const BASE62_REJECT = 248;
-
-/**
- * Mint a 128-bit base62url share token (Invariant I4): 22 base62 chars (~131 bits of
- * entropy) from a cryptographically secure source. Fixed alphabet + length, generated
- * server-side, minted ONCE in the issue transaction and never rotated. No `+`/`/`/`=`,
- * so it is URL-safe for the future public `/i/[token]` route (12.6).
- *
- * Each character is chosen by REJECTION SAMPLING: a random byte is drawn and any byte
- * >= 248 (the largest multiple of 62 under 256) is discarded before `% 62`, so every
- * base62 symbol is equally likely (no modulo bias) and the 22 chars carry their full
- * uniform keyspace.
- */
-function mintShareToken(): string {
-  let out = "";
-  while (out.length < 22) {
-    // Draw a small pool at a time; discard biased bytes (>= 248) and map the rest.
-    for (const b of randomBytes(32)) {
-      if (b >= BASE62_REJECT) {
-        continue;
-      }
-      out += BASE62[b % 62];
-      if (out.length === 22) {
-        break;
-      }
-    }
-  }
-  return out;
-}
-
 /**
  * Issue a validated draft (Story 12.4): the deliberate, validated, irreversible step
  * that mints a gap-free per-org number, freezes supplier/customer identity + the issue
@@ -287,6 +252,14 @@ export async function issueInvoice(
     if (invoice.status !== "draft") {
       throw new AppError(409, "notDraft");
     }
+
+    // INVARIANT (retro [X5]): the gate below validates the line items/totals read here,
+    // then `issue_invoice` re-checks only `version` + `status='draft'` + org — it does NOT
+    // re-validate the children. That is safe ONLY because every writer of the child rows
+    // (`save_invoice_draft`) bumps the parent `invoices.version`, so any change between
+    // this read and the RPC trips the version gate (409 versionConflict) rather than
+    // freezing an unvalidated change. Any future path that mutates invoice_line_items /
+    // invoice_tax_lines on a draft MUST bump the parent version to preserve this.
 
     // 1b. Load the org's full Business Profile (the snapshot source) under RLS.
     const { data: profile, error: profileError } = await client
@@ -334,61 +307,16 @@ export async function issueInvoice(
       issueDate,
     });
 
-    // 4. Freeze the supplier identity + payment instructions (I6). assertIssuable
-    // already guaranteed a profile with a non-blank legal name.
-    const supplierSnapshot: SupplierSnapshot = {
-      legal_name: String(profile!.legal_name),
-      operating_name: (profile!.operating_name as string | null) ?? null,
-      entity_type:
-        (profile!.entity_type as SupplierSnapshot["entity_type"]) ?? null,
-      jurisdiction: (profile!.jurisdiction as string | null) ?? null,
-      gst_hst_number: (profile!.gst_hst_number as string | null) ?? null,
-      gst_hst_effective_date:
-        (profile!.gst_hst_effective_date as string | null) ?? null,
-      logo_path: (profile!.logo_path as string | null) ?? null,
-      business_address: (profile!.business_address as string | null) ?? null,
-      mailing_address: (profile!.mailing_address as string | null) ?? null,
-      default_payment_terms:
-        (profile!.default_payment_terms as string | null) ?? null,
-      payment_etransfer_email:
-        (profile!.payment_etransfer_email as string | null) ?? null,
-      payment_cheque_payable_to:
-        (profile!.payment_cheque_payable_to as string | null) ?? null,
-      payment_cheque_address:
-        (profile!.payment_cheque_address as string | null) ?? null,
-      payment_card_link: (profile!.payment_card_link as string | null) ?? null,
-      language:
-        (profile!.default_language as SupplierSnapshot["language"]) ?? "en",
-    };
-
-    // Freeze the linked customer (I6), or null for a standalone invoice. The record's
-    // data is read under RLS so a cross-org id never leaks.
-    let customerSnapshot: CustomerSnapshot | null = null;
-    if (invoice.customer_record_id) {
-      const { data: record, error: recordError } = await client
-        .from("records")
-        .select("table_key, data")
-        .eq("id", invoice.customer_record_id)
-        .eq("organization_id", orgId)
-        .is("deleted_at", null)
-        .maybeSingle();
-      // A genuine read error is SURFACED rather than silently freezing an EMPTY customer
-      // identity into an immutable invoice. A legitimately absent/deleted record (no row,
-      // which maybeSingle returns as error=null) is not an error and degrades to a
-      // standalone-style snapshot below.
-      if (recordError) {
-        throw new AppError(500, "writeFailed", recordError.message);
-      }
-      customerSnapshot = {
-        record_id: invoice.customer_record_id,
-        table_key: (record?.table_key as string | null) ?? "",
-        display_label: customerLabel,
-        data: ((record?.data as Record<string, unknown> | null) ?? {}) as Record<
-          string,
-          unknown
-        >,
-      };
-    }
+    // 4. Freeze the supplier identity + payment instructions and the linked customer (I6).
+    // assertIssuable already guaranteed a profile with a non-blank legal name; a standalone
+    // invoice (no linked record) freezes a null customer snapshot.
+    const supplierSnapshot = buildSupplierSnapshot(profile!);
+    const customerSnapshot = await buildCustomerSnapshot(
+      client,
+      orgId,
+      invoice.customer_record_id,
+      customerLabel,
+    );
 
     // Mint the one-time share token (I4) — generated here, passed to the RPC.
     const shareToken = mintShareToken();

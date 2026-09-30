@@ -24,6 +24,7 @@ import {
   type ReceivablesView,
 } from "@/lib/invoicing/receivables";
 import { InvoiceApiError, listInvoices } from "@/lib/data/invoices-client";
+import { todayIso } from "@/lib/invoicing/format";
 
 /**
  * InvoicesList (Story 12.2 + 12.7) — the Admin-only list of the org's invoices. Loads via
@@ -91,18 +92,6 @@ function formatDue(iso: string | null, locale: string, placeholder: string): str
     month: "short",
     day: "numeric",
   });
-}
-
-/**
- * Today as `YYYY-MM-DD` in the browser's local zone, for the Overdue derivation. Compared
- * lexicographically against the stored `due_date` (correct for zero-padded ISO dates).
- */
-function todayIso(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
 }
 
 export function InvoicesList({

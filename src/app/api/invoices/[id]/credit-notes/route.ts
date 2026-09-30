@@ -1,15 +1,15 @@
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
-import type { User } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
-import { getCurrentUser } from "@/lib/auth/session";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin } from "@/lib/auth/rbac";
-import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
-import type { OrgIdentity } from "@/lib/api/route-helpers";
+import {
+  json,
+  requireUser,
+  resolveAdminIdentity,
+  handleError,
+} from "@/lib/api/route-helpers";
 import {
   getInvoiceWithLineItems,
   customerRecordBelongsToOrg,
@@ -53,26 +53,6 @@ export type CreatedCreditNotePayload = { id: string; version: number };
 
 /** Source invoice statuses that may be credited (a correction is valid regardless of payment). */
 const CREDITABLE_STATUSES = new Set(["issued", "paid", "overdue"]);
-
-async function requireUser(): Promise<User> {
-  const user = await getCurrentUser();
-  if (!user) {
-    throw new AppError(401, "unauthorized");
-  }
-  return user;
-}
-
-async function resolveAdminIdentity(
-  slug: string,
-  user: User,
-): Promise<OrgIdentity> {
-  const identity = await resolveOrgIdentity(slug, user.id);
-  const membership = await requireAdmin(user, createAdminClient());
-  if (membership.slug !== slug) {
-    throw new AppError(403, "forbidden");
-  }
-  return identity;
-}
 
 export async function GET(
   req: NextRequest,

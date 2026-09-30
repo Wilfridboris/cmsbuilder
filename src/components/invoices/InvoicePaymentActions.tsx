@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { PAYMENT_METHODS } from "@/app/api/invoices/schemas";
 import { InvoiceApiError, recordPayment } from "@/lib/data/invoices-client";
+import { todayIso } from "@/lib/invoicing/format";
 import type { InvoiceLanguage, PaymentMethod } from "@/types/db";
 
 /**
@@ -52,15 +53,6 @@ const PAYMENT_ERROR_KEYS = new Set([
   "writeFailed",
   "genericError",
 ]);
-
-/** Today as `YYYY-MM-DD` in the browser's local zone (the paid-date default). */
-function todayIso(): string {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
 
 export function InvoicePaymentActions({
   slug,

@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { PaymentInstructionsBlock } from "@/components/invoices/PaymentInstructionsBlock";
 import { CreditNoteDeliveryActions } from "@/components/invoices/CreditNoteDeliveryActions";
 import { formatInvoiceNumber } from "@/lib/invoicing/tax";
+import { formatIssueDate, money } from "@/lib/invoicing/format";
 import type {
   CreditNoteLineItemRow,
   CreditNoteRow,
@@ -37,23 +38,6 @@ const STATUS_VARIANT: Record<
   issued: "default",
   void: "outline",
 };
-
-/** Coerce a PostgREST numeric-boundary value to a 2-decimal display string. */
-function money(value: number | string): string {
-  const n = typeof value === "number" ? value : Number(value);
-  return (Number.isFinite(n) ? n : 0).toFixed(2);
-}
-
-function formatIssueDate(iso: string | null, locale: string): string {
-  if (!iso) return "";
-  const date = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleDateString(locale, {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-}
 
 export async function IssuedCreditNoteView({
   creditNote,

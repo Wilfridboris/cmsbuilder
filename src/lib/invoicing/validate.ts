@@ -193,6 +193,23 @@ export function assertIssuable(input: AssertIssuableInput): void {
 }
 
 /**
+ * The source-invoice ceiling a credit note must respect (Story 12.8 / retro [X1]).
+ *
+ * A credit note reduces an issued invoice, so the cumulative credited amount can never
+ * exceed the invoice total. `invoiceTotal` is the source invoice's frozen total, and
+ * `alreadyCredited` is the sum of the totals of credit notes ALREADY issued against the
+ * same invoice (excluding the one being issued). Void credit notes are cancelled and are
+ * excluded from `alreadyCredited` upstream.
+ */
+export type CreditNoteCeiling = {
+  invoiceTotal: number;
+  alreadyCredited: number;
+};
+
+/** Half a cent — the tolerance for the cent-rounded money comparison (matches roundMoney). */
+const MONEY_EPSILON = 0.005;
+
+/**
  * assertIssuableCreditNote (Story 12.8) — the pre-issue compliance gate for a credit
  * note. A credit note mirrors an invoice's issuance compliance exactly: >= 1 line item,
  * a legal identity present, tax not split, tax only with a valid registration as of the
@@ -202,10 +219,27 @@ export function assertIssuable(input: AssertIssuableInput): void {
  * credit note's line amounts are POSITIVE (like an invoice); the "Credit Note" title and
  * its reference to the original invoice carry the reduction meaning.
  *
- * A thin delegator: the credit-note stored figures and children have the same shape as an
- * invoice's, so this forwards to `assertIssuable` verbatim. Throws the same 422
- * `Invoice.error.*` codes and reports through the same observability seam.
+ * On top of the shared invoice gate it enforces the credit-specific CEILING (retro [X1]):
+ * the cumulative credited amount against the source invoice may not exceed the invoice
+ * total, so a credit note cannot over-credit or double-credit an invoice. The ceiling is
+ * skipped only when the source invoice total is unavailable (`ceiling` null) — the issue
+ * path blocks a missing / non-creditable source separately. Like `assertIssuable`, this
+ * synchronous TS gate carries a benign TOCTOU window (two concurrent issues against one
+ * invoice) that is acceptable for the single-owner MVP and matches the invoice gate.
  */
-export function assertIssuableCreditNote(input: AssertIssuableInput): void {
+export function assertIssuableCreditNote(
+  input: AssertIssuableInput & { ceiling: CreditNoteCeiling | null },
+): void {
+  // Reuse every invoice compliance predicate verbatim (I2/I3) — no second money-math.
   assertIssuable(input);
+
+  if (input.ceiling) {
+    const thisTotal = num(input.invoice.total);
+    const cumulative = input.ceiling.alreadyCredited + thisTotal;
+    if (cumulative > input.ceiling.invoiceTotal + MONEY_EPSILON) {
+      const detail = `cumulative credit ${cumulative} exceeds invoice total ${input.ceiling.invoiceTotal}`;
+      reportRejection(`assertIssuableCreditNote: ${detail}`);
+      throw new AppError(422, "Invoice.error.creditExceedsInvoice", detail);
+    }
+  }
 }

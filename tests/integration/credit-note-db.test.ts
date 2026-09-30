@@ -244,6 +244,7 @@ describeDb("credit-note path (real Supabase)", () => {
     const result = await issueCreditNote(identity, {
       creditNoteId: d.id,
       version: d.version,
+      invoiceId: source.id,
     });
     expect(result.error).toBeNull();
     expect(typeof result.data?.credit_note_number).toBe("number");
@@ -276,12 +277,14 @@ describeDb("credit-note path (real Supabase)", () => {
     const first = await issueCreditNote(identity, {
       creditNoteId: cn1.id,
       version: cn1.version,
+      invoiceId: s1.id,
     });
     const s2 = await newIssuedInvoice();
     const cn2 = await newCreditNoteDraft(s2.id);
     const second = await issueCreditNote(identity, {
       creditNoteId: cn2.id,
       version: cn2.version,
+      invoiceId: s2.id,
     });
 
     expect(second.data!.credit_note_number).toBe(
@@ -308,7 +311,11 @@ describeDb("credit-note path (real Supabase)", () => {
     });
 
     await expect(
-      issueCreditNote(identity, { creditNoteId: d.id, version: d.version }),
+      issueCreditNote(identity, {
+        creditNoteId: d.id,
+        version: d.version,
+        invoiceId: source.id,
+      }),
     ).rejects.toMatchObject({ statusCode: 409, userMessage: "versionConflict" });
 
     const row = await creditNoteRow(d.id);
@@ -319,7 +326,11 @@ describeDb("credit-note path (real Supabase)", () => {
   it("immutability trigger: rejects frozen-column UPDATE, DELETE, and child changes; permits issued->void", async () => {
     const source = await newIssuedInvoice();
     const d = await newCreditNoteDraft(source.id);
-    await issueCreditNote(identity, { creditNoteId: d.id, version: d.version });
+    await issueCreditNote(identity, {
+      creditNoteId: d.id,
+      version: d.version,
+      invoiceId: source.id,
+    });
 
     // Frozen-column change (total) blocked.
     const upd = await admin

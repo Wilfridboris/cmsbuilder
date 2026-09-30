@@ -46,8 +46,8 @@ export function creditNotePdfObjectKey(
 /**
  * Upload a rendered credit-note PDF under the org's `credit-notes/` prefix, returning the
  * persisted `pdf_path`. Mirrors {@link uploadInvoicePdf}: RLS-scoped client only, `upsert`
- * false (a credit note's PDF is frozen exactly once), and a storage failure masked as a
- * generic write failure — raw storage output never leaks.
+ * true so the freeze is idempotent (retro [X2]), and a storage failure masked as a generic
+ * write failure — raw storage output never leaks.
  */
 export async function uploadCreditNotePdf(
   client: SupabaseClient,
@@ -61,7 +61,12 @@ export async function uploadCreditNotePdf(
     .from(INVOICE_PDF_BUCKET)
     .upload(key, bytes, {
       contentType: "application/pdf",
-      upsert: false,
+      // Idempotent (retro [X2]): the caller (`ensureCreditNotePdf`) only reaches here
+      // when `pdf_path` is still null, and the bytes are deterministic from the frozen
+      // snapshot, so overwriting the same key with identical content is safe. `upsert:
+      // false` would wedge the retry when a prior attempt uploaded the object but failed
+      // the `pdf_path` DB write, leaving an issued credit note permanently PDF-less.
+      upsert: true,
     });
 
   if (error) {
@@ -74,11 +79,13 @@ export async function uploadCreditNotePdf(
 /**
  * Upload a rendered invoice PDF under the org's prefix, returning the persisted
  * `pdf_path` (the bucket-relative object key). RLS-scoped client only. `upsert` is
- * false: an invoice's PDF is frozen exactly once (the caller — `ensureInvoicePdf` —
- * is idempotent and only reaches here when `pdf_path` is still null), so a second
- * write to an existing object is a genuine error rather than a silent overwrite of
- * the immutable artifact. A storage failure is masked as a generic write failure —
- * raw storage output never leaks.
+ * true so the freeze is IDEMPOTENT (retro [X2]): the caller — `ensureInvoicePdf` — is
+ * itself idempotent and only reaches here when `pdf_path` is still null, and the bytes
+ * are deterministic from the frozen snapshot, so overwriting the same key with identical
+ * content is safe. `upsert: false` would permanently wedge the retry path when a prior
+ * attempt uploaded the object but failed the subsequent `pdf_path` DB write (the object
+ * would exist, so every retry died on "already exists" and the invoice stayed PDF-less).
+ * A storage failure is masked as a generic write failure — raw storage output never leaks.
  */
 export async function uploadInvoicePdf(
   client: SupabaseClient,
@@ -92,7 +99,7 @@ export async function uploadInvoicePdf(
     .from(INVOICE_PDF_BUCKET)
     .upload(key, bytes, {
       contentType: "application/pdf",
-      upsert: false,
+      upsert: true,
     });
 
   if (error) {

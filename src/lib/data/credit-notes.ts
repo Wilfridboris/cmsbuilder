@@ -78,6 +78,43 @@ export async function listCreditNotesForInvoice(
 }
 
 /**
+ * Sum the `total` of every ISSUED credit note already linked to one source invoice
+ * (Story 12.8 / retro [X1]), optionally excluding one credit note by id (the one being
+ * issued). Void credit notes are cancelled and never count against the creditable
+ * balance; drafts are not yet committed and never count — so only `status = 'issued'`
+ * rows are summed. RLS scopes visibility to the caller's org. Returns the `{ data, error }`
+ * envelope; raw SQL never leaks.
+ */
+export async function sumIssuedCreditNoteTotals(
+  client: SupabaseClient,
+  orgId: string,
+  invoiceId: string,
+  excludeCreditNoteId?: string,
+): Promise<ApiResponse<number>> {
+  let query = client
+    .from("credit_notes")
+    .select("id, total")
+    .eq("organization_id", orgId)
+    .eq("invoice_id", invoiceId)
+    .eq("status", "issued");
+  if (excludeCreditNoteId) {
+    query = query.neq("id", excludeCreditNoteId);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    return { data: null, error: "Failed to load credit notes." };
+  }
+
+  const sum = (data ?? []).reduce((acc, row) => {
+    const n = Number((row as { total: number | string }).total);
+    return acc + (Number.isFinite(n) ? n : 0);
+  }, 0);
+
+  return { data: sum, error: null };
+}
+
+/**
  * Load one credit note with its ordered line items, ordered tax lines, and the resolved
  * customer display label. Returns `null` data when the credit note does not exist under
  * the caller's org (RLS-hidden or unknown id). The label resolves at read time and

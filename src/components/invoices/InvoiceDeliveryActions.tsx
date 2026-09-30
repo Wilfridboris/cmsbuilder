@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, useSyncExternalStore } from "react";
+import { useId, useState } from "react";
 import { useTranslations } from "next-intl";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/dialog";
 import { InvoiceApiError, sendInvoice } from "@/lib/data/invoices-client";
 import { invoiceShareUrl } from "@/lib/invoicing/share";
+import { useIsClient } from "@/components/invoices/use-is-client";
 import type { InvoiceLanguage } from "@/types/db";
 
 /**
@@ -53,23 +54,6 @@ const DELIVERY_ERROR_KEYS = new Set([
   "sendFailed",
   "genericError",
 ]);
-
-/** No-op subscribe: mount state never changes after hydration. */
-const noopSubscribe = () => () => {};
-
-/**
- * `true` on the client (after hydration), `false` during SSR + the first client render —
- * so the SSR markup and first client render agree, then browser-only affordances (Web
- * Share, the token URL) light up. Uses `useSyncExternalStore` rather than a
- * setState-in-effect (which the hooks lint forbids).
- */
-function useIsClient(): boolean {
-  return useSyncExternalStore(
-    noopSubscribe,
-    () => true,
-    () => false,
-  );
-}
 
 export function InvoiceDeliveryActions({
   slug,

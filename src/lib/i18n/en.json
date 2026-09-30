@@ -650,6 +650,7 @@
       "taxWithoutRegistration": "This credit note charges tax, but your business profile has no effective GST/HST registration as of today. Add a valid registration or remove the tax.",
       "taxSplit": "Tax must be a single line. Split tax lines are not allowed.",
       "totalsMismatch": "The stored totals no longer match this credit note. Save it again, then issue it.",
+      "creditExceedsInvoice": "This credit note would credit more than the invoice total. Lower the amount so the total credited does not exceed the invoice.",
       "notIssued": "You can only credit an invoice that has been issued.",
       "versionConflict": "This credit note changed since you opened it. Reload and try again.",
       "notDraft": "This credit note is no longer a draft and cannot be changed.",

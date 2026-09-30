@@ -268,6 +268,10 @@ describe("POST /api/invoices/[id]/credit-notes/[cnId]/issue", () => {
       credit_note_number: 1,
     });
     expect(issueCreditNote).toHaveBeenCalledTimes(1);
+    // X4: the route binds the credit note to the invoice named in the path.
+    const [, issueInput] = issueCreditNote.mock.calls[0];
+    expect(issueInput.creditNoteId).toBe("cn-1");
+    expect(issueInput.invoiceId).toBe("inv-1");
   });
 
   it("422 surfaces an assertIssuableCreditNote block", async () => {
