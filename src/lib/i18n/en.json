@@ -170,6 +170,8 @@
   "Billing": {
     "title": "Billing",
     "subtitle": "Add a payment method to keep your account active after your trial. You'll enter your card and see the price securely on Stripe's page.",
+    "manageSubtitle": "Manage your payment method, view past invoices, or cancel anytime on Stripe's secure billing portal.",
+    "endedSubtitle": "Your subscription has ended. Add billing to reactivate your account.",
     "addButton": "Add billing",
     "redirecting": "Redirecting...",
     "portalNote": "You can change or cancel your plan anytime from the billing portal.",

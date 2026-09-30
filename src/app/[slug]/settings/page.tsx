@@ -94,6 +94,14 @@ export default async function SettingsPage({
   // cannot restart it.
   const showManageBilling =
     subscriptionStatus === "active" || subscriptionStatus === "past_due";
+  // Match the section subtitle to the surface: manage-oriented for active/past_due
+  // (portal), a "subscription ended" prompt for read_only (re-subscribe), and the
+  // trial add-a-card copy otherwise.
+  const billingSubtitleKey = showManageBilling
+    ? "manageSubtitle"
+    : subscriptionStatus === "read_only"
+      ? "endedSubtitle"
+      : "subtitle";
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-12 px-6 py-16">
@@ -117,7 +125,7 @@ export default async function SettingsPage({
             {tBilling("title")}
           </h2>
           <p className="text-sm text-muted-foreground text-pretty">
-            {tBilling("subtitle")}
+            {tBilling(billingSubtitleKey)}
           </p>
         </header>
         {showManageBilling ? (

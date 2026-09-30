@@ -170,6 +170,8 @@
   "Billing": {
     "title": "Facturation",
     "subtitle": "Ajoutez un moyen de paiement pour garder votre compte actif après votre essai. Vous saisirez votre carte et verrez le prix en toute sécurité sur la page de Stripe.",
+    "manageSubtitle": "Gérez votre moyen de paiement, consultez vos factures passées ou annulez à tout moment sur le portail de facturation sécurisé de Stripe.",
+    "endedSubtitle": "Votre abonnement a pris fin. Ajoutez la facturation pour réactiver votre compte.",
     "addButton": "Ajouter la facturation",
     "redirecting": "Redirection...",
     "portalNote": "Vous pouvez changer ou annuler votre forfait à tout moment depuis le portail de facturation.",
