@@ -89,7 +89,12 @@ context: ['.claude/skills/web-uiux-architect/skill.md']
 - `web-uiux-architect` standards were applied as the quality bar (WCAG-AA focus/`sr-only`, motion discipline, Tailwind v4 idioms); the existing markup already met them, so it was preserved verbatim rather than redesigned (no glassmorphism/bento introduced), per the spec's faithful-extraction directive.
 - `credit-note-draft-form.test.tsx` still passes untouched. `confirm-action-dialog.test.tsx` mocks `@/components/ui/dialog` to render children inline because Radix `DialogPortal` targets `document.body`, absent under `renderToStaticMarkup` (same technique as the form test mocking `framer-motion`).
 - Verification: `npx vitest run` 890/890 pass (84 files, +6 new); `npm run lint` clean; `npm run build` exit 0 (all 4 consumer pages compile against unchanged form props). Only pre-existing build warning is from `node_modules/@prisma/instrumentation`, unrelated.
-- Not done (per spec Verification): the live Playwright/`web-uiux-architect` browser review on localhost:3000 confirming no visual/behavioral regression across create+edit of both forms — recommended before marking the retro item done.
+- Post-commit Playwright manual review (localhost:3000, tenant `session-1f4fa453`, 2026-09-30): PASS, no visual/behavioral regression, 0 console errors.
+  - Invoice draft create: linked a customer via `LinkedRecordPicker` (Acme Roofing); the shared `LineItemsEditor` shows column headers + totals hint; line 1 (2 × 150) computed 300.00; adding line 2 (3 × 50 = 150.00) recomputed Subtotal 450.00 / HST (13%) 58.50 / Total 508.50; removing line 2 reverted to 300.00 / 39.00 / 339.00 and re-disabled the last row's Remove (min-1 guard); the a11y patch is live (inputs now carry `id`s associated to their labels).
+  - Save → redirected to edit; the `load` callback repopulated the customer label, province, line item, and totals; the edit-only Issue/Discard buttons appeared.
+  - Both shared `ConfirmActionDialog`s verified: Issue ("Issue this invoice?") cancels cleanly; Discard ("Discard this draft?", destructive) confirmed → `runDiscard` redirected to the list and removed the test draft.
+  - Credit-note draft create (from issued invoice 000006): "Corrects invoice 000006" header intact; prefilled the source line (Quarterly maintenance, 1 × 900 = 900.00, HST 117.00, total 1017.00); the credit-note editor now shows the added column headers + totals hint (the approved additive change) and correctly has no due-date field and no customer picker.
+  - One pre-existing console warning (Select uncontrolled→controlled) originates from `LinkedRecordPicker`'s table Select, which A3 does not touch — not a regression.
 
 ## Spec Change Log
 
