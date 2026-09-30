@@ -100,6 +100,15 @@ export type SchemaDefinition = {
  */
 export type SubscriptionStatus = "trial" | "active";
 
+/**
+ * The billed flat-tier plan (Story 7.2). Orthogonal to `SubscriptionStatus`
+ * (status = cached access authority, tier = billed plan). Null throughout the
+ * trial; set only by the `checkout.session.completed` webhook at the first
+ * successful checkout, resolved from the session's price id (authoritative).
+ * Text + CHECK in the DB, never a Postgres enum.
+ */
+export type SubscriptionTier = "solo" | "crew" | "shop";
+
 export type OrganizationRow = {
   id: string;
   name: string;
@@ -112,6 +121,22 @@ export type OrganizationRow = {
    * creation — and stamped exactly once so re-finalizing never resets it.
    */
   trial_expires_at: string | null;
+  /**
+   * The billed flat-tier plan (Story 7.2). Null throughout the trial; set only by
+   * the `checkout.session.completed` webhook at the first successful checkout.
+   */
+  subscription_tier: SubscriptionTier | null;
+  /**
+   * The org's Stripe Customer id (Story 7.2). Created/reused when the Admin starts
+   * checkout and persisted so later stories reuse the same customer. Null until
+   * the first checkout is started.
+   */
+  stripe_customer_id: string | null;
+  /**
+   * The org's Stripe Subscription id (Story 7.2). Recorded by the
+   * `checkout.session.completed` webhook. Null until the first checkout completes.
+   */
+  stripe_subscription_id: string | null;
   created_at: string;
   updated_at: string;
 };

@@ -167,6 +167,20 @@
       "genericError": "Une erreur est survenue. Veuillez réessayer."
     }
   },
+  "Billing": {
+    "title": "Facturation",
+    "subtitle": "Ajoutez un moyen de paiement pour garder votre compte actif après votre essai. Vous saisirez votre carte et verrez le prix en toute sécurité sur la page de Stripe.",
+    "addButton": "Ajouter la facturation",
+    "redirecting": "Redirection...",
+    "portalNote": "Vous pouvez changer ou annuler votre forfait à tout moment depuis le portail de facturation.",
+    "error": {
+      "invalidTier": "Nous n'avons pas pu démarrer le paiement pour ce forfait. Veuillez réessayer.",
+      "billingUnavailable": "La facturation n'est pas disponible pour le moment. Veuillez réessayer dans un instant.",
+      "forbidden": "Seuls les administrateurs peuvent gérer la facturation.",
+      "unauthorized": "Votre session a expiré. Veuillez vous reconnecter.",
+      "genericError": "Une erreur est survenue. Veuillez réessayer."
+    }
+  },
   "BusinessProfile": {
     "title": "Profil d'entreprise",
     "subtitle": "Saisissez les coordonnées de votre entreprise une seule fois. Elles apparaissent sur chaque facture que vous envoyez, afin que votre dénomination légale, votre numéro de taxe et vos options de paiement soient toujours exacts.",

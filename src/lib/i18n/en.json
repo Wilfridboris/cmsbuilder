@@ -167,6 +167,20 @@
       "genericError": "Something went wrong. Please try again."
     }
   },
+  "Billing": {
+    "title": "Billing",
+    "subtitle": "Add a payment method to keep your account active after your trial. You'll enter your card and see the price securely on Stripe's page.",
+    "addButton": "Add billing",
+    "redirecting": "Redirecting...",
+    "portalNote": "You can change or cancel your plan anytime from the billing portal.",
+    "error": {
+      "invalidTier": "We couldn't start checkout for that plan. Please try again.",
+      "billingUnavailable": "Billing isn't available right now. Please try again in a moment.",
+      "forbidden": "Only admins can manage billing.",
+      "unauthorized": "Your session expired. Please sign in again.",
+      "genericError": "Something went wrong. Please try again."
+    }
+  },
   "BusinessProfile": {
     "title": "Business profile",
     "subtitle": "Enter your company details once. They appear on every invoice you send, so your legal name, tax number, and payment options are always correct.",

@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { InviteForm } from "@/components/settings/InviteForm";
 import { BusinessProfileForm } from "@/components/settings/BusinessProfileForm";
+import { BillingStart } from "@/components/settings/BillingStart";
 
 /**
  * Admin-only Settings surface at `/{slug}/settings` (Story 2.3).
@@ -32,6 +33,7 @@ export default async function SettingsPage({
 }) {
   const { slug } = await params;
   const t = await getTranslations("Settings");
+  const tBilling = await getTranslations("Billing");
 
   // Middleware already bounced unauthenticated visits to /login; re-check for
   // defense in depth (and to have the user id for the membership resolve).
@@ -72,6 +74,20 @@ export default async function SettingsPage({
           </p>
         </header>
         <InviteForm />
+      </section>
+
+      <hr className="border-border" />
+
+      <section id="billing" className="flex flex-col gap-8 scroll-mt-16">
+        <header className="flex flex-col gap-2">
+          <h2 className="text-2xl font-semibold tracking-tight text-balance">
+            {tBilling("title")}
+          </h2>
+          <p className="text-sm text-muted-foreground text-pretty">
+            {tBilling("subtitle")}
+          </p>
+        </header>
+        <BillingStart slug={slug} />
       </section>
 
       <hr className="border-border" />
