@@ -67,6 +67,29 @@ context:
 
 </frozen-after-approval>
 
+## Post-implementation reconciliation (retro [X1], 2026-09-30)
+
+The frozen contract above was SILENT on a credit-note amount ceiling: as first built, a
+credit note could be issued for any amount, so it could exceed the source invoice total and
+multiple credit notes could cumulatively over-credit an invoice. The Epic 12 retrospective
+flagged this ([X1]); the chosen policy is to CAP credits at the invoice total:
+
+- **Rule:** the sum of a source invoice's already-`issued` credit notes plus the credit note
+  being issued must not exceed the source invoice `total` (half-cent tolerance). Void credit
+  notes are cancelled and do not count toward the cumulative credited amount.
+- **Enforcement (issue-time gate, reusing the existing pattern):** `assertIssuableCreditNote`
+  (`src/lib/invoicing/validate.ts`) now takes a `ceiling { invoiceTotal, alreadyCredited }`
+  and throws `422 Invoice.error.creditExceedsInvoice` when the cumulative credit would exceed
+  it. `issueCreditNote` computes the ceiling from the source invoice `total` and
+  `sumIssuedCreditNoteTotals` (`src/lib/data/credit-notes.ts`), excluding the credit note
+  being issued. The ceiling is skipped only when the source invoice is unavailable — a case
+  the source-creditability re-check ([X4]) blocks with `409 notIssued`.
+- **Copy:** `CreditNotes.error.creditExceedsInvoice` added to `en.json` + `fr.json` (key
+  parity, real French, no em-dashes).
+- **Known limit:** like the invoice issue gate, this is a synchronous TS gate carrying the
+  same benign single-owner TOCTOU window (two concurrent issues against one invoice); an
+  atomic DB-side enforcement is a possible future hardening.
+
 ## Code Map
 
 Reuse-as-is (do not modify unless noted):

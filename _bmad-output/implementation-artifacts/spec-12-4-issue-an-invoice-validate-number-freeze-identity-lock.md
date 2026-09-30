@@ -57,6 +57,18 @@ context:
 
 </frozen-after-approval>
 
+## Post-implementation reconciliation (retro [X3], 2026-09-30)
+
+Accepted deviation, recorded so later retros stop re-flagging it: `void` is a
+**reserved-but-unwired** status in the MVP. The status vocabulary, the immutability
+whitelist (`issued→void`, above), the public `/i/[token]` 410-on-void branch (12.6), the
+pay-gate exclusion of void (12.7), and the credit-note "a void leaves a permanent gap" audit
+property all HANDLE `void` — but no MVP code path ever WRITES `status = 'void'`. The
+correction mechanism in this epic is the linked credit note (12.8), not invoice voiding, so
+the void-handling branches are deliberate defensive scaffolding for a future void capability
+and are currently unreachable. This is intended, not a defect; a future story that adds an
+invoice-void action will exercise those branches.
+
 ## Code Map
 
 - `src/lib/invoicing/validate.ts` -- NEW. `server-only`. `assertIssuable(input)` synchronous gate mirroring `src/lib/schema/validator.ts` (throws + reports rejections via the observability seam). Imports `computeInvoiceTotals`, `computeLineAmount`, `isRegistrationEffective` from `tax.ts` (I2/I3 — no second implementation). Also `formatInvoiceNumber(n)` helper (6-digit zero-pad) OR put it in `tax.ts`; keep numbering-format with numbering. Input: the stored invoice row + line items + tax lines + business profile + issue date.

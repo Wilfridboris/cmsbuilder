@@ -235,6 +235,43 @@ describeDb("invoice issue path (real Supabase)", () => {
     expect(row?.invoice_number).toBeNull();
   });
 
+  it("a rolled-back (stale-version) issue burns no number: the next allocation stays contiguous", async () => {
+    // Counter rollback-safety (deferred-work.md): the number is allocated inside the same
+    // transaction that flips status to issued, so a rolled-back issue must not burn a number.
+    // Baseline: issue one invoice to fix the current counter position.
+    const base = await newRegisteredDraft();
+    const baseIssue = await issueInvoice(identity, {
+      invoiceId: base.id,
+      version: base.version,
+    });
+    const n = baseIssue.data!.invoice_number;
+
+    // A draft whose issue will be rolled back: bump its version via a save so the version
+    // we still hold is stale, then attempt to issue with that stale version.
+    const doomed = await newRegisteredDraft();
+    await saveInvoiceDraft(
+      identity,
+      draft(doomed.id, doomed.version, [
+        { description: "bump", quantity: 1, unitPrice: 100 },
+      ]),
+    );
+    await expect(
+      issueInvoice(identity, { invoiceId: doomed.id, version: doomed.version }),
+    ).rejects.toMatchObject({ statusCode: 409, userMessage: "versionConflict" });
+    // The doomed draft stayed a draft with no number (nothing committed).
+    const doomedRow = await invoiceRow(doomed.id);
+    expect(doomedRow?.status).toBe("draft");
+    expect(doomedRow?.invoice_number).toBeNull();
+
+    // The rolled-back attempt burned no number: the next successful issue is exactly n+1.
+    const next = await newRegisteredDraft();
+    const nextIssue = await issueInvoice(identity, {
+      invoiceId: next.id,
+      version: next.version,
+    });
+    expect(nextIssue.data!.invoice_number).toBe(n + 1);
+  });
+
   it("rejects re-issuing an already-issued invoice (notDraft)", async () => {
     const d = await newRegisteredDraft();
     const issued = await issueInvoice(identity, {
