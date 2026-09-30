@@ -428,7 +428,7 @@ action_items:
       (676): extract the line-items editor, the issue/discard dialog pair, and the
       load/save/issue/discard orchestration hook."
     owner: "Dev"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
   - id: "epic-12-retro-item-38-x6-constrain-invoice-money-columns-to-nu"
     epic: 12
