@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: '09-29-2026 (12.8 done)'
+last_updated: '09-30-2026 06:26'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -141,7 +141,7 @@ development_status:
   epic-11: backlog
   epic-11-retrospective: optional
 
-  epic-12: in-progress
+  epic-12: done
   12-1-business-profile-capture-company-identity-once: done
   12-2-draft-an-invoice-from-a-work-record-or-standalone: done
   12-3-totals-ontario-hst-place-of-supply: done
@@ -150,7 +150,7 @@ development_status:
   12-6-deliver-the-invoice-owner-s-own-channels: done
   12-7-track-payment-out-of-band-no-processing: done
   12-8-correct-an-issued-invoice-via-credit-note: done
-  epic-12-retrospective: optional
+  epic-12-retrospective: done
 action_items:
   - id: "epic-1-retro-item-1-reconcile-the-gemini-model-in-architectu"
     epic: 1
@@ -390,3 +390,106 @@ action_items:
     owner: "Boris"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-09-28.md"
+  - id: "epic-12-retro-item-33-x2-make-pdf-freeze-idempotent-uploadinvo"
+    epic: 12
+    action: "[X2] Make PDF freeze idempotent: uploadInvoicePdf (storage.ts:95) should
+      upsert:true or handle storage already-exists and proceed to the one-time pdf_path
+      write, so a mid-freeze partial failure cannot wedge an issued invoice without
+      a linked PDF. Mirror for credit notes."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-34-a2-extract-the-invoice-route-auth-identi"
+    epic: 12
+    action: "[A2] Extract the invoice-route auth/identity scaffolding (requireUser
+      + resolveAdminIdentity) into one shared helper reused by all 8 invoice route
+      files (16 copies today); third recurrence of epic-3 [A2] / epic-4 [A1]."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-35-a4c-add-import-server-only-to-invoice-mu"
+    epic: 12
+    action: "[A4c] Add import server-only to invoice-mutate.ts, credit-note-mutate.ts,
+      and business-profile-mutate.ts to match invoices.ts/credit-notes.ts."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-36-a1-extract-byte-identical-invoice-credit"
+    epic: 12
+    action: "[A1] Extract byte-identical invoice/credit-note shared code: mintShareToken+BASE62,
+      the supplier/customer snapshot builders, and UI format helpers (money/useIsClient/formatIssueDate/todayIso
+      into a shared lib/invoicing/format.ts)."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-37-a3-decompose-invoicedraftform-tsx-812-an"
+    epic: 12
+    action: "[A3] Decompose InvoiceDraftForm.tsx (812) and CreditNoteDraftForm.tsx
+      (676): extract the line-items editor, the issue/discard dialog pair, and the
+      load/save/issue/discard orchestration hook."
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-38-x6-constrain-invoice-money-columns-to-nu"
+    epic: 12
+    action: "[X6] Constrain invoice money columns to numeric(15,2) (as invoice_payments
+      already is) so the assertIssuable strict-equality reconciliation is not brittle
+      to unconstrained numeric scale."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-39-x4-bind-the-credit-note-issue-route-cnid"
+    epic: 12
+    action: "[X4] Bind the credit-note issue route [cnId] to [id] and re-check source-invoice
+      creditability at issue; latent today but the path contract is unenforced."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-40-x5-enforce-or-document-the-child-row-wri"
+    epic: 12
+    action: "[X5] Enforce or document the child-row-writes-must-bump-parent-version
+      invariant so the draft-to-issue gate non-locking read cannot freeze an unvalidated
+      change."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-41-add-the-self-disclosed-verification-test"
+    epic: 12
+    action: "Add the self-disclosed verification tests (deferred-work.md:128,131):
+      invoice-number counter rollback-safety concurrency test and the loadInvoicePageContext.taxRegistered
+      unit test."
+    owner: "Dev"
+    status: in-progress
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-42-x1-decide-the-credit-note-amount-policy"
+    epic: 12
+    action: "[X1] Decide the credit-note amount policy: enforce a ceiling / track
+      remaining-creditable balance / prevent double-credit, or declare over-crediting
+      owner-responsibility and out of MVP scope; then reconcile spec-12-8. Resolve
+      at the lawyer/CPA release gate."
+    owner: "Boris+Dev"
+    status: in-progress
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-43-record-the-accepted-deviations-in-spec-s"
+    epic: 12
+    action: "Record the accepted deviations in spec so later retros stop re-flagging:
+      payment-any-amount-marks-paid [BH5], overdue-derived-not-stored, void-reserved-but-unwired
+      [X3]."
+    owner: "Boris"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-44-epic-8-hand-off-ensure-the-future-offboa"
+    epic: 12
+    action: "[Epic 8 hand-off] Ensure the future offboarding cascade (Story 8.5) excludes
+      invoices/credit_notes/invoice_payments and their PDF/logo objects under 6-year
+      retention and refuses to hard-delete an org with retained invoices (deferred-work.md:137)."
+    owner: "Boris+Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-12-retro-item-45-schedule-the-ontario-lawyer-cpa-review-o"
+    epic: 12
+    action: "Schedule the Ontario lawyer + CPA review of templates/HST/terms before
+      enabling invoicing in production (the epic declared hard release gate)."
+    owner: "Boris"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
