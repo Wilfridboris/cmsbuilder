@@ -7,6 +7,7 @@ import {
   finalizeClaimByEmail,
   ClaimError,
   PENDING_CLAIM_TTL_MS,
+  TRIAL_DURATION_MS,
 } from "@/lib/claim/claim";
 import { deriveSlug, ensureUniqueSlug, slugBaseToName } from "@/lib/claim/slug";
 import type { SchemaDefinition } from "@/types/db";
@@ -26,7 +27,13 @@ import type { SchemaDefinition } from "@/types/db";
  * that runs only AFTER those gates pass, plus the pure slug logic.
  */
 
-type OrgRow = { id: string; name: string; slug: string };
+type OrgRow = {
+  id: string;
+  name: string;
+  slug: string;
+  subscription_status?: string;
+  trial_expires_at?: string | null;
+};
 type MemberRow = {
   organization_id: string;
   user_id: string;
@@ -171,6 +178,7 @@ class MembersQuery {
 class OrgsQuery {
   private filters: Array<{ col: keyof OrgRow; val: unknown }> = [];
   private neqFilters: Array<{ col: keyof OrgRow; val: unknown }> = [];
+  private isNullFilters: Array<keyof OrgRow> = [];
   private mode: "select" | "update" = "select";
   private updatePayload: Partial<OrgRow> | null = null;
   constructor(private readonly db: FakeAdmin) {}
@@ -186,27 +194,44 @@ class OrgsQuery {
   }
   eq(col: keyof OrgRow, val: unknown) {
     this.filters.push({ col, val });
-    if (this.mode === "update") return this.applyUpdate();
+    // Stay chainable: the slug/name update chain terminates on `.eq("id", ...)`
+    // (awaited directly via `.then()` below), while the trial update chain adds a
+    // trailing `.is("trial_expires_at", null)`. The update is applied lazily when
+    // the chain is awaited, so all filters (including a later `.is()`) are in
+    // effect first.
     return this;
   }
   neq(col: keyof OrgRow, val: unknown) {
     this.neqFilters.push({ col, val });
     return this;
   }
+  is(col: keyof OrgRow, _val: null) {
+    this.isNullFilters.push(col);
+    return this;
+  }
   limit() {
     return this;
+  }
+  // Thenable: awaiting the update chain (select mode never reaches here — it ends
+  // on maybeSingle()) applies the update against all recorded filters.
+  then(
+    onFulfilled: (value: { error: null }) => unknown,
+    onRejected?: (reason: unknown) => unknown,
+  ) {
+    return Promise.resolve(this.applyUpdate()).then(onFulfilled, onRejected);
   }
   private matches(row: OrgRow): boolean {
     return (
       this.filters.every((f) => row[f.col] === f.val) &&
-      this.neqFilters.every((f) => row[f.col] !== f.val)
+      this.neqFilters.every((f) => row[f.col] !== f.val) &&
+      this.isNullFilters.every((c) => (row[c] ?? null) === null)
     );
   }
   private applyUpdate() {
     for (const row of this.db.orgs) {
       if (this.matches(row)) Object.assign(row, this.updatePayload);
     }
-    return Promise.resolve({ error: null });
+    return { error: null as null };
   }
   maybeSingle() {
     const row = this.db.orgs.find((r) => this.matches(r)) ?? null;
@@ -401,6 +426,12 @@ describe("finalizeClaim", () => {
     expect(db.records.every((r) => r.deleted_at !== null)).toBe(true);
     // Token consumed.
     expect(db.claims[0].consumed_at).not.toBeNull();
+    // Trial stamped: status='trial' and expiry ~14 days out (Story 7.1, FR29).
+    expect(db.orgs[0].subscription_status).toBe("trial");
+    const expiry = new Date(db.orgs[0].trial_expires_at as string).getTime();
+    const expected = Date.now() + TRIAL_DURATION_MS;
+    // Generous tolerance for wall-clock drift during the test.
+    expect(Math.abs(expiry - expected)).toBeLessThan(60_000);
   });
 
   it("suffixes the slug on collision", async () => {
@@ -479,6 +510,79 @@ describe("finalizeClaim", () => {
     // Nothing bootstrapped.
     expect(db.members).toHaveLength(0);
     expect(db.claims[0].consumed_at).toBeNull();
+  });
+});
+
+// --- 14-day free trial (Story 7.1, FR29) ------------------------------------
+
+describe("finalizeClaim — trial stamping", () => {
+  it("stamps subscription_status='trial' and expiry ~14 days out on first finalize", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    const token = seedClaim(db);
+
+    await finalizeClaim({ token, userId: USER_ID, adminClient: asClient(db) });
+
+    expect(db.orgs[0].subscription_status).toBe("trial");
+    const expiry = new Date(db.orgs[0].trial_expires_at as string).getTime();
+    const expected = Date.now() + TRIAL_DURATION_MS;
+    expect(Math.abs(expiry - expected)).toBeLessThan(60_000);
+  });
+
+  it("introduces no payment or quota side effect (no card, no meter)", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    const token = seedClaim(db);
+
+    await finalizeClaim({ token, userId: USER_ID, adminClient: asClient(db) });
+
+    // No payment/quota columns are written anywhere by the claim flow — the
+    // trial is flat and unlimited (FR29). Only the trial-STATE fields appear.
+    const org = db.orgs[0] as Record<string, unknown>;
+    expect(org.stripe_customer_id).toBeUndefined();
+    expect(org.payment_method_id).toBeUndefined();
+    expect(org.record_quota).toBeUndefined();
+    expect(org.seat_quota).toBeUndefined();
+    expect(org.usage_meter).toBeUndefined();
+    // The only billing-related state is the cached access status + trial clock.
+    expect(org.subscription_status).toBe("trial");
+    expect(org.trial_expires_at).toBeTruthy();
+  });
+
+  it("does not reset the clock on idempotent re-entry (consumed token)", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    db.orgs[0].slug = "plumbing-laval"; // provisioned by the first run
+    // Trial already started ~7 days ago; the consumed-token re-entry must not move it.
+    const originalExpiry = new Date(
+      Date.now() + TRIAL_DURATION_MS - 7 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    db.orgs[0].subscription_status = "trial";
+    db.orgs[0].trial_expires_at = originalExpiry;
+    const token = seedClaim(db, { consumed_at: new Date().toISOString() });
+
+    await finalizeClaim({ token, userId: USER_ID, adminClient: asClient(db) });
+
+    // Consumed-token path returns early — the clock is untouched.
+    expect(db.orgs[0].trial_expires_at).toBe(originalExpiry);
+  });
+
+  it("does not reset the clock on a mid-sequence retry (trial_expires_at already set)", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    // A prior run already started the trial, but the token was NOT yet consumed
+    // (a retry between slug-set and consume). The .is(null) guard must skip it.
+    const originalExpiry = new Date(
+      Date.now() + TRIAL_DURATION_MS - 3 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    db.orgs[0].subscription_status = "trial";
+    db.orgs[0].trial_expires_at = originalExpiry;
+    const token = seedClaim(db);
+
+    await finalizeClaim({ token, userId: USER_ID, adminClient: asClient(db) });
+
+    // Guarded update is a no-op — the original clock is preserved.
+    expect(db.orgs[0].trial_expires_at).toBe(originalExpiry);
   });
 });
 

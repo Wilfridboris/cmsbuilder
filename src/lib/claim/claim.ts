@@ -35,6 +35,13 @@ import { SYSTEM_ACTOR_ID } from "@/lib/data/mutate";
 /** How long a pending claim is honored before the link must be re-requested. */
 export const PENDING_CLAIM_TTL_MS = 60 * 60 * 1000; // 1 hour — mirrors magic-link life.
 
+/**
+ * The no-card free-trial window (Story 7.1, FR29). The trial clock starts at
+ * claim finalization — `trial_expires_at` = claim time + this — and is stamped
+ * exactly once, so a retry / consumed-token re-entry never resets it.
+ */
+export const TRIAL_DURATION_MS = 14 * 24 * 60 * 60 * 1000; // 14 days.
+
 export type CreatePendingClaimInput = {
   /** The anonymous session org id (resolved from the signed cookie). */
   sessionOrgId: string;
@@ -239,6 +246,35 @@ export async function finalizeClaim(
     .eq("id", orgId);
   if (slugError) {
     throw new ClaimError("failed", `Failed to set org slug: ${slugError.message}`);
+  }
+
+  // 5b. Start the 14-day no-card trial (Story 7.1, FR29). This is a SEPARATE
+  // guarded update from the always-run slug/name update above so the trial clock
+  // fires exactly once. Two distinct re-run paths keep it idempotent: a
+  // consumed-token re-entry returns early above (before this block is ever
+  // reached), and a not-yet-consumed mid-sequence retry reaches here but the
+  // `.is("trial_expires_at", null)` filter makes it a no-op once the clock is
+  // already set — so re-running finalize never resets an already-started trial.
+  // No payment is collected and no quota is imposed — the trial grants full
+  // unlimited access; `subscription_status` is the cached access source of truth
+  // later stories gate on (enforcement on lapse is Story 7.4, not here).
+  const trialExpiresAt = new Date(
+    Date.now() + TRIAL_DURATION_MS,
+  ).toISOString();
+  const { error: trialError } = await adminClient
+    .from("organizations")
+    .update({
+      subscription_status: "trial",
+      trial_expires_at: trialExpiresAt,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orgId)
+    .is("trial_expires_at", null);
+  if (trialError) {
+    throw new ClaimError(
+      "failed",
+      `Failed to start trial: ${trialError.message}`,
+    );
   }
 
   // 6. Clear the synthetic demo records (soft-delete — data retained, excluded

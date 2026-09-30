@@ -91,10 +91,27 @@ export type SchemaDefinition = {
 
 // --- Row types (mirror the platform migration) -----------------------------
 
+/**
+ * Cached access state for an org (Story 7.1, FR29). The org row is the single
+ * authoritative access source of truth later billing/gating stories read. During
+ * `'trial'` the account has full unlimited access (no quota, meter, or payment
+ * prompt). Constrained to these two values through Story 7.2 — Story 7.4 widens
+ * the DB CHECK (and this union) for lapse/grace states once their names settle.
+ */
+export type SubscriptionStatus = "trial" | "active";
+
 export type OrganizationRow = {
   id: string;
   name: string;
   slug: string;
+  /** Cached access source of truth (Story 7.1). Defaults to `'trial'`. */
+  subscription_status: SubscriptionStatus;
+  /**
+   * End of the 14-day no-card trial = claim finalization time + 14 days (Story
+   * 7.1). Null until the org is claimed — the clock starts at claim, not at row
+   * creation — and stamped exactly once so re-finalizing never resets it.
+   */
+  trial_expires_at: string | null;
   created_at: string;
   updated_at: string;
 };

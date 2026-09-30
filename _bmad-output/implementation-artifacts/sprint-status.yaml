@@ -1,5 +1,5 @@
 # generated: 2026-09-23
-# last_updated: 2026-09-29 (12.6 review)
+# last_updated: 2026-09-30 (7.1 review)
 # project: Scheza
 # project_key: NOKEY
 # tracking_system: file-system
@@ -116,8 +116,8 @@ development_status:
   6-5-exclude-relationship-fields-from-public-intake-forms: backlog
   epic-6-retrospective: optional
 
-  epic-7: backlog
-  7-1-14-day-free-trial-no-card: backlog
+  epic-7: in-progress
+  7-1-14-day-free-trial-no-card: review
   7-2-start-a-flat-tier-subscription-via-stripe-checkout: backlog
   7-3-manage-subscription-via-stripe-customer-portal: backlog
   7-4-read-only-gating-trial-reminders: backlog
