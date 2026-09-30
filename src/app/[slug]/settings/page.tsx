@@ -6,9 +6,11 @@ import type { ResolvedMembership } from "@/lib/auth/org";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
+import type { SubscriptionStatus } from "@/types/db";
 import { InviteForm } from "@/components/settings/InviteForm";
 import { BusinessProfileForm } from "@/components/settings/BusinessProfileForm";
 import { BillingStart } from "@/components/settings/BillingStart";
+import { BillingManage } from "@/components/settings/BillingManage";
 
 /**
  * Admin-only Settings surface at `/{slug}/settings` (Story 2.3).
@@ -47,9 +49,10 @@ export default async function SettingsPage({
   // surfacing a raw 403, so a non-member / Member / cross-org admin bounces to
   // the tenant dashboard. The invite ACTION is independently re-enforced by the
   // same guard in `POST /api/invite` (frontend hiding is never the sole gate).
+  const adminClient = createAdminClient();
   let membership: ResolvedMembership;
   try {
-    membership = await requireAdmin(user, createAdminClient());
+    membership = await requireAdmin(user, adminClient);
   } catch (err) {
     if (err instanceof AppError) {
       redirect(`/${slug}`);
@@ -61,6 +64,36 @@ export default async function SettingsPage({
   if (membership.slug !== slug) {
     redirect(`/${slug}`);
   }
+
+  // Branch the Billing surface on the org's cached subscription status (Story
+  // 7.3). Read via the in-scope service-role admin client (the caller is a proven
+  // Admin of this org). Handle the read `error` EXPLICITLY: an errored read must
+  // NOT silently default to `trial` and hide "Manage billing" from an active
+  // admin — treat an errored/absent read as its own state so the fallback is the
+  // safe "Add billing" only when the status is genuinely trial/read_only. Here we
+  // surface a read error by throwing so the page fails visibly rather than
+  // mis-rendering the billing surface.
+  const { data: billingRow, error: billingReadError } = await adminClient
+    .from("organizations")
+    .select("subscription_status")
+    .eq("id", membership.orgId)
+    .maybeSingle();
+  if (billingReadError) {
+    throw new AppError(
+      500,
+      "genericError",
+      `Failed to read subscription_status for org ${membership.orgId}: ${billingReadError.message}`,
+    );
+  }
+  const subscriptionStatus =
+    (billingRow?.subscription_status as SubscriptionStatus | undefined) ??
+    "trial";
+  // active/past_due have a Stripe customer → the portal ("Manage billing").
+  // trial/read_only re-subscribe via a fresh checkout ("Add billing"): a
+  // read_only (canceled) org's subscription no longer exists, so the portal
+  // cannot restart it.
+  const showManageBilling =
+    subscriptionStatus === "active" || subscriptionStatus === "past_due";
 
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-12 px-6 py-16">
@@ -87,7 +120,11 @@ export default async function SettingsPage({
             {tBilling("subtitle")}
           </p>
         </header>
-        <BillingStart slug={slug} />
+        {showManageBilling ? (
+          <BillingManage slug={slug} />
+        ) : (
+          <BillingStart slug={slug} />
+        )}
       </section>
 
       <hr className="border-border" />

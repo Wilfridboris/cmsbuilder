@@ -24,13 +24,22 @@ import { reportError } from "@/lib/observability/report";
  *      `subscription_status='active'` + `subscription_tier` + `stripe_subscription_id`
  *      via the service-role admin client (no user session in a Stripe callback).
  *      Idempotent: a re-delivery lands the same values (no corruption).
- *   4. acknowledge every OTHER event type (`customer.subscription.deleted`,
- *      `invoice.payment_failed`, `invoice.paid`, ...) with 200 `{ received: true }`
- *      and NO state change — lapse/cancel handling is deferred to 7.3/7.4, and
- *      200-ing avoids a Stripe retry storm.
+ *   4. on the portal lifecycle events (Story 7.3): resolve the org by
+ *      `stripe_subscription_id` (indexed) with a `metadata.org_id` fallback, then
+ *      idempotently record the cached `subscription_status`:
+ *        - `customer.subscription.deleted` -> `read_only` (straight write);
+ *        - `invoice.paid`                  -> `active`;
+ *        - `invoice.payment_failed`        -> `past_due`.
+ *      `read_only` is TERMINAL for the invoice events: the invoice handlers read
+ *      the org's current status and SKIP the write when it is already
+ *      `read_only` — only `checkout.session.completed` reactivates a canceled org.
+ *      This blocks an out-of-order/redelivered `invoice.paid` from silently
+ *      restoring paid access to a canceled account.
+ *   5. acknowledge every OTHER event type with 200 `{ received: true }` and NO
+ *      state change so a Stripe retry storm is avoided.
  *
- * Unknown price id / missing org on a completed session is logged and 200'd (no
- * crash, no state change) so a misconfiguration never wedges Stripe redelivery.
+ * Unknown price id / missing (or unresolvable) org is logged and 200'd (no crash,
+ * no state change) so a misconfiguration never wedges Stripe redelivery.
  */
 
 export const dynamic = "force-dynamic";
@@ -72,11 +81,31 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    if (event.type === "checkout.session.completed") {
-      await handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
+    switch (event.type) {
+      case "checkout.session.completed":
+        await handleCheckoutCompleted(
+          event.data.object as Stripe.Checkout.Session,
+        );
+        break;
+      case "customer.subscription.deleted":
+        // Straight idempotent write: the subscription reached true end-of-life
+        // (period end for a cancel-at-period-end), so record read_only.
+        await handleSubscriptionDeleted(
+          event.data.object as Stripe.Subscription,
+        );
+        break;
+      case "invoice.paid":
+        await handleInvoiceStatus(event.data.object as Stripe.Invoice, "active");
+        break;
+      case "invoice.payment_failed":
+        await handleInvoiceStatus(
+          event.data.object as Stripe.Invoice,
+          "past_due",
+        );
+        break;
+      // Every other event type is acknowledged with no state change (deferred to
+      // later stories) so Stripe does not retry-storm.
     }
-    // Every other event type is acknowledged with no state change (deferred to
-    // later stories) so Stripe does not retry-storm.
   } catch (err) {
     // A processing failure is logged; we still 200 so Stripe does not retry
     // forever on a persistent bug. (Signature already verified above.)
@@ -165,6 +194,196 @@ async function handleCheckoutCompleted(
     // Surface to the outer catch so it is logged; still 200 to Stripe.
     throw new Error(`Failed to activate org ${orgId}: ${error.message}`);
   }
+}
+
+/**
+ * `customer.subscription.deleted` (Story 7.3): the subscription reached true
+ * end-of-life (Stripe fires this at period end for a cancel-at-period-end, not at
+ * the cancel request), so record `read_only`. Straight idempotent write — a
+ * re-delivery lands the same value. `read_only` is terminal for lifecycle events:
+ * only a new `checkout.session.completed` moves an org back out of it.
+ */
+async function handleSubscriptionDeleted(
+  subscription: Stripe.Subscription,
+): Promise<void> {
+  const orgId = await resolveOrgForSubscription(
+    subscription.id ?? null,
+    (subscription.metadata ?? null) as Record<string, unknown> | null,
+  );
+  if (!orgId) {
+    reportError(
+      new Error("customer.subscription.deleted with unresolvable org"),
+      { route: "/api/stripe/webhook", subscriptionId: subscription.id },
+    );
+    return;
+  }
+  await writeOrgStatus(orgId, "read_only");
+}
+
+/**
+ * `invoice.paid` -> `active` / `invoice.payment_failed` -> `past_due` (Story 7.3).
+ * BUT `read_only` is terminal: read the org's current status first and SKIP the
+ * write when it is already `read_only` — a stale/redelivered/out-of-order invoice
+ * event must never silently restore paid access to a canceled account (only a new
+ * `checkout.session.completed` reactivates). Every other transition is a straight
+ * idempotent write.
+ */
+async function handleInvoiceStatus(
+  invoice: Stripe.Invoice,
+  target: "active" | "past_due",
+): Promise<void> {
+  const subscriptionId = extractSubscriptionId(invoice);
+  const orgId = await resolveOrgForSubscription(
+    subscriptionId,
+    invoiceSubscriptionMetadata(invoice),
+  );
+  if (!orgId) {
+    reportError(new Error(`${target} invoice event with unresolvable org`), {
+      route: "/api/stripe/webhook",
+      invoiceId: invoice.id,
+    });
+    return;
+  }
+
+  const adminClient = createAdminClient();
+  const { data: orgRow, error: readError } = await adminClient
+    .from("organizations")
+    .select("subscription_status")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (readError) {
+    throw new Error(
+      `Failed to read org ${orgId} status for invoice event: ${readError.message}`,
+    );
+  }
+
+  if ((orgRow?.subscription_status as string | undefined) === "read_only") {
+    // read_only is terminal for invoice events — skip (do not reactivate).
+    reportError(
+      new Error("invoice event skipped: org is read_only (terminal)"),
+      { route: "/api/stripe/webhook", orgId, invoiceId: invoice.id },
+    );
+    return;
+  }
+
+  await writeOrgStatus(orgId, target, adminClient);
+}
+
+/**
+ * Resolve the org for a lifecycle event: by `stripe_subscription_id` (the UNIQUE
+ * index guarantees `.maybeSingle()` cannot throw on duplicates), falling back to
+ * the `org_id` carried in the subscription's metadata (set by 7.2's
+ * `subscription_data.metadata`). Returns null when neither resolves (caller logs
+ * + 200s, never crashes).
+ */
+async function resolveOrgForSubscription(
+  subscriptionId: string | null,
+  metadata: Record<string, unknown> | null,
+): Promise<string | null> {
+  if (subscriptionId) {
+    const adminClient = createAdminClient();
+    const { data, error } = await adminClient
+      .from("organizations")
+      .select("id")
+      .eq("stripe_subscription_id", subscriptionId)
+      .maybeSingle();
+    if (error) {
+      throw new Error(
+        `Failed to resolve org for subscription ${subscriptionId}: ${error.message}`,
+      );
+    }
+    if (data?.id) {
+      return data.id as string;
+    }
+  }
+
+  const metaOrgId = metadata?.org_id;
+  if (typeof metaOrgId === "string" && metaOrgId) {
+    return metaOrgId;
+  }
+  return null;
+}
+
+/**
+ * Idempotent `subscription_status` write via the service-role admin client. An
+ * optional pre-built client is reused (the invoice handler already made one for
+ * its status read) to avoid a second instantiation.
+ */
+async function writeOrgStatus(
+  orgId: string,
+  status: "active" | "past_due" | "read_only",
+  adminClient = createAdminClient(),
+): Promise<void> {
+  const { error } = await adminClient
+    .from("organizations")
+    .update({ subscription_status: status })
+    .eq("id", orgId);
+  if (error) {
+    throw new Error(
+      `Failed to set org ${orgId} status=${status}: ${error.message}`,
+    );
+  }
+}
+
+/**
+ * The subscription id carried by an invoice. Handles both shapes the SDK returns:
+ * a string id, or an expanded `Subscription` object. Also tolerates the API's
+ * `parent.subscription_details` shape where the linkage lives under `parent`.
+ * Returns null when no subscription is present (caller falls back to metadata).
+ */
+function extractSubscriptionId(invoice: Stripe.Invoice): string | null {
+  const direct = (invoice as { subscription?: unknown }).subscription;
+  if (typeof direct === "string" && direct) {
+    return direct;
+  }
+  if (direct && typeof direct === "object" && "id" in direct) {
+    const id = (direct as { id?: unknown }).id;
+    if (typeof id === "string" && id) {
+      return id;
+    }
+  }
+
+  const parentSub = (
+    invoice as {
+      parent?: { subscription_details?: { subscription?: unknown } };
+    }
+  ).parent?.subscription_details?.subscription;
+  if (typeof parentSub === "string" && parentSub) {
+    return parentSub;
+  }
+  if (parentSub && typeof parentSub === "object" && "id" in parentSub) {
+    const id = (parentSub as { id?: unknown }).id;
+    if (typeof id === "string" && id) {
+      return id;
+    }
+  }
+  return null;
+}
+
+/**
+ * The subscription metadata carried by an invoice, checked across both shapes:
+ * the newer `parent.subscription_details.metadata` and the legacy top-level
+ * `subscription_details.metadata`. Used as the org-resolution fallback when the
+ * subscription id misses (7.2 stamps `org_id` into `subscription_data.metadata`).
+ */
+function invoiceSubscriptionMetadata(
+  invoice: Stripe.Invoice,
+): Record<string, unknown> | null {
+  const parentMeta = (
+    invoice as {
+      parent?: { subscription_details?: { metadata?: unknown } };
+    }
+  ).parent?.subscription_details?.metadata;
+  if (parentMeta && typeof parentMeta === "object") {
+    return parentMeta as Record<string, unknown>;
+  }
+  const topMeta = (
+    invoice as { subscription_details?: { metadata?: unknown } }
+  ).subscription_details?.metadata;
+  if (topMeta && typeof topMeta === "object") {
+    return topMeta as Record<string, unknown>;
+  }
+  return null;
 }
 
 /**

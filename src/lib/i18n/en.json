@@ -173,9 +173,13 @@
     "addButton": "Add billing",
     "redirecting": "Redirecting...",
     "portalNote": "You can change or cancel your plan anytime from the billing portal.",
+    "manageButton": "Manage billing",
+    "manageRedirecting": "Redirecting...",
+    "manageNote": "Update your card, view past invoices, or cancel anytime on Stripe's secure billing portal.",
     "error": {
       "invalidTier": "We couldn't start checkout for that plan. Please try again.",
       "billingUnavailable": "Billing isn't available right now. Please try again in a moment.",
+      "noSubscription": "There's no active subscription to manage yet. Please add billing first.",
       "forbidden": "Only admins can manage billing.",
       "unauthorized": "Your session expired. Please sign in again.",
       "genericError": "Something went wrong. Please try again."

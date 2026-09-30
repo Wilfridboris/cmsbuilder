@@ -92,13 +92,16 @@ export type SchemaDefinition = {
 // --- Row types (mirror the platform migration) -----------------------------
 
 /**
- * Cached access state for an org (Story 7.1, FR29). The org row is the single
- * authoritative access source of truth later billing/gating stories read. During
- * `'trial'` the account has full unlimited access (no quota, meter, or payment
- * prompt). Constrained to these two values through Story 7.2 — Story 7.4 widens
- * the DB CHECK (and this union) for lapse/grace states once their names settle.
+ * Cached access state for an org (Story 7.1, FR29; widened 7.3). The org row is
+ * the single authoritative access source of truth later billing/gating stories
+ * read. During `'trial'` the account has full unlimited access (no quota, meter,
+ * or payment prompt). Story 7.3 widens the DB CHECK (and this union) to the lapse
+ * states the signature-verified portal webhook records: `'past_due'`
+ * (invoice.payment_failed) and `'read_only'` (customer.subscription.deleted,
+ * terminal for lifecycle events). Story 7.3 only RECORDS these; Story 7.4 adds
+ * the read-only ENFORCEMENT that gates on them.
  */
-export type SubscriptionStatus = "trial" | "active";
+export type SubscriptionStatus = "trial" | "active" | "past_due" | "read_only";
 
 /**
  * The billed flat-tier plan (Story 7.2). Orthogonal to `SubscriptionStatus`

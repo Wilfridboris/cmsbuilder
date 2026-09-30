@@ -18,10 +18,26 @@ const listLineItems = vi.fn();
 const adminUpdate = vi.fn();
 const reportError = vi.fn();
 
+/**
+ * Configurable `select().eq(col, value).maybeSingle()` responses keyed by the
+ * filter column. The Story 7.3 handlers read twice: resolve the org by
+ * `stripe_subscription_id`, and (for invoice events) read the org's current
+ * `subscription_status` by `id`. A test sets `orgById` / `orgBySubscription` to
+ * drive each.
+ */
+let orgBySubscription: { data: unknown; error: unknown };
+let orgById: { data: unknown; error: unknown };
+
 function makeAdminClient() {
   return {
     from() {
       return {
+        select: () => ({
+          eq: (col: string, _value: string) => ({
+            maybeSingle: async () =>
+              col === "stripe_subscription_id" ? orgBySubscription : orgById,
+          }),
+        }),
         update: (patch: unknown) => ({
           eq: async (_col: string, id: string) => adminUpdate(patch, id),
         }),
@@ -52,6 +68,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   adminUpdate.mockResolvedValue({ error: null });
   listLineItems.mockResolvedValue({ data: [{ price: { id: "price_solo_123" } }] });
+  // Default: subscription resolves to org-1, whose current status is 'active'
+  // (not read_only) so invoice events proceed to a write.
+  orgBySubscription = { data: { id: "org-1" }, error: null };
+  orgById = { data: { subscription_status: "active" }, error: null };
   process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
   process.env.STRIPE_PRICE_SOLO = "price_solo_123";
   process.env.STRIPE_PRICE_CREW = "price_crew_456";
@@ -209,7 +229,7 @@ describe("POST /api/stripe/webhook", () => {
   it("unhandled event type → 200 { received: true } with no org update", async () => {
     const { POST } = await import("@/app/api/stripe/webhook/route");
     constructEvent.mockReturnValue({
-      type: "invoice.paid",
+      type: "customer.subscription.updated",
       data: { object: {} },
     });
     const res = await POST(webhookReq("{...}", "good-sig"));
@@ -218,11 +238,207 @@ describe("POST /api/stripe/webhook", () => {
     expect(adminUpdate).not.toHaveBeenCalled();
   });
 
-  it("subscription.deleted is acknowledged 200 with no state change (deferred)", async () => {
+  // --- Story 7.3 lifecycle events -----------------------------------------
+
+  it("customer.subscription.deleted sets the org read_only (resolved by subscription id)", async () => {
     const { POST } = await import("@/app/api/stripe/webhook/route");
     constructEvent.mockReturnValue({
       type: "customer.subscription.deleted",
-      data: { object: {} },
+      data: { object: { id: "sub_123", metadata: { org_id: "org-1" } } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).toHaveBeenCalledWith(
+      { subscription_status: "read_only" },
+      "org-1",
+    );
+  });
+
+  it("invoice.paid sets active when the org is NOT read_only", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    constructEvent.mockReturnValue({
+      type: "invoice.paid",
+      data: { object: { id: "in_1", subscription: "sub_123" } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).toHaveBeenCalledWith(
+      { subscription_status: "active" },
+      "org-1",
+    );
+  });
+
+  it("invoice.payment_failed sets past_due when the org is NOT read_only", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_failed",
+      data: { object: { id: "in_2", subscription: "sub_123" } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).toHaveBeenCalledWith(
+      { subscription_status: "past_due" },
+      "org-1",
+    );
+  });
+
+  it("read_only is TERMINAL: invoice.paid on a read_only org performs no write", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    orgById = { data: { subscription_status: "read_only" }, error: null };
+    constructEvent.mockReturnValue({
+      type: "invoice.paid",
+      data: { object: { id: "in_1", subscription: "sub_123" } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).not.toHaveBeenCalled();
+  });
+
+  it("read_only is TERMINAL: invoice.payment_failed on a read_only org performs no write", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    orgById = { data: { subscription_status: "read_only" }, error: null };
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_failed",
+      data: { object: { id: "in_2", subscription: "sub_123" } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).not.toHaveBeenCalled();
+  });
+
+  it("invoice.paid resolves the org via metadata.org_id when the subscription id misses (parent.subscription_details.metadata)", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    // Subscription-id lookup misses (no row); fall back to the invoice's
+    // parent.subscription_details.metadata.org_id.
+    orgBySubscription = { data: null, error: null };
+    constructEvent.mockReturnValue({
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_3",
+          subscription: "sub_unknown",
+          parent: {
+            subscription_details: { metadata: { org_id: "org-meta" } },
+          },
+        },
+      },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).toHaveBeenCalledWith(
+      { subscription_status: "active" },
+      "org-meta",
+    );
+  });
+
+  it("invoice.paid extracts the subscription id from an expanded subscription object", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    constructEvent.mockReturnValue({
+      type: "invoice.paid",
+      data: { object: { id: "in_4", subscription: { id: "sub_123" } } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    // Resolved via the subscription-id lookup (orgBySubscription → org-1).
+    expect(adminUpdate).toHaveBeenCalledWith(
+      { subscription_status: "active" },
+      "org-1",
+    );
+  });
+
+  it("customer.subscription.deleted resolves via metadata.org_id fallback when the id misses", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    orgBySubscription = { data: null, error: null };
+    constructEvent.mockReturnValue({
+      type: "customer.subscription.deleted",
+      data: { object: { id: "sub_gone", metadata: { org_id: "org-meta" } } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).toHaveBeenCalledWith(
+      { subscription_status: "read_only" },
+      "org-meta",
+    );
+  });
+
+  it("lifecycle event with an unresolvable org → logged + 200, no update", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    orgBySubscription = { data: null, error: null };
+    constructEvent.mockReturnValue({
+      type: "invoice.paid",
+      data: { object: { id: "in_x", subscription: "sub_unknown" } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).not.toHaveBeenCalled();
+    expect(reportError).toHaveBeenCalled();
+  });
+
+  it("customer.subscription.deleted is a duplicate no-op (same write on re-delivery)", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    constructEvent.mockReturnValue({
+      type: "customer.subscription.deleted",
+      data: { object: { id: "sub_123", metadata: { org_id: "org-1" } } },
+    });
+    await POST(webhookReq("{...}", "good-sig"));
+    await POST(webhookReq("{...}", "good-sig"));
+    expect(adminUpdate).toHaveBeenCalledTimes(2);
+    expect(adminUpdate.mock.calls[0]).toEqual(adminUpdate.mock.calls[1]);
+  });
+
+  it("invoice.paid resolves the subscription id from parent.subscription_details.subscription (pinned .dahlia API shape)", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    // On the pinned 2026-04-22.dahlia API there is no top-level `subscription`;
+    // the linkage lives under parent.subscription_details.subscription. Resolve
+    // by subscription id (orgBySubscription → org-1), no metadata fallback.
+    constructEvent.mockReturnValue({
+      type: "invoice.paid",
+      data: {
+        object: {
+          id: "in_dahlia",
+          parent: { subscription_details: { subscription: "sub_123" } },
+        },
+      },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).toHaveBeenCalledWith(
+      { subscription_status: "active" },
+      "org-1",
+    );
+  });
+
+  it("checkout.session.completed reactivates a read_only org to active (only checkout reactivates)", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    // The org is currently read_only (canceled). The read_only-terminal guard
+    // applies ONLY to invoice events — a new checkout is the sanctioned
+    // reactivation path and writes active unconditionally.
+    orgById = { data: { subscription_status: "read_only" }, error: null };
+    constructEvent.mockReturnValue(
+      completedEvent({
+        id: "cs_re",
+        metadata: { org_id: "org-1", tier: "solo" },
+        client_reference_id: "org-1",
+        subscription: "sub_123",
+        line_items: { data: [{ price: { id: "price_solo_123" } }] },
+      }),
+    );
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ subscription_status: "active" }),
+      "org-1",
+    );
+  });
+
+  it("invoice event whose status pre-read errors → caught + 200, no update", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    // The org resolves, but the subscription_status pre-read errors; the handler
+    // throws, the outer catch logs and still 200s (no retry storm), no write.
+    orgById = { data: null, error: { message: "read boom" } };
+    constructEvent.mockReturnValue({
+      type: "invoice.paid",
+      data: { object: { id: "in_err", subscription: "sub_123" } },
     });
     const res = await POST(webhookReq("{...}", "good-sig"));
     expect(res.status).toBe(200);

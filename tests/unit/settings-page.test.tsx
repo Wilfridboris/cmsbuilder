@@ -28,12 +28,28 @@ const redirect = vi.fn((url: string) => {
 const getCurrentUser = vi.fn();
 const requireAdmin = vi.fn();
 
+// The org `subscription_status` read the Billing branch performs (Story 7.3),
+// driven per-test. The admin client is shared by `requireAdmin` and this read.
+let billingRead: { data: unknown; error: unknown } = {
+  data: { subscription_status: "trial" },
+  error: null,
+};
+function makeAdminClient() {
+  return {
+    from() {
+      return {
+        select: () => ({ eq: () => ({ maybeSingle: async () => billingRead }) }),
+      };
+    },
+  };
+}
+
 vi.mock("next/navigation", () => ({ redirect }));
 vi.mock("next-intl/server", () => ({
   getTranslations: async () => (key: string) => key,
 }));
 vi.mock("@/lib/auth/session", () => ({ getCurrentUser }));
-vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) }));
+vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => makeAdminClient() }));
 vi.mock("@/lib/auth/rbac", () => ({ requireAdmin }));
 // Client component — stub so the node test never pulls its client deps; a
 // recognizable marker so we can assert it renders for a same-org Admin.
@@ -45,6 +61,16 @@ vi.mock("@/components/settings/InviteForm", () => ({ InviteForm: InviteFormStub 
 const BusinessProfileFormStub = () => null;
 vi.mock("@/components/settings/BusinessProfileForm", () => ({
   BusinessProfileForm: BusinessProfileFormStub,
+}));
+// Stub both billing surfaces so the node test never pulls their client deps, and
+// so the branch (Story 7.3) is observable by which stub type renders.
+const BillingStartStub = () => null;
+vi.mock("@/components/settings/BillingStart", () => ({
+  BillingStart: BillingStartStub,
+}));
+const BillingManageStub = () => null;
+vi.mock("@/components/settings/BillingManage", () => ({
+  BillingManage: BillingManageStub,
 }));
 
 async function importPage() {
@@ -70,6 +96,7 @@ describe("SettingsPage admin gate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getCurrentUser.mockResolvedValue({ id: "user-1" });
+    billingRead = { data: { subscription_status: "trial" }, error: null };
   });
 
   it("redirects an unauthenticated visitor to /login (defense in depth)", async () => {
@@ -130,6 +157,52 @@ describe("SettingsPage admin gate", () => {
     const SettingsPage = await importPage();
 
     await expect(SettingsPage({ params: params("acme") })).rejects.toBe(boom);
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  // --- Story 7.3 Billing surface branch -----------------------------------
+
+  async function renderForStatus(status: string): Promise<unknown[]> {
+    requireAdmin.mockResolvedValue({ orgId: "org-1", slug: "acme", role: "admin" });
+    billingRead = { data: { subscription_status: status }, error: null };
+    const SettingsPage = await importPage();
+    const tree = await SettingsPage({ params: params("acme") });
+    const types: unknown[] = [];
+    collectTypes(tree, types);
+    return types;
+  }
+
+  it("renders BillingManage for an active org", async () => {
+    const types = await renderForStatus("active");
+    expect(types).toContain(BillingManageStub);
+    expect(types).not.toContain(BillingStartStub);
+  });
+
+  it("renders BillingManage for a past_due org", async () => {
+    const types = await renderForStatus("past_due");
+    expect(types).toContain(BillingManageStub);
+    expect(types).not.toContain(BillingStartStub);
+  });
+
+  it("renders BillingStart for a trial org", async () => {
+    const types = await renderForStatus("trial");
+    expect(types).toContain(BillingStartStub);
+    expect(types).not.toContain(BillingManageStub);
+  });
+
+  it("renders BillingStart for a read_only (canceled) org", async () => {
+    const types = await renderForStatus("read_only");
+    expect(types).toContain(BillingStartStub);
+    expect(types).not.toContain(BillingManageStub);
+  });
+
+  it("throws (does not default to trial) when the subscription_status read errors", async () => {
+    requireAdmin.mockResolvedValue({ orgId: "org-1", slug: "acme", role: "admin" });
+    billingRead = { data: null, error: { message: "read boom" } };
+    const SettingsPage = await importPage();
+    await expect(SettingsPage({ params: params("acme") })).rejects.toBeInstanceOf(
+      AppError,
+    );
     expect(redirect).not.toHaveBeenCalled();
   });
 });
