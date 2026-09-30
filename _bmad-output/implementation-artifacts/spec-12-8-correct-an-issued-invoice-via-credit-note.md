@@ -180,3 +180,10 @@ Review iteration 1 (blind-hunter, edge-case-hunter, verification-gap). No intent
 
 **Manual checks:**
 - On the authed Admin fixture against the dev app: from an issued invoice, create and issue a credit note; confirm it gets its own gap-free number, freezes a PDF viewable/downloadable, is immutable, and leaves the original invoice unchanged. Toggle `fr` and confirm real French with no em-dashes.
+
+**Manual review (Playwright, post-commit) — verified.** On the authed Admin fixture `/session-1f4fa453` (registered-Ontario Business Profile "Maple Leaf Plumbing Ltd.", branded logo) against the running dev app on `localhost:3000`, exercising the rich path (logo + linked customer):
+- Opened issued invoice **000006** (Billed to **Bytown Electrical**, HST line, total 1017.00). The **Credit notes** section is mounted with the "Create credit note" action.
+- Create-credit-note opened the draft **prefilled** from the invoice's frozen line item ("Quarterly maintenance", 900.00 → HST 117.00 → total 1017.00) under the "Corrects invoice 000006" header. Saved, then issued via the confirmation dialog.
+- The issued credit note is **000001** — its own gap-free number in a namespace disjoint from invoice numbers — showing **Corrects invoice: 000006** and **Billed to: Bytown Electrical** (the source invoice's customer was inherited into the frozen snapshot; the review's customer-drop finding is fixed and confirmed live). Supplier snapshot, line item, HST, total, and payment instructions all frozen; the view is read-only (immutable).
+- The public proxy `GET /i/{token}` streamed the frozen PDF: `200`, `content-type: application/pdf`, `content-disposition: inline; filename="credit-note-000001.pdf"`, `%PDF` magic, 426 KB (logo embedded — the rich-path artifact actually contains the logo + customer).
+- The **original invoice 000006 is unchanged** (still Issued, same number/date/lines/total/customer), and its linked-list now shows credit note 000001 (Issued, 1017.00) with View + Download (FR88). Note: issuance is irreversible by design, so this leaves a permanent issued credit note 000001 against 000006 in the dev fixture org.
