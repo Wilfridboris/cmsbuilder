@@ -33,6 +33,36 @@ const TIER_PRICE_ENV: Record<SubscriptionTier, string> = {
 /** The default tier the 7.2 "Add Billing" button posts (plan change deferred to 7.5). */
 export const DEFAULT_TIER: SubscriptionTier = "solo";
 
+/**
+ * Provisional issued-invoice bands per billing cycle, per tier (Story 7.5, FR55).
+ * A tier maps to the MAX issued invoices its band covers; `null` means "no cap"
+ * (the top tier never prompts). The tier-change prompt fires when the last fully
+ * completed billing cycle's issued-invoice count EXCEEDS the current tier's band.
+ *
+ * PROVISIONAL per the frozen Decision (pending willingness-to-pay validation) and
+ * tunable here without structural change: Solo <= 20, Crew <= 100, Shop = no cap.
+ * The rule may later tighten to a two-consecutive-cycle signal without touching
+ * this shape. Pure config; the predicate lives in `tier-prompt.ts`.
+ */
+export const TIER_INVOICE_BANDS: Record<SubscriptionTier, number | null> = {
+  solo: 20,
+  crew: 100,
+  shop: null,
+};
+
+/**
+ * The next tier up from `tier`, or `null` when already at the top (`shop`). Used by
+ * the upgrade prompt to name the suggested plan; never a bespoke plan-switcher (the
+ * change happens on the Stripe Customer Portal). Mirrors the `TIERS` ordering.
+ */
+export function nextTierUp(tier: SubscriptionTier): SubscriptionTier | null {
+  const index = TIERS.indexOf(tier);
+  if (index < 0 || index >= TIERS.length - 1) {
+    return null;
+  }
+  return TIERS[index + 1];
+}
+
 /** Narrow an untrusted string to a valid `SubscriptionTier`. */
 export function isSubscriptionTier(value: unknown): value is SubscriptionTier {
   return (

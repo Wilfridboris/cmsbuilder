@@ -72,6 +72,13 @@ const BillingManageStub = () => null;
 vi.mock("@/components/settings/BillingManage", () => ({
   BillingManage: BillingManageStub,
 }));
+// Story 7.5 added a third billing surface (the read-only tier card). Stub it for
+// the same reason as the others: keep this node page-boundary test from pulling
+// TierView's client deps (framer-motion / lucide) into its import graph.
+const TierViewStub = () => null;
+vi.mock("@/components/settings/TierView", () => ({
+  TierView: TierViewStub,
+}));
 
 async function importPage() {
   const mod = await import("@/app/[slug]/settings/page");
@@ -184,16 +191,20 @@ describe("SettingsPage admin gate", () => {
     expect(types).not.toContain(BillingStartStub);
   });
 
-  it("renders BillingStart for a trial org", async () => {
+  it("renders BillingStart and NO tier card for a trial org", async () => {
     const types = await renderForStatus("trial");
     expect(types).toContain(BillingStartStub);
     expect(types).not.toContain(BillingManageStub);
+    // Story 7.5 matrix: trial shows the add-billing surface only, never the tier card.
+    expect(types).not.toContain(TierViewStub);
   });
 
-  it("renders BillingStart for a read_only (canceled) org", async () => {
+  it("renders BillingStart and NO tier card for a read_only (canceled) org", async () => {
     const types = await renderForStatus("read_only");
     expect(types).toContain(BillingStartStub);
     expect(types).not.toContain(BillingManageStub);
+    // Story 7.5 matrix: read-only shows the add-billing surface only, never the tier card.
+    expect(types).not.toContain(TierViewStub);
   });
 
   it("throws (does not default to trial) when the subscription_status read errors", async () => {

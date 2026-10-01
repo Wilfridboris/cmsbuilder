@@ -58,6 +58,28 @@ export function reportError(err: unknown, context: ReportContext = {}): void {
 }
 
 /**
+ * Report a CRITICAL / page-worthy error at Sentry `level: "fatal"` (Story 7.5):
+ * the tier-reconciliation cron uses this for billing-accuracy drift (NFR-R5) so the
+ * alert pages a human rather than defaulting to the ordinary `error` severity that
+ * `reportError` emits. Same DSN-gated, lazy-loaded, fire-and-forget contract — an
+ * observability failure must never break the sweep. Falls back to `console.error`
+ * (tagged `reportCritical`) when no DSN / SDK is available.
+ */
+export function reportCritical(err: unknown, context: ReportContext = {}): void {
+  if (sentryDsnConfigured()) {
+    void loadSentry().then((sentry) => {
+      if (sentry) {
+        sentry.captureException(err, { level: "fatal", extra: context });
+      } else {
+        console.error("[observability] reportCritical", err, context);
+      }
+    });
+    return;
+  }
+  console.error("[observability] reportCritical", err, context);
+}
+
+/**
  * Report a Schema Validator rejection. `context` carries the org/session id and
  * the raw LLM output (FR45) — server-side only, never returned to the client.
  */

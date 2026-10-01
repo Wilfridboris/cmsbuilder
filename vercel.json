@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/trial-lifecycle",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-tier",
+      "schedule": "0 3 * * *"
     }
   ]
 }

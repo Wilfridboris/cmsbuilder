@@ -10,6 +10,7 @@ import type {
 } from "@/types/db";
 import { getSchema } from "@/lib/data/records";
 import { resolvedDisplayFieldKey } from "@/lib/schema/relations";
+import { reportError } from "@/lib/observability/report";
 
 /**
  * Invoice read layer (Story 12.2).
@@ -57,6 +58,48 @@ export async function listInvoices(
   }
 
   return { data: (data ?? []) as InvoiceRow[], error: null };
+}
+
+/**
+ * Count the org's issued invoices whose `issue_date` falls in the half-open window
+ * `[startDate, endDate)` (Story 7.5, FR55). "Issued" means `status in
+ * ('issued','paid')` — a draft/void/overdue row never counts toward billing volume
+ * (an issued invoice that later lapses to overdue is still a billed issuance; the
+ * MVP volume signal counts only the frozen issued+paid states per the spec). The
+ * window is half-open so adjacent billing cycles never double-count a boundary day.
+ *
+ * `startDate`/`endDate` are `YYYY-MM-DD` strings (compared directly against the
+ * `issue_date` date column). RLS scopes the count to the caller's org, so a
+ * cross-org invoice is never counted. Returns the exact count via PostgREST
+ * `head: true` (no rows transferred); a read error degrades to 0 so the caller's
+ * advisory prompt never blocks the page on a transient failure, but is logged via
+ * `reportError` so a persistently broken count (which would silently disable the
+ * FR55 upgrade prompt) is observable rather than failing closed in the dark.
+ */
+export async function countIssuedInvoicesInPeriod(
+  client: SupabaseClient,
+  orgId: string,
+  startDate: string,
+  endDate: string,
+): Promise<number> {
+  const { count, error } = await client
+    .from("invoices")
+    .select("id", { count: "exact", head: true })
+    .eq("organization_id", orgId)
+    .in("status", ["issued", "paid"])
+    .gte("issue_date", startDate)
+    .lt("issue_date", endDate);
+
+  if (error) {
+    reportError(error, {
+      op: "countIssuedInvoicesInPeriod",
+      orgId,
+      startDate,
+      endDate,
+    });
+    return 0;
+  }
+  return count ?? 0;
 }
 
 /**
