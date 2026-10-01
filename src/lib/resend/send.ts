@@ -1,9 +1,11 @@
 import "server-only";
 
-import { Resend } from "resend";
-
-import { AppError } from "@/types/api";
 import type { InvoiceLanguageCode } from "@/lib/invoicing/tax";
+import {
+  escapeHtml,
+  renderTransactionalEmail,
+  sendTransactional,
+} from "@/lib/resend/transactional";
 import en from "@/lib/i18n/en.json";
 import fr from "@/lib/i18n/fr.json";
 
@@ -45,19 +47,15 @@ export type SendInvoiceEmailInput = {
   link: string;
 };
 
-/** Escape the handful of HTML-significant characters in interpolated copy. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 /**
  * Build the transactional email (subject + HTML + plain text) for the invoice's
  * language. Interpolates the invoice number into the localized copy. Deliberately
- * plain: no brand marketing, no unsubscribe link, no tracking.
+ * plain: no brand marketing, no unsubscribe link, no tracking. The shared HTML shell
+ * + escaping live in `transactional.ts`; only the invoice-specific paragraphs are here.
+ *
+ * Interpolation stays manual `.replace` (not ICU) on purpose: the invoice copy has no
+ * plurals, and routing French copy (apostrophes) through `IntlMessageFormat` would
+ * risk ICU treating `'` as an escape character.
  */
 function buildEmail(
   language: InvoiceLanguageCode,
@@ -73,35 +71,15 @@ function buildEmail(
   const bodyHtml = escapeHtml(body);
   const linkHtml = escapeHtml(link);
 
-  const html = `<!doctype html>
-<html lang="${langAttr}">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
-    <title>${escapeHtml(subject)}</title>
-  </head>
-  <body style="margin:0;padding:24px;background-color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1a1a1a;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border-radius:8px;">
-            <tr>
-              <td style="padding:32px;">
-                <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">${escapeHtml(c.greeting)}</p>
-                <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333333;">${bodyHtml}</p>
-                <p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#555555;">${escapeHtml(c.linkIntro)}</p>
-                <p style="margin:0 0 24px;font-size:14px;line-height:1.6;"><a href="${linkHtml}" style="color:#2563eb;">${escapeHtml(`invoice-${numberHtml}`)}</a></p>
-                <p style="margin:0;font-size:15px;line-height:1.6;">${escapeHtml(c.signature)}</p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`;
+  const innerHtml = [
+    `                <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">${escapeHtml(c.greeting)}</p>`,
+    `                <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333333;">${bodyHtml}</p>`,
+    `                <p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#555555;">${escapeHtml(c.linkIntro)}</p>`,
+    `                <p style="margin:0 0 24px;font-size:14px;line-height:1.6;"><a href="${linkHtml}" style="color:#2563eb;">${escapeHtml(`invoice-${numberHtml}`)}</a></p>`,
+    `                <p style="margin:0;font-size:15px;line-height:1.6;">${escapeHtml(c.signature)}</p>`,
+  ].join("\n");
 
+  const html = renderTransactionalEmail({ langAttr, subject, innerHtml });
   const text = `${c.greeting}\n\n${body}\n\n${c.linkIntro}\n${link}\n\n${c.signature}`;
 
   return { subject, html, text };
@@ -115,40 +93,21 @@ function buildEmail(
 export async function sendInvoiceEmail(
   input: SendInvoiceEmailInput,
 ): Promise<void> {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
-  if (!apiKey || !from) {
-    throw new AppError(502, "sendFailed", "Missing RESEND_API_KEY or RESEND_FROM_EMAIL");
-  }
-
   const { subject, html, text } = buildEmail(
     input.language,
     input.invoiceNumber,
     input.link,
   );
 
-  const resend = new Resend(apiKey);
   const filename = `invoice-${input.invoiceNumber}.pdf`;
   const content = Buffer.from(input.pdfBytes).toString("base64");
 
-  try {
-    const { error } = await resend.emails.send({
-      from,
-      to: input.to,
-      replyTo: input.replyTo,
-      subject,
-      html,
-      text,
-      attachments: [{ filename, content }],
-    });
-    if (error) {
-      // Mask the provider message — never surface it to the caller.
-      throw new AppError(502, "sendFailed", error.message);
-    }
-  } catch (err) {
-    if (err instanceof AppError) {
-      throw err;
-    }
-    throw new AppError(502, "sendFailed", (err as Error)?.message);
-  }
+  await sendTransactional({
+    to: input.to,
+    replyTo: input.replyTo,
+    subject,
+    html,
+    text,
+    attachments: [{ filename, content }],
+  });
 }

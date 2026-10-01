@@ -16,8 +16,13 @@ const sendTrialReminderEmail = vi.fn();
 const reportError = vi.fn();
 
 // --- Configurable admin-client state --------------------------------------
-let trialOrgs: unknown[]; // the organizations scan result
-const orgUpdates: { patch: Record<string, unknown>; id: string }[] = [];
+let trialOrgs: unknown[]; // the `subscription_status='trial'` scan result
+let pastDueOrgs: unknown[]; // the overdue `past_due` escalation scan result [F1]
+const orgUpdates: {
+  patch: Record<string, unknown>;
+  id: string;
+  eqs: Record<string, unknown>;
+}[] = [];
 const adminMembers: { user_id: string }[] = [{ user_id: "admin-1" }];
 let orgLanguage: string | null = "en";
 
@@ -25,18 +30,42 @@ function makeAdminClient() {
   return {
     from(table: string) {
       if (table === "organizations") {
-        return {
-          select: () => ({
-            eq: () => ({
-              not: async () => ({ data: trialOrgs, error: null }),
-            }),
-          }),
-          update: (patch: Record<string, unknown>) => ({
-            eq: async (_col: string, id: string) => {
-              orgUpdates.push({ patch, id });
-              return { error: null };
+        // A chainable, thenable query builder: the two scans both start
+        // `select().eq("subscription_status", <v>)`; the captured status selects
+        // which dataset resolves. `.not()`/`.lt()` are chainable no-ops.
+        const makeScan = () => {
+          let status: string | null = null;
+          const builder = {
+            eq: (col: string, val: string) => {
+              if (col === "subscription_status") status = val;
+              return builder;
             },
-          }),
+            not: () => builder,
+            lt: () => builder,
+            then: (resolve: (r: { data: unknown[]; error: null }) => void) =>
+              resolve({
+                data: status === "past_due" ? pastDueOrgs : trialOrgs,
+                error: null,
+              }),
+          };
+          return builder;
+        };
+        return {
+          select: () => makeScan(),
+          update: (patch: Record<string, unknown>) => {
+            const eqs: Record<string, unknown> = {};
+            const eqBuilder = {
+              eq: (col: string, val: string) => {
+                eqs[col] = val;
+                return eqBuilder;
+              },
+              then: (resolve: (r: { error: null }) => void) => {
+                orgUpdates.push({ patch, id: eqs.id as string, eqs });
+                resolve({ error: null });
+              },
+            };
+            return eqBuilder;
+          },
         };
       }
       if (table === "org_members") {
@@ -96,7 +125,9 @@ beforeEach(() => {
   adminMembers.push({ user_id: "admin-1" });
   orgLanguage = "en";
   trialOrgs = [];
+  pastDueOrgs = [];
   process.env.CRON_SECRET = SECRET;
+  delete process.env.PAST_DUE_GRACE_DAYS;
   sendTrialReminderEmail.mockResolvedValue(undefined);
 });
 
@@ -137,7 +168,14 @@ describe("GET /api/cron/trial-lifecycle sweep", () => {
     expect(body.data).toMatchObject({ processed: 1, flipped: 1, emailed: 1 });
 
     // The flip to read_only happened.
-    expect(orgUpdates.some((u) => u.patch.subscription_status === "read_only")).toBe(true);
+    const flip = orgUpdates.find(
+      (u) => u.patch.subscription_status === "read_only",
+    );
+    expect(flip).toBeDefined();
+    // [F7] The flip is guarded on subscription_status='trial' so a concurrent
+    // checkout->active landing mid-sweep cannot be clobbered back to read_only.
+    expect(flip!.eqs.subscription_status).toBe("trial");
+    expect(flip!.id).toBe("org-1");
     // Day-14 email sent.
     expect(sendTrialReminderEmail).toHaveBeenCalledWith(
       expect.objectContaining({ stage: "day14", to: "admin-1@example.com", language: "en" }),
@@ -241,6 +279,34 @@ describe("GET /api/cron/trial-lifecycle sweep", () => {
     expect(orgUpdates.some((u) => "trial_reminder_day12_sent_at" in u.patch)).toBe(false);
     // The failure was logged, not thrown.
     expect(reportError).toHaveBeenCalled();
+  });
+
+  it("[F1] escalates a long-overdue past_due org to read_only (no email), guarded on past_due", async () => {
+    pastDueOrgs = [{ id: "org-pd" }];
+    const { GET } = await import("@/app/api/cron/trial-lifecycle/route");
+    const res = await GET(cronReq(`Bearer ${SECRET}`));
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data).toMatchObject({ escalated: 1 });
+
+    const esc = orgUpdates.find((u) => u.id === "org-pd");
+    expect(esc).toBeDefined();
+    expect(esc!.patch.subscription_status).toBe("read_only");
+    expect(esc!.patch.past_due_since).toBeNull();
+    // Guarded on past_due so a concurrent recovery to active is never clobbered.
+    expect(esc!.eqs.subscription_status).toBe("past_due");
+    // Stripe owns dunning mail — the escalation never emails.
+    expect(sendTrialReminderEmail).not.toHaveBeenCalled();
+  });
+
+  it("[F1] does not escalate when no past_due org is beyond the grace window", async () => {
+    pastDueOrgs = [];
+    const { GET } = await import("@/app/api/cron/trial-lifecycle/route");
+    const res = await GET(cronReq(`Bearer ${SECRET}`));
+    const body = await res.json();
+    expect(body.data).toMatchObject({ escalated: 0 });
+    expect(orgUpdates).toHaveLength(0);
   });
 
   it("FR org: resolves fr language from the business profile", async () => {

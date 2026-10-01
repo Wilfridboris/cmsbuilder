@@ -42,19 +42,37 @@ async function loadSentry(): Promise<typeof import("@sentry/nextjs") | null> {
   }
 }
 
-/** Report an unexpected error (timeout, parse failure, provisioning error). */
-export function reportError(err: unknown, context: ReportContext = {}): void {
+/**
+ * The shared DSN-gate + lazy-load + console-fallback skeleton (retro [A3c]). When a
+ * DSN is set it best-effort forwards to Sentry via `withSentry`; otherwise (and on a
+ * Sentry load failure) it falls back to `console.error` with the given tag + args.
+ * Fire-and-forget, never throws.
+ */
+function dispatch(
+  tag: string,
+  withSentry: (sentry: typeof import("@sentry/nextjs")) => void,
+  consoleArgs: unknown[],
+): void {
   if (sentryDsnConfigured()) {
     void loadSentry().then((sentry) => {
       if (sentry) {
-        sentry.captureException(err, { extra: context });
+        withSentry(sentry);
       } else {
-        console.error("[observability] reportError", err, context);
+        console.error(`[observability] ${tag}`, ...consoleArgs);
       }
     });
     return;
   }
-  console.error("[observability] reportError", err, context);
+  console.error(`[observability] ${tag}`, ...consoleArgs);
+}
+
+/** Report an unexpected error (timeout, parse failure, provisioning error). */
+export function reportError(err: unknown, context: ReportContext = {}): void {
+  dispatch(
+    "reportError",
+    (sentry) => sentry.captureException(err, { extra: context }),
+    [err, context],
+  );
 }
 
 /**
@@ -66,17 +84,11 @@ export function reportError(err: unknown, context: ReportContext = {}): void {
  * (tagged `reportCritical`) when no DSN / SDK is available.
  */
 export function reportCritical(err: unknown, context: ReportContext = {}): void {
-  if (sentryDsnConfigured()) {
-    void loadSentry().then((sentry) => {
-      if (sentry) {
-        sentry.captureException(err, { level: "fatal", extra: context });
-      } else {
-        console.error("[observability] reportCritical", err, context);
-      }
-    });
-    return;
-  }
-  console.error("[observability] reportCritical", err, context);
+  dispatch(
+    "reportCritical",
+    (sentry) => sentry.captureException(err, { level: "fatal", extra: context }),
+    [err, context],
+  );
 }
 
 /**
@@ -84,18 +96,13 @@ export function reportCritical(err: unknown, context: ReportContext = {}): void 
  * the raw LLM output (FR45) — server-side only, never returned to the client.
  */
 export function reportRejection(reason: string, context: ReportContext = {}): void {
-  if (sentryDsnConfigured()) {
-    void loadSentry().then((sentry) => {
-      if (sentry) {
-        sentry.captureMessage(`Schema validator rejection: ${reason}`, {
-          level: "warning",
-          extra: context,
-        });
-      } else {
-        console.error("[observability] reportRejection", reason, context);
-      }
-    });
-    return;
-  }
-  console.error("[observability] reportRejection", reason, context);
+  dispatch(
+    "reportRejection",
+    (sentry) =>
+      sentry.captureMessage(`Schema validator rejection: ${reason}`, {
+        level: "warning",
+        extra: context,
+      }),
+    [reason, context],
+  );
 }

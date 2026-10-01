@@ -153,6 +153,14 @@ export type OrganizationRow = {
    * an expired trial to `read_only`. Stamped only after Resend succeeds.
    */
   trial_reminder_day14_sent_at: string | null;
+  /**
+   * When the org most recently entered `past_due` (Story 7 retro [F1]). Set by the
+   * Stripe webhook on the trial/active -> past_due transition and cleared on the
+   * return to `active`; null outside `past_due`. The daily lifecycle cron escalates
+   * an org whose `past_due_since` is older than `PAST_DUE_GRACE_DAYS` to `read_only`
+   * as a safety net for a Stripe account not configured to cancel on exhausted dunning.
+   */
+  past_due_since: string | null;
   created_at: string;
   updated_at: string;
 };

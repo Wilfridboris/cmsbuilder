@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
 import { useTranslations } from "next-intl";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import { CreditCard, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import type { ApiResponse } from "@/types/api";
+import {
+  useBillingRedirect,
+  BillingErrorAlert,
+} from "@/components/settings/billing-redirect";
 
 /**
  * BillingManage (Story 7.3) — the Admin-only "Manage billing" surface, shown when
@@ -39,49 +41,9 @@ const ERROR_KEYS = new Set([
 
 export function BillingManage({ slug }: { slug: string }) {
   const t = useTranslations("Billing");
-  const [status, setStatus] = useState<"idle" | "redirecting">("idle");
-  const [error, setError] = useState<string | null>(null);
+  const { status, error, reveal, redirect } = useBillingRedirect(ERROR_KEYS);
 
-  const prefersReducedMotion = useReducedMotion();
-
-  const resolveError = (code: string | null): string => {
-    if (code && ERROR_KEYS.has(code)) {
-      return t(`error.${code}`);
-    }
-    return t("error.genericError");
-  };
-
-  const handleClick = async () => {
-    setStatus("redirecting");
-    setError(null);
-
-    try {
-      const res = await fetch("/api/stripe/portal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug }),
-      });
-      const body: ApiResponse<{ url: string }> = await res.json();
-      if (!res.ok || !body.data) {
-        setError(resolveError(body.error));
-        setStatus("idle");
-        return;
-      }
-      // Hand off to Stripe's hosted Customer Portal. Keep the button disabled
-      // during the redirect (state stays "redirecting").
-      window.location.href = body.data.url;
-    } catch {
-      setError(resolveError(null));
-      setStatus("idle");
-    }
-  };
-
-  const reveal = prefersReducedMotion
-    ? { initial: { opacity: 0 }, animate: { opacity: 1 } }
-    : {
-        initial: { opacity: 0, y: 8 },
-        animate: { opacity: 1, y: 0 },
-      };
+  const handleClick = () => redirect("/api/stripe/portal", { slug });
 
   return (
     <motion.div
@@ -89,20 +51,7 @@ export function BillingManage({ slug }: { slug: string }) {
       transition={{ duration: 0.25 }}
       className="flex flex-col gap-5"
     >
-      <AnimatePresence>
-        {error ? (
-          <motion.p
-            key="error"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            role="alert"
-            className="text-sm text-destructive"
-          >
-            {error}
-          </motion.p>
-        ) : null}
-      </AnimatePresence>
+      <BillingErrorAlert error={error} />
 
       <Button
         type="button"

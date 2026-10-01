@@ -7,7 +7,7 @@ import type { ApiResponse } from "@/types/api";
 import type { BusinessProfileLanguage } from "@/types/db";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendTrialReminderEmail } from "@/lib/resend/trial-reminder";
-import { json, handleError } from "@/lib/api/route-helpers";
+import { json, handleError, authorizeCron } from "@/lib/api/route-helpers";
 import { reportError } from "@/lib/observability/report";
 
 /**
@@ -39,6 +39,21 @@ export const dynamic = "force-dynamic";
 /** The reminder window: the Day-12 email fires once within 2 days of expiry. */
 const DAY12_WINDOW_MS = 2 * 24 * 60 * 60 * 1000;
 
+/**
+ * [F1] Grace window before a long-overdue `past_due` org is escalated to `read_only`.
+ * Defaults to 21 days — deliberately >= Stripe's longest smart-retry/dunning schedule,
+ * so a customer Stripe is still legitimately retrying is NEVER locked out (NFR-R4).
+ * Configurable via `PAST_DUE_GRACE_DAYS`.
+ */
+const DEFAULT_PAST_DUE_GRACE_DAYS = 21;
+
+function pastDueGraceMs(): number {
+  const raw = Number(process.env.PAST_DUE_GRACE_DAYS);
+  const days =
+    Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_PAST_DUE_GRACE_DAYS;
+  return days * 24 * 60 * 60 * 1000;
+}
+
 type TrialOrg = {
   id: string;
   slug: string;
@@ -54,6 +69,8 @@ export type TrialLifecycleSummary = {
   flipped: number;
   /** How many reminder emails were sent this run (Day-12 + Day-14). */
   emailed: number;
+  /** How many long-overdue past_due orgs were escalated to read_only [F1]. */
+  escalated: number;
 };
 
 /**
@@ -106,11 +123,7 @@ export async function GET(
   try {
     // 1. Authorize via the shared cron secret (read at call time). No valid header
     //    → 401 with NO reads/writes.
-    const secret = process.env.CRON_SECRET;
-    const header = req.headers.get("authorization");
-    if (!secret || header !== `Bearer ${secret}`) {
-      throw new AppError(401, "unauthorized");
-    }
+    authorizeCron(req);
 
     const adminClient = createAdminClient();
     const now = new Date();
@@ -142,13 +155,18 @@ export async function GET(
 
       if (expiry <= nowMs) {
         // --- Expired: persist the read_only flip, then send Day-14 (once). ---
+        // [F7] Guard the flip on `subscription_status='trial'` so a concurrent
+        // checkout->active landing between this sweep's scan and this UPDATE is NOT
+        // clobbered back to read_only (which would lock out a customer who just paid
+        // — NFR-R4). Mirrors the `.is(null)` idempotency guard the claim stamp uses.
         const { error: flipError } = await adminClient
           .from("organizations")
           .update({
             subscription_status: "read_only",
             updated_at: now.toISOString(),
           })
-          .eq("id", org.id);
+          .eq("id", org.id)
+          .eq("subscription_status", "trial");
         if (flipError) {
           // Log and continue — a flip failure must not stop the whole sweep.
           reportError(flipError, { route: "/api/cron/trial-lifecycle" });
@@ -177,8 +195,49 @@ export async function GET(
       }
     }
 
+    // 3. [F1] Safety net: escalate long-overdue `past_due` orgs to `read_only`.
+    //    The PRIMARY mechanism is Stripe canceling an exhausted subscription (which
+    //    fires `customer.subscription.deleted` -> read_only). This backstops a Stripe
+    //    account configured to leave the subscription uncollectible-but-active: an org
+    //    whose `past_due_since` predates the grace window is flipped. No email (Stripe
+    //    owns dunning mail). The flip is guarded on `past_due` so a concurrent recovery
+    //    to `active` is never clobbered.
+    const graceCutoff = new Date(now.getTime() - pastDueGraceMs()).toISOString();
+    let escalated = 0;
+    const { data: overdue, error: overdueError } = await adminClient
+      .from("organizations")
+      .select("id")
+      .eq("subscription_status", "past_due")
+      .not("past_due_since", "is", null)
+      .lt("past_due_since", graceCutoff);
+    if (overdueError) {
+      throw new AppError(500, "genericError", overdueError.message);
+    }
+    for (const org of (overdue ?? []) as { id: string }[]) {
+      const { error: escError } = await adminClient
+        .from("organizations")
+        .update({
+          subscription_status: "read_only",
+          past_due_since: null,
+          updated_at: now.toISOString(),
+        })
+        .eq("id", org.id)
+        .eq("subscription_status", "past_due");
+      if (escError) {
+        reportError(escError, {
+          route: "/api/cron/trial-lifecycle",
+          orgId: org.id,
+        });
+      } else {
+        escalated += 1;
+      }
+    }
+
     return json<TrialLifecycleSummary>(
-      { data: { processed: trialOrgs.length, flipped, emailed }, error: null },
+      {
+        data: { processed: trialOrgs.length, flipped, emailed, escalated },
+        error: null,
+      },
       200,
     );
   } catch (err) {

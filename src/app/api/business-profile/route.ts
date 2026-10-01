@@ -1,16 +1,17 @@
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
-import type { User } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import type { BusinessProfileRow } from "@/types/db";
-import { getCurrentUser } from "@/lib/auth/session";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin } from "@/lib/auth/rbac";
-import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
-import { assertWritable } from "@/lib/billing/access";
+import {
+  json,
+  requireUser,
+  resolveAdminIdentity,
+  resolveWritableAdminIdentity,
+  handleError,
+} from "@/lib/api/route-helpers";
 import { upsertBusinessProfile } from "@/lib/data/business-profile-mutate";
 import { signLogoUrl } from "@/lib/storage/logo";
 import { getQuerySchema, putBodySchema, toWritableProfile } from "./schemas";
@@ -42,30 +43,6 @@ export type BusinessProfilePayload = {
   profile: BusinessProfileRow;
   logoUrl: string | null;
 };
-
-/** Authenticate the caller (401 when there is no session). */
-async function requireUser() {
-  const user = await getCurrentUser();
-  if (!user) {
-    throw new AppError(401, "unauthorized");
-  }
-  return user;
-}
-
-/**
- * Shared Admin gate for both verbs: resolve the (already-authenticated) caller's
- * RLS identity for `slug` and re-enforce Admin authoritatively, rejecting a
- * non-member / Member / cross-org Admin — all before any profile access. Returns
- * the RLS-scoped identity.
- */
-async function resolveAdminIdentity(slug: string, user: User) {
-  const identity = await resolveOrgIdentity(slug, user.id);
-  const membership = await requireAdmin(user, createAdminClient());
-  if (membership.slug !== slug) {
-    throw new AppError(403, "forbidden");
-  }
-  return identity;
-}
 
 export async function GET(
   req: NextRequest,
@@ -128,13 +105,14 @@ export async function PUT(
     if (!slugParsed.success) {
       throw new AppError(400, "genericError");
     }
-    const identity = await resolveAdminIdentity(slugParsed.data.slug, user);
-    // Story 7.4: reject a read_only / expired-trial org before the profile write
-    // (the GET above stays ungated — reads are always allowed).
-    assertWritable({
-      subscription_status: identity.subscriptionStatus,
-      trial_expires_at: identity.trialExpiresAt,
-    });
+    // Story 7.4 / retro [A1][A2]: the shared writable admin resolver runs the admin
+    // gate (non-admin → forbidden) THEN asserts the org is writable (read_only /
+    // expired-trial → readOnly), before the profile write. The GET above stays on
+    // the plain admin resolver — reads are never gated.
+    const identity = await resolveWritableAdminIdentity(
+      slugParsed.data.slug,
+      user,
+    );
 
     const parsed = putBodySchema.safeParse(raw);
     if (!parsed.success) {

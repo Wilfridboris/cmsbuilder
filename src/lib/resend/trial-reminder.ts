@@ -1,9 +1,12 @@
 import "server-only";
 
-import { Resend } from "resend";
 import { IntlMessageFormat } from "intl-messageformat";
 
-import { AppError } from "@/types/api";
+import {
+  escapeHtml,
+  renderTransactionalEmail,
+  sendTransactional,
+} from "@/lib/resend/transactional";
 import en from "@/lib/i18n/en.json";
 import fr from "@/lib/i18n/fr.json";
 
@@ -51,15 +54,6 @@ export type SendTrialReminderEmailInput = {
   appOrigin?: string;
 };
 
-/** Escape the handful of HTML-significant characters in interpolated copy. */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
 /** Format an ICU message (with the `{days, plural, ...}` form) for a language. */
 function formatIcu(
   message: string,
@@ -97,35 +91,15 @@ function buildEmail(
   const linkHtml = escapeHtml(link);
   const signatureHtml = escapeHtml(c.signature).replace(/\n/g, "<br />");
 
-  const html = `<!doctype html>
-<html lang="${langAttr}">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="color-scheme" content="light" />
-    <title>${escapeHtml(subject)}</title>
-  </head>
-  <body style="margin:0;padding:24px;background-color:#f5f5f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1a1a1a;">
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background-color:#ffffff;border-radius:8px;">
-            <tr>
-              <td style="padding:32px;">
-                <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">${escapeHtml(c.greeting)}</p>
-                <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333333;">${bodyHtml}</p>
-                <p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#555555;">${escapeHtml(c.cta)}</p>
-                <p style="margin:0 0 24px;font-size:14px;line-height:1.6;"><a href="${linkHtml}" style="color:#2563eb;">${linkHtml}</a></p>
-                <p style="margin:0;font-size:15px;line-height:1.6;">${signatureHtml}</p>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>`;
+  const innerHtml = [
+    `                <p style="margin:0 0 16px;font-size:15px;line-height:1.6;">${escapeHtml(c.greeting)}</p>`,
+    `                <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#333333;">${bodyHtml}</p>`,
+    `                <p style="margin:0 0 8px;font-size:14px;line-height:1.6;color:#555555;">${escapeHtml(c.cta)}</p>`,
+    `                <p style="margin:0 0 24px;font-size:14px;line-height:1.6;"><a href="${linkHtml}" style="color:#2563eb;">${linkHtml}</a></p>`,
+    `                <p style="margin:0;font-size:15px;line-height:1.6;">${signatureHtml}</p>`,
+  ].join("\n");
 
+  const html = renderTransactionalEmail({ langAttr, subject, innerHtml });
   const text = `${c.greeting}\n\n${body}\n\n${c.cta}\n${link}\n\n${c.signature}`;
 
   return { subject, html, text };
@@ -148,16 +122,6 @@ function buildBillingLink(slug: string, appOrigin?: string): string {
 export async function sendTrialReminderEmail(
   input: SendTrialReminderEmailInput,
 ): Promise<void> {
-  const apiKey = process.env.RESEND_API_KEY;
-  const from = process.env.RESEND_FROM_EMAIL;
-  if (!apiKey || !from) {
-    throw new AppError(
-      502,
-      "sendFailed",
-      "Missing RESEND_API_KEY or RESEND_FROM_EMAIL",
-    );
-  }
-
   const { subject, html, text } = buildEmail(
     input.language,
     input.stage,
@@ -165,23 +129,5 @@ export async function sendTrialReminderEmail(
     buildBillingLink(input.slug, input.appOrigin),
   );
 
-  const resend = new Resend(apiKey);
-
-  try {
-    const { error } = await resend.emails.send({
-      from,
-      to: input.to,
-      subject,
-      html,
-      text,
-    });
-    if (error) {
-      throw new AppError(502, "sendFailed", error.message);
-    }
-  } catch (err) {
-    if (err instanceof AppError) {
-      throw err;
-    }
-    throw new AppError(502, "sendFailed", (err as Error)?.message);
-  }
+  await sendTransactional({ to: input.to, subject, html, text });
 }

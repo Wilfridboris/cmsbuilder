@@ -174,11 +174,15 @@ async function handleCheckoutCompleted(
     subscription_status: "active";
     subscription_tier: typeof tier;
     stripe_subscription_id: string | null;
+    // Reactivation clears any prior past_due marker [F1] — a completed checkout is a
+    // paid, current subscription regardless of what state the org was in before.
+    past_due_since: null;
     stripe_customer_id?: string;
   } = {
     subscription_status: "active",
     subscription_tier: tier,
     stripe_subscription_id: subscriptionId,
+    past_due_since: null,
   };
   if (customerId) {
     orgUpdate.stripe_customer_id = customerId;
@@ -222,11 +226,17 @@ async function handleSubscriptionDeleted(
 
 /**
  * `invoice.paid` -> `active` / `invoice.payment_failed` -> `past_due` (Story 7.3).
- * BUT `read_only` is terminal: read the org's current status first and SKIP the
- * write when it is already `read_only` — a stale/redelivered/out-of-order invoice
- * event must never silently restore paid access to a canceled account (only a new
- * `checkout.session.completed` reactivates). Every other transition is a straight
- * idempotent write.
+ * An invoice lifecycle event only acts on an already-SUBSCRIBED org (`active` or
+ * `past_due`); any other current status is skipped [F2/F11, retro]:
+ *   - `read_only` is terminal — a stale/redelivered/out-of-order `invoice.paid`
+ *     must never restore paid access to a canceled account (only a new
+ *     `checkout.session.completed` reactivates);
+ *   - `trial` means `checkout.session.completed` has not landed yet — it is the
+ *     SOLE trial -> active writer (it also records the tier + subscription id), so
+ *     an out-of-order invoice event must not pre-empt it (which would set `active`
+ *     with a null tier) nor mis-transition the trial straight to `past_due`.
+ * On `past_due`, the first-entry time is stamped into `past_due_since` [F1] and
+ * preserved across redeliveries; recovery to `active` clears it.
  */
 async function handleInvoiceStatus(
   invoice: Stripe.Invoice,
@@ -248,7 +258,7 @@ async function handleInvoiceStatus(
   const adminClient = createAdminClient();
   const { data: orgRow, error: readError } = await adminClient
     .from("organizations")
-    .select("subscription_status")
+    .select("subscription_status, past_due_since")
     .eq("id", orgId)
     .maybeSingle();
   if (readError) {
@@ -257,16 +267,41 @@ async function handleInvoiceStatus(
     );
   }
 
-  if ((orgRow?.subscription_status as string | undefined) === "read_only") {
-    // read_only is terminal for invoice events — skip (do not reactivate).
+  const current = orgRow?.subscription_status as string | undefined;
+  if (current !== "active" && current !== "past_due") {
+    // Not a subscribed org (read_only terminal, or trial awaiting checkout) — skip.
     reportError(
-      new Error("invoice event skipped: org is read_only (terminal)"),
+      new Error(
+        `invoice ${target} event skipped: org status=${current} is not subscribed`,
+      ),
       { route: "/api/stripe/webhook", orgId, invoiceId: invoice.id },
     );
     return;
   }
 
-  await writeOrgStatus(orgId, target, adminClient);
+  if (target === "active") {
+    // Recovery: clear the past_due marker (handled inside writeOrgStatus).
+    await writeOrgStatus(orgId, "active", adminClient);
+    return;
+  }
+
+  // target === "past_due": stamp the first-entry time, preserve it on redelivery.
+  const update: {
+    subscription_status: "past_due";
+    past_due_since?: string;
+  } = { subscription_status: "past_due" };
+  if (!orgRow?.past_due_since) {
+    update.past_due_since = new Date().toISOString();
+  }
+  const { error } = await adminClient
+    .from("organizations")
+    .update(update)
+    .eq("id", orgId);
+  if (error) {
+    throw new Error(
+      `Failed to set org ${orgId} status=past_due: ${error.message}`,
+    );
+  }
 }
 
 /**
@@ -311,12 +346,14 @@ async function resolveOrgForSubscription(
  */
 async function writeOrgStatus(
   orgId: string,
-  status: "active" | "past_due" | "read_only",
+  status: "active" | "read_only",
   adminClient = createAdminClient(),
 ): Promise<void> {
+  // Both states are definitively NOT past_due, so clear the past_due marker [F1].
+  // (The past_due write manages its own marker and never routes through here.)
   const { error } = await adminClient
     .from("organizations")
-    .update({ subscription_status: status })
+    .update({ subscription_status: status, past_due_since: null })
     .eq("id", orgId);
   if (error) {
     throw new Error(

@@ -133,6 +133,7 @@ describe("POST /api/stripe/webhook", () => {
         subscription_status: "active",
         subscription_tier: "solo",
         stripe_subscription_id: "sub_123",
+        past_due_since: null,
       },
       "org-1",
     );
@@ -156,6 +157,7 @@ describe("POST /api/stripe/webhook", () => {
         subscription_status: "active",
         subscription_tier: "solo",
         stripe_subscription_id: "sub_123",
+        past_due_since: null,
         stripe_customer_id: "cus_abc",
       },
       "org-1",
@@ -249,7 +251,7 @@ describe("POST /api/stripe/webhook", () => {
     const res = await POST(webhookReq("{...}", "good-sig"));
     expect(res.status).toBe(200);
     expect(adminUpdate).toHaveBeenCalledWith(
-      { subscription_status: "read_only" },
+      { subscription_status: "read_only", past_due_since: null },
       "org-1",
     );
   });
@@ -262,13 +264,14 @@ describe("POST /api/stripe/webhook", () => {
     });
     const res = await POST(webhookReq("{...}", "good-sig"));
     expect(res.status).toBe(200);
+    // Recovery to active clears the past_due marker [F1].
     expect(adminUpdate).toHaveBeenCalledWith(
-      { subscription_status: "active" },
+      { subscription_status: "active", past_due_since: null },
       "org-1",
     );
   });
 
-  it("invoice.payment_failed sets past_due when the org is NOT read_only", async () => {
+  it("invoice.payment_failed sets past_due and stamps past_due_since when the org is NOT read_only", async () => {
     const { POST } = await import("@/app/api/stripe/webhook/route");
     constructEvent.mockReturnValue({
       type: "invoice.payment_failed",
@@ -276,10 +279,55 @@ describe("POST /api/stripe/webhook", () => {
     });
     const res = await POST(webhookReq("{...}", "good-sig"));
     expect(res.status).toBe(200);
-    expect(adminUpdate).toHaveBeenCalledWith(
-      { subscription_status: "past_due" },
-      "org-1",
-    );
+    // Entering past_due from active stamps the first-entry time [F1].
+    const [patch, id] = adminUpdate.mock.calls[0];
+    expect(id).toBe("org-1");
+    expect(patch.subscription_status).toBe("past_due");
+    expect(typeof patch.past_due_since).toBe("string");
+  });
+
+  it("invoice.payment_failed preserves an existing past_due_since on redelivery", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    orgById = {
+      data: {
+        subscription_status: "past_due",
+        past_due_since: "2026-09-01T00:00:00.000Z",
+      },
+      error: null,
+    };
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_failed",
+      data: { object: { id: "in_2b", subscription: "sub_123" } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    // Already past_due → do not re-stamp (the update omits past_due_since).
+    const [patch] = adminUpdate.mock.calls[0];
+    expect(patch).toEqual({ subscription_status: "past_due" });
+  });
+
+  it("[F2] invoice.payment_failed on a trial org performs no write (checkout is the sole activator)", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    orgById = { data: { subscription_status: "trial" }, error: null };
+    constructEvent.mockReturnValue({
+      type: "invoice.payment_failed",
+      data: { object: { id: "in_trial", subscription: "sub_123" } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).not.toHaveBeenCalled();
+  });
+
+  it("[F2] invoice.paid on a trial org performs no write (only checkout.session.completed activates a trial)", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    orgById = { data: { subscription_status: "trial" }, error: null };
+    constructEvent.mockReturnValue({
+      type: "invoice.paid",
+      data: { object: { id: "in_trial2", subscription: "sub_123" } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).not.toHaveBeenCalled();
   });
 
   it("read_only is TERMINAL: invoice.paid on a read_only org performs no write", async () => {
@@ -326,7 +374,7 @@ describe("POST /api/stripe/webhook", () => {
     const res = await POST(webhookReq("{...}", "good-sig"));
     expect(res.status).toBe(200);
     expect(adminUpdate).toHaveBeenCalledWith(
-      { subscription_status: "active" },
+      { subscription_status: "active", past_due_since: null },
       "org-meta",
     );
   });
@@ -341,7 +389,7 @@ describe("POST /api/stripe/webhook", () => {
     expect(res.status).toBe(200);
     // Resolved via the subscription-id lookup (orgBySubscription → org-1).
     expect(adminUpdate).toHaveBeenCalledWith(
-      { subscription_status: "active" },
+      { subscription_status: "active", past_due_since: null },
       "org-1",
     );
   });
@@ -356,7 +404,7 @@ describe("POST /api/stripe/webhook", () => {
     const res = await POST(webhookReq("{...}", "good-sig"));
     expect(res.status).toBe(200);
     expect(adminUpdate).toHaveBeenCalledWith(
-      { subscription_status: "read_only" },
+      { subscription_status: "read_only", past_due_since: null },
       "org-meta",
     );
   });
@@ -403,7 +451,7 @@ describe("POST /api/stripe/webhook", () => {
     const res = await POST(webhookReq("{...}", "good-sig"));
     expect(res.status).toBe(200);
     expect(adminUpdate).toHaveBeenCalledWith(
-      { subscription_status: "active" },
+      { subscription_status: "active", past_due_since: null },
       "org-1",
     );
   });

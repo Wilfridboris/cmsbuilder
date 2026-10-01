@@ -1,5 +1,5 @@
 # generated: 2026-09-23
-# last_updated: 2026-09-30 (7.5 review)
+# last_updated: 2026-09-30 (epic-7 done)
 # project: Scheza
 # project_key: NOKEY
 # tracking_system: file-system
@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: '09-30-2026 (7.5 review)'
+last_updated: '10-01-2026 11:41'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -116,13 +116,13 @@ development_status:
   6-5-exclude-relationship-fields-from-public-intake-forms: backlog
   epic-6-retrospective: optional
 
-  epic-7: in-progress
+  epic-7: done
   7-1-14-day-free-trial-no-card: done
   7-2-start-a-flat-tier-subscription-via-stripe-checkout: done
   7-3-manage-subscription-via-stripe-customer-portal: done
   7-4-read-only-gating-trial-reminders: done
-  7-5-tier-view-tier-change-prompt-tier-reconciliation: review
-  epic-7-retrospective: optional
+  7-5-tier-view-tier-change-prompt-tier-reconciliation: done
+  epic-7-retrospective: done
 
   epic-8: backlog
   8-1-instant-en-fr-ui-toggle-no-reload: backlog
@@ -493,3 +493,102 @@ action_items:
     owner: "Boris"
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
+  - id: "epic-7-retro-item-46-f7-add-a-subscription_status-trial-preco"
+    epic: 7
+    action: "[F7] Add a subscription_status=trial precondition to the trial-cron expiry
+      flip (trial-lifecycle/route.ts) so a concurrent checkout->active landing mid-sweep
+      is not clobbered to read_only; add a clobber-direction test. NFR-R4 stakes."
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-7-retro-item-47-a1-route-the-four-inline-assertwritable"
+    epic: 7
+    action: "[A1] Route the four inline-assertWritable sites (invite, business-profile
+      PUT, business-profile/logo, import/commit) through the writable resolver, or
+      fix the route-helpers single-chokepoint doc claim so the invariant matches reality."
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-7-retro-item-48-a2-delete-the-private-resolveadminidenti"
+    epic: 7
+    action: "[A2] Delete the private resolveAdminIdentity copy in business-profile/route.ts
+      and import the shared resolveWritableAdminIdentity. Fourth recurrence of the
+      route-auth-duplication pattern."
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-7-retro-item-49-a3a-extract-a-shared-rendertransactional"
+    epic: 7
+    action: "[A3a] Extract a shared renderTransactionalEmail + sendTransactional helper
+      so trial-reminder.ts and send.ts stop duplicating ~60 lines (escapeHtml, HTML
+      scaffold, Resend send/catch tail)."
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-7-retro-item-50-a3b-extract-a-useportalredirect-hook-sha"
+    epic: 7
+    action: "[A3b] Extract a usePortalRedirect hook + shared billing error-alert so
+      BillingStart/BillingManage/TierView stop triplicating the fetch+redirect state
+      machine; collapse the three identical redirecting i18n keys to one."
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-7-retro-item-51-a4-move-resolvetierview-live-stripe-fetc"
+    epic: 7
+    action: "[A4] Move resolveTierView (live Stripe fetch + billing-cycle math + invoice-count
+      orchestration) out of settings/page.tsx into lib/billing/."
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-7-retro-item-52-f9-harden-the-upgrade-prompt-cycle-windo"
+    epic: 7
+    action: "[F9] Harden the upgrade-prompt cycle window: anchor the prior cycle to
+      a true prior-period boundary instead of subtracting the current cycle length;
+      add resolveTierView/countIssuedInvoicesInPeriod boundary tests across uneven
+      month lengths."
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-7-retro-item-53-f2-f11-add-webhook-tests-for-the-out-of"
+    epic: 7
+    action: "[F2/F11] Add webhook tests for the out-of-order first-invoice window
+      (invoice event vs a trial-status resolvable org; first invoice.paid before stripe_subscription_id
+      persisted); decide whether handleInvoiceStatus should only transition from active/past_due."
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-7-retro-item-54-a3c-a5-lower-value-cleanups-shared-autho"
+    epic: 7
+    action: "[A3c/A5] Lower-value cleanups: shared authorizeCron/scanOrgs helper for
+      the two crons; collapse the reportError/reportCritical/reportRejection skeleton;
+      unify the two email modules on one interpolation engine."
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-7-retro-item-55-f1-configure-and-document-stripe-dashboa"
+    epic: 7
+    action: "[F1] Configure and document Stripe Dashboard dunning so an exhausted-retry
+      subscription cancels (fires customer.subscription.deleted -> read_only) rather
+      than staying uncollectible-but-active, or add a past_due-age escalation in the
+      lifecycle cron."
+    owner: "Boris+Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-7-retro-item-56-pre-release-live-pass-live-stripe-listen"
+    epic: 7
+    action: "Pre-release live pass: live stripe listen end-to-end (checkout->activate->portal->cancel->read_only),
+      real Vercel Cron trigger for both crons with a live CRON_SECRET, real Resend
+      Day-12/Day-14 delivery, live Sentry drift page; confirm Stripe Customer Portal
+      features enabled in the Dashboard."
+    owner: "Boris"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-7-retro-item-57-process-lesson-make-the-shared-route-res"
+    epic: 7
+    action: "Process lesson: make the shared route resolvers cover the real route
+      shapes so new routes compose rather than reinvent, and add a lint/review check
+      flagging locally-redefined resolveAdminIdentity/requireUser or inline assertWritable
+      (route-auth duplication is now a four-epic recurrence)."
+    owner: "Dev+Boris"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"

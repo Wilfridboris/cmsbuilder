@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
@@ -89,9 +89,15 @@ export async function resolveOrgIdentity(
  * Resolve a *writable* org identity for `slug` (Story 7.4). Resolves the org under
  * RLS exactly like {@link resolveOrgIdentity}, then asserts the org may perform a
  * guarded write — a `read_only` org, or a `trial` whose `trial_expires_at` has
- * passed, is rejected with `AppError(403, "readOnly")` before the mutation. This is
- * the single write-vs-read seam: every guarded write route resolves THIS variant;
- * read (GET) routes stay on the plain {@link resolveOrgIdentity}.
+ * passed, is rejected with `AppError(403, "readOnly")` before the mutation.
+ *
+ * The read-only DECISION is single-sourced in `billing/access.ts` (`assertWritable`/
+ * `isReadOnly`); this resolver is how a slug-based write route reaches it. Routes
+ * whose shape does not fit a slug+RLS resolve reach the same predicate another way:
+ * admin slug routes via {@link resolveWritableAdminIdentity}; the invite route (acts
+ * on the caller's own membership org, no slug) via {@link assertOrgWritable}; the
+ * import pipeline via `resolveImportRequest` + `assertWritable`. Read (GET) routes
+ * stay on the plain {@link resolveOrgIdentity} and are never gated.
  */
 export async function resolveWritableOrgIdentity(
   slug: string,
@@ -155,6 +161,49 @@ export async function resolveWritableAdminIdentity(
     trial_expires_at: identity.trialExpiresAt,
   });
   return identity;
+}
+
+/**
+ * Assert a guarded write is allowed for `orgId` using an already-resolved client
+ * (Story 7.4 / retro [A1]). For a write route whose shape does not fit the slug-based
+ * writable resolvers — the invite route acts on the caller's OWN membership org and
+ * has no slug — this reads the two access fields and funnels them through the SAME
+ * `assertWritable` predicate, so the read-only decision stays single-sourced in
+ * `billing/access.ts` and is never re-derived inline. An absent row defaults to the
+ * writable `trial`/null state (a real resolved membership always has a row).
+ */
+export async function assertOrgWritable(
+  client: SupabaseClient,
+  orgId: string,
+): Promise<void> {
+  const { data, error } = await client
+    .from("organizations")
+    .select("subscription_status, trial_expires_at")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (error) {
+    throw new AppError(500, "genericError", error.message);
+  }
+  assertWritable({
+    subscription_status: (data?.subscription_status ??
+      "trial") as SubscriptionStatus,
+    trial_expires_at: (data?.trial_expires_at as string | null) ?? null,
+  });
+}
+
+/**
+ * Authorize a Vercel Cron request via the shared `CRON_SECRET` bearer token, read at
+ * call time (retro [A3c]). Throws `AppError(401, "unauthorized")` when the secret is
+ * unset or the `Authorization` header is not `Bearer ${CRON_SECRET}` — the caller does
+ * NO work on a bad token. Shared by the lifecycle + reconcile crons so the gate lives
+ * in one place instead of being re-implemented per sweep.
+ */
+export function authorizeCron(req: NextRequest): void {
+  const secret = process.env.CRON_SECRET;
+  const header = req.headers.get("authorization");
+  if (!secret || header !== `Bearer ${secret}`) {
+    throw new AppError(401, "unauthorized");
+  }
 }
 
 /**

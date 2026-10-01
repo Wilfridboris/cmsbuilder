@@ -9,7 +9,7 @@ import type { SubscriptionTier } from "@/types/db";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStripeClient } from "@/lib/stripe/client";
 import { priceIdToTier } from "@/lib/billing/tiers";
-import { json, handleError } from "@/lib/api/route-helpers";
+import { json, handleError, authorizeCron } from "@/lib/api/route-helpers";
 import { reportError, reportCritical } from "@/lib/observability/report";
 
 /**
@@ -66,11 +66,7 @@ export async function GET(
   try {
     // 1. Authorize via the shared cron secret (read at call time). No valid header
     //    → 401 with NO reads/writes.
-    const secret = process.env.CRON_SECRET;
-    const header = req.headers.get("authorization");
-    if (!secret || header !== `Bearer ${secret}`) {
-      throw new AppError(401, "unauthorized");
-    }
+    authorizeCron(req);
 
     const adminClient = createAdminClient();
 

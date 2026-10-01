@@ -7,7 +7,7 @@ import type { ReactNode } from "react";
  * `shouldPromptUpgrade`, `priceIdToTier`) are unit-tested in isolation, and
  * `settings-page.test.tsx` pins the admin gate + billing branch — but nothing
  * exercised `resolveTierView`'s wiring: the last-completed-cycle window
- * `[periodStart - (periodEnd - periodStart), periodStart)`, the next-billing-date
+ * `[oneMonthBefore(periodStart), periodStart)`, the next-billing-date
  * derived from the subscription ITEM's `current_period_end`, the
  * `priceIdToTier`→cached-tier fallback, and the graceful degradation on a Stripe
  * throw. A regression (wrong window end, wrong date field, dropped catch) would
@@ -105,11 +105,13 @@ async function renderPage(): Promise<Record<string, unknown> | null> {
   return findProps(tree, TierViewStub);
 }
 
-// 2026-10-01 .. 2026-11-01 (a 31-day cycle), so the last completed cycle is
-// [2026-08-31, 2026-10-01) and the next billing date is 2026-11-01.
+// Current cycle 2026-10-01 .. 2026-11-01. The last FULLY COMPLETED cycle is the
+// prior calendar month September: [2026-09-01, 2026-10-01) [retro F9] — anchored to
+// the true prior-month boundary, not periodStart minus the current cycle's length
+// (which would land on 2026-08-31 for a 31-day October). Next billing = 2026-11-01.
 const START_SEC = Date.UTC(2026, 9, 1) / 1000;
 const END_SEC = Date.UTC(2026, 10, 1) / 1000;
-const EXPECTED_START = "2026-08-31";
+const EXPECTED_START = "2026-09-01";
 const EXPECTED_END = "2026-10-01";
 const EXPECTED_NEXT_BILLING = "2026-11-01T00:00:00.000Z";
 

@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
 import { useTranslations } from "next-intl";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import { ArrowUpCircle, Check, CreditCard, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import type { ApiResponse } from "@/types/api";
 import type { SubscriptionTier } from "@/types/db";
+import {
+  useBillingRedirect,
+  BillingErrorAlert,
+} from "@/components/settings/billing-redirect";
 
 /**
  * TierView (Story 7.5, FR54/FR55) — the Admin-only, read-only tier card shown in the
@@ -68,42 +70,9 @@ export function TierView({
   suggestedTier,
 }: TierViewProps) {
   const t = useTranslations("Billing");
-  const [status, setStatus] = useState<"idle" | "redirecting">("idle");
-  const [error, setError] = useState<string | null>(null);
+  const { status, error, reveal, redirect } = useBillingRedirect(ERROR_KEYS);
 
-  const prefersReducedMotion = useReducedMotion();
-
-  const resolveError = (code: string | null): string => {
-    if (code && ERROR_KEYS.has(code)) {
-      return t(`error.${code}`);
-    }
-    return t("error.genericError");
-  };
-
-  const handleUpgrade = async () => {
-    setStatus("redirecting");
-    setError(null);
-
-    try {
-      const res = await fetch("/api/stripe/portal", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug }),
-      });
-      const body: ApiResponse<{ url: string }> = await res.json();
-      if (!res.ok || !body.data) {
-        setError(resolveError(body.error));
-        setStatus("idle");
-        return;
-      }
-      // Hand off to Stripe's hosted Customer Portal, where the plan change happens.
-      // Keep the button disabled during the redirect (state stays "redirecting").
-      window.location.href = body.data.url;
-    } catch {
-      setError(resolveError(null));
-      setStatus("idle");
-    }
-  };
+  const handleUpgrade = () => redirect("/api/stripe/portal", { slug });
 
   const tierLabel = t("tierLabel", { tier: t(TIER_LABEL_KEY[tier]) });
 
@@ -113,13 +82,6 @@ export function TierView({
     t("inclusionRecords"),
     t("inclusionImport"),
   ];
-
-  const reveal = prefersReducedMotion
-    ? { initial: { opacity: 0 }, animate: { opacity: 1 } }
-    : {
-        initial: { opacity: 0, y: 8 },
-        animate: { opacity: 1, y: 0 },
-      };
 
   return (
     <motion.div
@@ -200,20 +162,7 @@ export function TierView({
             </div>
           </div>
 
-          <AnimatePresence>
-            {error ? (
-              <motion.p
-                key="error"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                role="alert"
-                className="text-sm text-destructive"
-              >
-                {error}
-              </motion.p>
-            ) : null}
-          </AnimatePresence>
+          <BillingErrorAlert error={error} />
 
           <Button
             type="button"
