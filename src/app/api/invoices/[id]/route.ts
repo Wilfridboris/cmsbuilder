@@ -8,6 +8,7 @@ import {
   json,
   requireUser,
   resolveAdminIdentity,
+  resolveWritableAdminIdentity,
   handleError,
 } from "@/lib/api/route-helpers";
 import {
@@ -114,7 +115,7 @@ export async function PUT(
     if (!slugParsed.success) {
       throw new AppError(400, "genericError");
     }
-    const identity = await resolveAdminIdentity(slugParsed.data.slug, user);
+    const identity = await resolveWritableAdminIdentity(slugParsed.data.slug, user);
 
     const parsed = draftBodySchema.safeParse(raw);
     if (!parsed.success) {
@@ -185,7 +186,7 @@ export async function DELETE(
     }
 
     const user = await requireUser();
-    const identity = await resolveAdminIdentity(slug, user);
+    const identity = await resolveWritableAdminIdentity(slug, user);
 
     const result = await discardInvoiceDraft(identity, id);
     if (result.error || !result.data) {

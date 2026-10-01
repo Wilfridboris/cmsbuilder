@@ -208,6 +208,18 @@ describe("POST /api/import/commit — auth gate (before any parse/write)", () =>
     expect((await body(res)).error).toBe("forbidden");
     expect(bulkInsertRecords).not.toHaveBeenCalled();
   });
+
+  it("403 readOnly for a read_only org, before any parse/write (Story 7.4)", async () => {
+    orgRead = {
+      data: { id: "org-1", subscription_status: "read_only", trial_expires_at: null },
+      error: null,
+    };
+    const res = await POST(baseReq());
+    expect(res.status).toBe(403);
+    expect((await body(res)).error).toBe("readOnly");
+    expect(parseSpreadsheet).not.toHaveBeenCalled();
+    expect(bulkInsertRecords).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/import/commit — guard & row cap", () => {

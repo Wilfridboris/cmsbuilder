@@ -7,7 +7,11 @@ import type { ApiResponse } from "@/types/api";
 import type { RecordData } from "@/types/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { mutate } from "@/lib/data/mutate";
-import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
+import {
+  json,
+  resolveWritableOrgIdentity,
+  handleError,
+} from "@/lib/api/route-helpers";
 import { deleteQuerySchema, updateBodySchema } from "../schemas";
 
 /**
@@ -57,7 +61,7 @@ export async function DELETE(
     }
     const { slug, expectedVersion } = parsed.data;
 
-    const identity = await resolveOrgIdentity(slug, user.id);
+    const identity = await resolveWritableOrgIdentity(slug, user.id);
     // `tableKey` is irrelevant to a delete — `mutate`'s delete branch targets
     // the row by id + org + version and never reads it. Pass a non-empty
     // placeholder so the shared "valid table required" guard is satisfied.
@@ -106,7 +110,7 @@ export async function PATCH(
     }
     const { slug, table, data, expectedVersion } = parsed.data;
 
-    const identity = await resolveOrgIdentity(slug, user.id);
+    const identity = await resolveWritableOrgIdentity(slug, user.id);
     const result = await mutate(identity, "update", table, data, {
       recordId: id,
       expectedVersion,

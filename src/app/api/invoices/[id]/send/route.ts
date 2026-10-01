@@ -7,7 +7,7 @@ import type { ApiResponse } from "@/types/api";
 import {
   json,
   requireUser,
-  resolveAdminIdentity,
+  resolveWritableAdminIdentity,
   handleError,
 } from "@/lib/api/route-helpers";
 import { getInvoiceWithLineItems } from "@/lib/data/invoices";
@@ -70,7 +70,7 @@ export async function POST(
         message.startsWith("Invoice.error.") ? message : "genericError",
       );
     }
-    const identity = await resolveAdminIdentity(parsed.data.slug, user);
+    const identity = await resolveWritableAdminIdentity(parsed.data.slug, user);
 
     // Reply-to = the acting admin's OWN login email (the only correct "owner's address";
     // `business_profiles` has no separate contact-email field). Without one we cannot set

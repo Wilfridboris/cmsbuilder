@@ -4,6 +4,7 @@ import type { NextRequest } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
+import type { SubscriptionStatus } from "@/types/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
@@ -33,6 +34,10 @@ export type ImportRequestContext = {
   actorId: string;
   /** The resolved organization id for `slug`. */
   orgId: string;
+  /** The org's cached access state (Story 7.4). The commit route — the only write
+   * phase — asserts writability over these; analyze/propose (reads) ignore them. */
+  subscriptionStatus: SubscriptionStatus;
+  trialExpiresAt: string | null;
 };
 
 /**
@@ -77,13 +82,14 @@ export async function resolveImportRequest(
   // Resolve the org UNDER RLS (non-member → 403), then re-enforce Admin
   // authoritatively (a Member → 403); reject a cross-org Admin whose most-recent
   // membership isn't this slug. All BEFORE any parse / AI / write.
-  const { client, actorId, orgId } = await resolveOrgIdentity(slug, user.id);
+  const { client, actorId, orgId, subscriptionStatus, trialExpiresAt } =
+    await resolveOrgIdentity(slug, user.id);
   const membership = await requireAdmin(user, createAdminClient());
   if (membership.slug !== slug) {
     throw new AppError(403, "forbidden");
   }
 
-  return { form, slug, client, actorId, orgId };
+  return { form, slug, client, actorId, orgId, subscriptionStatus, trialExpiresAt };
 }
 
 /**

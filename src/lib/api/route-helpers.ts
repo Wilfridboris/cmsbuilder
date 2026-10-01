@@ -11,6 +11,8 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { reportError } from "@/lib/observability/report";
+import { assertWritable } from "@/lib/billing/access";
+import type { SubscriptionStatus } from "@/types/db";
 
 /**
  * Shared HTTP helpers for the records/schema API routes (Story 3.2+). Every one
@@ -35,6 +37,13 @@ export type OrgIdentity = {
   client: SupabaseClient;
   actorId: string;
   orgId: string;
+  /**
+   * The org's cached access state (Story 7.4), read for free as part of the
+   * org-by-slug lookup. The writable-identity resolvers assert over these two
+   * fields; plain reads ignore them (reads are never gated).
+   */
+  subscriptionStatus: SubscriptionStatus;
+  trialExpiresAt: string | null;
 };
 
 /**
@@ -50,9 +59,12 @@ export async function resolveOrgIdentity(
   const cookieStore = await cookies();
   const client = createServerSupabaseClient(cookieStore);
 
+  // Story 7.4: the org row carries the cached access state. Selecting it here
+  // (alongside `id`) is free — it is the same lookup identity resolution already
+  // performs — so the writable gate costs no extra query.
   const { data: org, error } = await client
     .from("organizations")
-    .select("id")
+    .select("id, subscription_status, trial_expires_at")
     .eq("slug", slug)
     .maybeSingle();
 
@@ -64,7 +76,33 @@ export async function resolveOrgIdentity(
     throw new AppError(403, "forbidden");
   }
 
-  return { client, actorId, orgId: org.id as string };
+  return {
+    client,
+    actorId,
+    orgId: org.id as string,
+    subscriptionStatus: org.subscription_status as SubscriptionStatus,
+    trialExpiresAt: (org.trial_expires_at as string | null) ?? null,
+  };
+}
+
+/**
+ * Resolve a *writable* org identity for `slug` (Story 7.4). Resolves the org under
+ * RLS exactly like {@link resolveOrgIdentity}, then asserts the org may perform a
+ * guarded write — a `read_only` org, or a `trial` whose `trial_expires_at` has
+ * passed, is rejected with `AppError(403, "readOnly")` before the mutation. This is
+ * the single write-vs-read seam: every guarded write route resolves THIS variant;
+ * read (GET) routes stay on the plain {@link resolveOrgIdentity}.
+ */
+export async function resolveWritableOrgIdentity(
+  slug: string,
+  actorId: string,
+): Promise<OrgIdentity> {
+  const identity = await resolveOrgIdentity(slug, actorId);
+  assertWritable({
+    subscription_status: identity.subscriptionStatus,
+    trial_expires_at: identity.trialExpiresAt,
+  });
+  return identity;
 }
 
 /**
@@ -96,6 +134,26 @@ export async function resolveAdminIdentity(
   if (membership.slug !== slug) {
     throw new AppError(403, "forbidden");
   }
+  return identity;
+}
+
+/**
+ * Resolve a *writable* admin identity for `slug` (Story 7.4): the full admin gate of
+ * {@link resolveAdminIdentity} PLUS the writable assertion. The admin/cross-org/
+ * member gates still run first (so a non-admin sees 403 forbidden, not readOnly);
+ * only an authorized admin of a non-writable org gets `AppError(403, "readOnly")`.
+ * Admin-only write routes (invoices, business profile, schema) resolve this; their
+ * GET siblings stay on {@link resolveAdminIdentity}.
+ */
+export async function resolveWritableAdminIdentity(
+  slug: string,
+  user: User,
+): Promise<OrgIdentity> {
+  const identity = await resolveAdminIdentity(slug, user);
+  assertWritable({
+    subscription_status: identity.subscriptionStatus,
+    trial_expires_at: identity.trialExpiresAt,
+  });
   return identity;
 }
 

@@ -187,6 +187,24 @@
       "genericError": "Something went wrong. Please try again."
     }
   },
+  "Trial": {
+    "convertingTitle": "Your trial ends soon",
+    "convertingMessage": "Your free trial ends in {days, plural, one {# day} other {# days}}. Add billing now to keep creating and editing without interruption.",
+    "convertingMessageToday": "Your free trial ends today. Add billing now to keep creating and editing without interruption.",
+    "addBillingCta": "Add billing",
+    "readOnlyTitle": "Your account is read-only",
+    "readOnlyMessage": "Your trial has ended, so your data is view-only. Add billing to start creating and editing again.",
+    "readOnlyMessageMember": "Your trial has ended, so your data is view-only. Ask an admin to add billing to start creating and editing again.",
+    "email": {
+      "day12Subject": "Your Scheza trial ends in {days, plural, one {# day} other {# days}}",
+      "day14Subject": "Your Scheza trial has ended",
+      "greeting": "Hello,",
+      "day12Body": "Your free Scheza trial ends in {days, plural, one {# day} other {# days}}. Add a payment method now so you can keep creating and editing without interruption.",
+      "day14Body": "Your free Scheza trial has ended. Your data is still here and safe to view, but creating and editing are paused until you add a payment method.",
+      "cta": "Add billing to keep your account active:",
+      "signature": "Thank you,\nThe Scheza team"
+    }
+  },
   "BusinessProfile": {
     "title": "Business profile",
     "subtitle": "Enter your company details once. They appear on every invoice you send, so your legal name, tax number, and payment options are always correct.",

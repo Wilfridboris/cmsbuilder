@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: '09-30-2026 (7.3 review)'
+last_updated: '09-30-2026 (7.4 review)'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -120,7 +120,7 @@ development_status:
   7-1-14-day-free-trial-no-card: review
   7-2-start-a-flat-tier-subscription-via-stripe-checkout: review
   7-3-manage-subscription-via-stripe-customer-portal: review
-  7-4-read-only-gating-trial-reminders: backlog
+  7-4-read-only-gating-trial-reminders: review
   7-5-tier-view-tier-change-prompt-tier-reconciliation: backlog
   epic-7-retrospective: optional
 

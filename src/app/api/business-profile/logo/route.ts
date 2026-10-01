@@ -7,7 +7,12 @@ import type { ApiResponse } from "@/types/api";
 import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
-import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
+import {
+  json,
+  resolveOrgIdentity,
+  handleError,
+} from "@/lib/api/route-helpers";
+import { assertWritable } from "@/lib/billing/access";
 import { setBusinessProfileLogoPath } from "@/lib/data/business-profile-mutate";
 import { uploadLogo, signLogoUrl } from "@/lib/storage/logo";
 
@@ -60,6 +65,12 @@ export async function POST(
     if (membership.slug !== slug) {
       throw new AppError(403, "forbidden");
     }
+    // Story 7.4: assert writable AFTER the admin gate so a non-admin member of a
+    // read_only / expired-trial org gets `forbidden` (admin gate wins), not `readOnly`.
+    assertWritable({
+      subscription_status: identity.subscriptionStatus,
+      trial_expires_at: identity.trialExpiresAt,
+    });
 
     // 4. Require an actual file part. A missing / non-File part → logoInvalid.
     const file = form.get("file");

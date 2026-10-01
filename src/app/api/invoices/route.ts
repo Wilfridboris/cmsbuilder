@@ -9,6 +9,7 @@ import {
   json,
   requireUser,
   resolveAdminIdentity,
+  resolveWritableAdminIdentity,
   handleError,
 } from "@/lib/api/route-helpers";
 import { listInvoices, customerRecordBelongsToOrg } from "@/lib/data/invoices";
@@ -91,7 +92,7 @@ export async function POST(
     if (!slugParsed.success) {
       throw new AppError(400, "genericError");
     }
-    const identity = await resolveAdminIdentity(slugParsed.data.slug, user);
+    const identity = await resolveWritableAdminIdentity(slugParsed.data.slug, user);
 
     const parsed = draftBodySchema.safeParse(raw);
     if (!parsed.success) {

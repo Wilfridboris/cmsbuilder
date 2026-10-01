@@ -334,6 +334,57 @@ describe("POST /api/invoices/[id]/issue (issue invoice)", () => {
   });
 });
 
+describe("read-only gate (Story 7.4)", () => {
+  it("POST 403 readOnly for an admin of a read_only org, before any write", async () => {
+    const { POST } = await import("@/app/api/invoices/route");
+    orgRead = {
+      data: { id: "org-1", subscription_status: "read_only", trial_expires_at: null },
+      error: null,
+    };
+    const res = await POST(bodyReq(VALID_BODY));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("readOnly");
+    expect(saveInvoiceDraft).not.toHaveBeenCalled();
+  });
+
+  it("POST 403 readOnly for an admin of an expired-trial org (cron not yet run)", async () => {
+    const { POST } = await import("@/app/api/invoices/route");
+    const past = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    orgRead = {
+      data: { id: "org-1", subscription_status: "trial", trial_expires_at: past },
+      error: null,
+    };
+    const res = await POST(bodyReq(VALID_BODY));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("readOnly");
+    expect(saveInvoiceDraft).not.toHaveBeenCalled();
+  });
+
+  it("POST gives a Member of a read_only org `forbidden`, not `readOnly` (admin gate wins)", async () => {
+    const { POST } = await import("@/app/api/invoices/route");
+    orgRead = {
+      data: { id: "org-1", subscription_status: "read_only", trial_expires_at: null },
+      error: null,
+    };
+    requireAdmin.mockRejectedValue(new AppError(403, "forbidden"));
+    const res = await POST(bodyReq(VALID_BODY));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("forbidden");
+    expect(saveInvoiceDraft).not.toHaveBeenCalled();
+  });
+
+  it("POST proceeds (200) for an admin of a writable (active) org", async () => {
+    const { POST } = await import("@/app/api/invoices/route");
+    orgRead = {
+      data: { id: "org-1", subscription_status: "active", trial_expires_at: null },
+      error: null,
+    };
+    const res = await POST(bodyReq(VALID_BODY));
+    expect(res.status).toBe(200);
+    expect(saveInvoiceDraft).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("DELETE /api/invoices/[id] (discard draft)", () => {
   it("discards a draft and returns 200", async () => {
     const { DELETE } = await import("@/app/api/invoices/[id]/route");

@@ -7,7 +7,10 @@ import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentUser } from "@/lib/auth/session";
+import { requireAdmin } from "@/lib/auth/rbac";
 import { inviteMember } from "@/lib/invite/invite";
+import { assertWritable } from "@/lib/billing/access";
+import type { SubscriptionStatus } from "@/types/db";
 import { reportError } from "@/lib/observability/report";
 
 /**
@@ -71,12 +74,32 @@ export async function POST(
     }
     const { email, role } = parsed.data;
 
-    // 3. Provision the invite (admin-gate + account/membership bootstrap + email).
+    // 3. Read-only gate (Story 7.4): the invite is a guarded mutation. Resolve the
+    // caller's org (admin-gated authoritatively via `requireAdmin`) and reject a
+    // read_only / expired-trial org BEFORE provisioning. `inviteMember` re-asserts
+    // Admin internally; this adds the writable assertion at the route seam.
+    const adminClient = createAdminClient();
+    const membership = await requireAdmin(user, adminClient);
+    const { data: org, error: orgError } = await adminClient
+      .from("organizations")
+      .select("subscription_status, trial_expires_at")
+      .eq("id", membership.orgId)
+      .maybeSingle();
+    if (orgError) {
+      throw new AppError(500, "genericError", orgError.message);
+    }
+    assertWritable({
+      subscription_status: (org?.subscription_status ??
+        "trial") as SubscriptionStatus,
+      trial_expires_at: (org?.trial_expires_at as string | null) ?? null,
+    });
+
+    // 4. Provision the invite (admin-gate + account/membership bootstrap + email).
     await inviteMember({
       inviterUserId: user.id,
       email,
       role,
-      adminClient: createAdminClient(),
+      adminClient,
       origin: req.nextUrl.origin,
     });
 

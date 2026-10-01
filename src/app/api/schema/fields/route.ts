@@ -8,7 +8,11 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { addRelationField } from "@/lib/data/schema-mutate";
-import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
+import {
+  json,
+  resolveWritableOrgIdentity,
+  handleError,
+} from "@/lib/api/route-helpers";
 import { addRelationFieldSchema } from "./schemas";
 
 /**
@@ -74,8 +78,9 @@ export async function POST(
       throw new AppError(403, "forbidden");
     }
 
-    // 4. Build the caller's RLS-scoped identity for the org.
-    const identity = await resolveOrgIdentity(slug, user.id);
+    // 4. Build the caller's RLS-scoped identity for the org. The writable variant
+    //    also rejects a read_only / expired-trial org (Story 7.4) before the write.
+    const identity = await resolveWritableOrgIdentity(slug, user.id);
 
     // 5. Guarded read-validate-write on `org_schemas` under the RLS client.
     const result = await addRelationField(identity, tableKey, {

@@ -187,6 +187,24 @@
       "genericError": "Une erreur est survenue. Veuillez réessayer."
     }
   },
+  "Trial": {
+    "convertingTitle": "Votre essai se termine bientôt",
+    "convertingMessage": "Votre essai gratuit se termine dans {days, plural, one {# jour} other {# jours}}. Ajoutez la facturation maintenant pour continuer à créer et à modifier sans interruption.",
+    "convertingMessageToday": "Votre essai gratuit se termine aujourd'hui. Ajoutez la facturation maintenant pour continuer à créer et à modifier sans interruption.",
+    "addBillingCta": "Ajouter la facturation",
+    "readOnlyTitle": "Votre compte est en lecture seule",
+    "readOnlyMessage": "Votre essai est terminé, vos données sont donc en lecture seule. Ajoutez la facturation pour recommencer à créer et à modifier.",
+    "readOnlyMessageMember": "Votre essai est terminé, vos données sont donc en lecture seule. Demandez à un administrateur d'ajouter la facturation pour recommencer à créer et à modifier.",
+    "email": {
+      "day12Subject": "Votre essai Scheza se termine dans {days, plural, one {# jour} other {# jours}}",
+      "day14Subject": "Votre essai Scheza est terminé",
+      "greeting": "Bonjour,",
+      "day12Body": "Votre essai gratuit Scheza se termine dans {days, plural, one {# jour} other {# jours}}. Ajoutez un moyen de paiement dès maintenant pour continuer à créer et à modifier sans interruption.",
+      "day14Body": "Votre essai gratuit Scheza est terminé. Vos données sont toujours là et consultables, mais la création et la modification sont suspendues jusqu'à ce que vous ajoutiez un moyen de paiement.",
+      "cta": "Ajoutez la facturation pour garder votre compte actif :",
+      "signature": "Merci,\nL'équipe Scheza"
+    }
+  },
   "BusinessProfile": {
     "title": "Profil d'entreprise",
     "subtitle": "Saisissez les coordonnées de votre entreprise une seule fois. Elles apparaissent sur chaque facture que vous envoyez, afin que votre dénomination légale, votre numéro de taxe et vos options de paiement soient toujours exacts.",

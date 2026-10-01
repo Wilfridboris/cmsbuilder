@@ -10,6 +10,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
+import { assertWritable } from "@/lib/billing/access";
 import { upsertBusinessProfile } from "@/lib/data/business-profile-mutate";
 import { signLogoUrl } from "@/lib/storage/logo";
 import { getQuerySchema, putBodySchema, toWritableProfile } from "./schemas";
@@ -128,6 +129,12 @@ export async function PUT(
       throw new AppError(400, "genericError");
     }
     const identity = await resolveAdminIdentity(slugParsed.data.slug, user);
+    // Story 7.4: reject a read_only / expired-trial org before the profile write
+    // (the GET above stays ungated — reads are always allowed).
+    assertWritable({
+      subscription_status: identity.subscriptionStatus,
+      trial_expires_at: identity.trialExpiresAt,
+    });
 
     const parsed = putBodySchema.safeParse(raw);
     if (!parsed.success) {

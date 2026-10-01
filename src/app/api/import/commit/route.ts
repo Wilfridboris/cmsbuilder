@@ -13,6 +13,7 @@ import {
   type MutateIdentity,
 } from "@/lib/data/mutate";
 import { planCommit, CommitPlanError } from "@/lib/import/commit";
+import { assertWritable } from "@/lib/billing/access";
 import { normalizeTableName } from "@/lib/utils";
 import { resolveImportRequest, importErrorForKey, parseUpload } from "../_lib";
 import {
@@ -53,7 +54,16 @@ export async function POST(
   req: NextRequest,
 ): Promise<NextResponse<ApiResponse<CommitResult>>> {
   try {
-    const { form, client, actorId, orgId } = await resolveImportRequest(req);
+    const { form, client, actorId, orgId, subscriptionStatus, trialExpiresAt } =
+      await resolveImportRequest(req);
+
+    // Story 7.4: the commit is the only write phase of the import pipeline. Reject a
+    // read_only / expired-trial org before any parse or write (analyze/propose are
+    // reads and stay ungated).
+    assertWritable({
+      subscription_status: subscriptionStatus,
+      trial_expires_at: trialExpiresAt,
+    });
 
     const sheetRaw = form.get("sheet");
     const parsed = commitInputSchema.safeParse({

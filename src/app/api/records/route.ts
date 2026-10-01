@@ -8,7 +8,12 @@ import type { RecordData } from "@/types/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { listRecords } from "@/lib/data/records";
 import { mutate } from "@/lib/data/mutate";
-import { json, resolveOrgIdentity, handleError } from "@/lib/api/route-helpers";
+import {
+  json,
+  resolveOrgIdentity,
+  resolveWritableOrgIdentity,
+  handleError,
+} from "@/lib/api/route-helpers";
 import { createBodySchema, listQuerySchema } from "./schemas";
 
 /**
@@ -82,7 +87,7 @@ export async function POST(
     }
     const { slug, table, data, idempotencyKey } = parsed.data;
 
-    const identity = await resolveOrgIdentity(slug, user.id);
+    const identity = await resolveWritableOrgIdentity(slug, user.id);
     const result = await mutate(identity, "insert", table, data, {
       idempotencyKey,
     });

@@ -202,6 +202,25 @@ describe("POST /api/invite", () => {
     expect(inviteUserByEmail).not.toHaveBeenCalled();
   });
 
+  it("row 4c — a read_only org → 403 readOnly, no row, no email (Story 7.4)", async () => {
+    const { POST } = await import("@/app/api/invite/route");
+    orgRead = {
+      data: {
+        slug: "mikes-plumbing-laval",
+        subscription_status: "read_only",
+        trial_expires_at: null,
+      },
+      error: null,
+    };
+
+    const res = await POST(makeReq({ email: "new@example.ca", role: "member" }));
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("readOnly");
+    expect(inviteUserByEmail).not.toHaveBeenCalled();
+    expect(orgMembersInsert).not.toHaveBeenCalled();
+  });
+
   it("row 5 — unauthenticated caller → 401, no row, no email", async () => {
     const { POST } = await import("@/app/api/invite/route");
     getCurrentUser.mockResolvedValue(null);

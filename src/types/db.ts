@@ -140,6 +140,19 @@ export type OrganizationRow = {
    * `checkout.session.completed` webhook. Null until the first checkout completes.
    */
   stripe_subscription_id: string | null;
+  /**
+   * When the Day-12 trial-conversion reminder was successfully sent (Story 7.4).
+   * Null until the daily lifecycle cron sends it; a per-stage timestamp (not a
+   * counter) makes the reminder exactly-once across repeated daily runs — stamped
+   * only AFTER Resend succeeds so a transient failure retries next run.
+   */
+  trial_reminder_day12_sent_at: string | null;
+  /**
+   * When the Day-14 (at-expiry) trial reminder was successfully sent (Story 7.4).
+   * Null until the daily lifecycle cron sends it, in the same sweep pass that flips
+   * an expired trial to `read_only`. Stamped only after Resend succeeds.
+   */
+  trial_reminder_day14_sent_at: string | null;
   created_at: string;
   updated_at: string;
 };

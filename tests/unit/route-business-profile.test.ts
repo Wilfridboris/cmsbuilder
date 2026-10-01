@@ -216,6 +216,18 @@ describe("PUT /api/business-profile", () => {
     expect(res.status).toBe(403);
     expect(upsertBusinessProfile).not.toHaveBeenCalled();
   });
+
+  it("403 readOnly for a read_only org, before any write (Story 7.4)", async () => {
+    const { PUT } = await import("@/app/api/business-profile/route");
+    orgRead = {
+      data: { id: "org-1", subscription_status: "read_only", trial_expires_at: null },
+      error: null,
+    };
+    const res = await PUT(putReq({ slug: "acme", legalName: "Acme Inc." }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe("readOnly");
+    expect(upsertBusinessProfile).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/business-profile/logo", () => {

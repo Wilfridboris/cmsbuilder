@@ -127,6 +127,23 @@ describe("POST /api/import/analyze — auth gate (before any parse)", () => {
     expect((await body(res)).error).toBe("forbidden");
     expect(parseSpreadsheet).not.toHaveBeenCalled();
   });
+
+  it("is NOT gated for a read_only org — analyze is a read phase (Story 7.4)", async () => {
+    orgRead = {
+      data: { id: "org-1", subscription_status: "read_only", trial_expires_at: null },
+      error: null,
+    };
+    parseSpreadsheet.mockReturnValue({
+      columns: ["Name"],
+      rows: [{ Name: "Ada" }],
+      sheetName: "customers",
+    });
+    const res = await POST(
+      importReq({ slug: "acme", file: fakeFile("customers.csv", new Uint8Array([1, 2])) }),
+    );
+    expect(res.status).not.toBe(403);
+    expect(parseSpreadsheet).toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/import/analyze — input guard", () => {

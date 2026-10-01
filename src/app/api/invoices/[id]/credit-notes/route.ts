@@ -8,6 +8,7 @@ import {
   json,
   requireUser,
   resolveAdminIdentity,
+  resolveWritableAdminIdentity,
   handleError,
 } from "@/lib/api/route-helpers";
 import {
@@ -119,7 +120,7 @@ export async function POST(
     if (!slugParsed.success) {
       throw new AppError(400, "genericError");
     }
-    const identity = await resolveAdminIdentity(slugParsed.data.slug, user);
+    const identity = await resolveWritableAdminIdentity(slugParsed.data.slug, user);
 
     // Load the source invoice under RLS. It must exist and be creditable (a correction is
     // valid regardless of payment; a draft/void source cannot be credited).

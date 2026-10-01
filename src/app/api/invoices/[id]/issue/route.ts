@@ -7,7 +7,7 @@ import type { ApiResponse } from "@/types/api";
 import {
   json,
   requireUser,
-  resolveAdminIdentity,
+  resolveWritableAdminIdentity,
   handleError,
 } from "@/lib/api/route-helpers";
 import { issueInvoice } from "@/lib/data/invoice-mutate";
@@ -63,7 +63,7 @@ export async function POST(
     if (!parsed.success) {
       throw new AppError(400, "genericError");
     }
-    const identity = await resolveAdminIdentity(parsed.data.slug, user);
+    const identity = await resolveWritableAdminIdentity(parsed.data.slug, user);
 
     const result = await issueInvoice(identity, {
       invoiceId: id,
