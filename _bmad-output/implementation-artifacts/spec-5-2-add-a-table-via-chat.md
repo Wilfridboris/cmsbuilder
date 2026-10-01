@@ -93,6 +93,8 @@ New files: `tests/unit/schema-add-table.test.ts`. (Route folder renamed — see 
 
 ## Implementation Notes
 
+- Post-review UX follow-up (user-requested): the chat panel was a Radix dialog left at `modal={true}` with no overlay and `onInteractOutside` prevented — so it blocked the dashboard with no visual cue and no click-to-dismiss (confusing). Changed to a true modeless co-pilot (`modal={false}` in `ChatPanel.tsx`): the dashboard stays interactive (switch tables, add records, watch the new column/table appear live), the panel persists until Esc or the X (outside clicks never dismiss it), a soft `ring-primary/15` marks it as the active surface in place of a dimming scrim, the composer auto-focuses on open, and focus returns to the pill on close (handled in `ChatAssistant.tsx` since the pill unmounts while open). Responsive width added for narrow viewports (`left-4 right-4` → `sm:w-[22rem]`). Verified in-browser (both the interactive-while-open path and Esc→focus-return) with zero console errors.
+
 ## Spec Change Log
 
 ## Review Triage Log

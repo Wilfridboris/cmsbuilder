@@ -18,9 +18,16 @@ import type { ChatTurn } from "@/lib/gemini/prompts";
 import { MessageBubble, ThinkingBubble } from "@/components/chat/MessageBubble";
 
 /**
- * ChatPanel (Story 5.1) — the expanded iMessage-style body of the floating AI
- * Assistant. A Radix dialog (role="dialog" + aria-modal, Esc to close, focus
- * trap) with a scrollable message list and a "Smart Input" composer.
+ * ChatPanel (Story 5.1, 5.2) — the expanded iMessage-style body of the floating
+ * AI Assistant. A MODELESS Radix dialog (`modal={false}`): it keeps dialog
+ * semantics (role="dialog", Esc or the X to close) but does NOT block the page —
+ * the dashboard stays fully interactive so the owner can keep working and watch a
+ * new column/table appear live behind the panel. Clicking the dashboard never
+ * dismisses it (`onInteractOutside` prevented); only Esc or the X close it. A soft
+ * primary ring marks it as the active surface in place of a dimming scrim. On open,
+ * focus lands on the composer; on close, it returns to the pill (handled in
+ * ChatAssistant, since the pill unmounts while open). Scrollable message list + a
+ * "Smart Input" composer.
  *
  * It holds the ephemeral conversation (never persisted — lost on close/refresh),
  * sends each turn to `postEditorChat` with the `activeTableKey` so an unnamed
@@ -71,6 +78,7 @@ export function ChatPanel({
   const [undoingId, setUndoingId] = useState<string | null>(null);
 
   const listEndRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLInputElement>(null);
 
   // Auto-scroll to the newest message / the thinking bubble.
   useEffect(() => {
@@ -169,15 +177,22 @@ export function ChatPanel({
   };
 
   return (
-    <DialogPrimitive.Root open onOpenChange={(open) => !open && onClose()}>
+    <DialogPrimitive.Root open modal={false} onOpenChange={(open) => !open && onClose()}>
       <DialogPrimitive.Portal>
-        {/* No dimming overlay — the panel is a floating assistant, not a blocking
-            modal; but it keeps dialog semantics (focus trap, Esc). */}
+        {/* Modeless: no overlay, no page-blocking (`modal={false}`). The dashboard
+            stays interactive so schema changes appear live. Focus the composer on
+            open; don't let Radix restore focus on close (the pill unmounts while
+            open — ChatAssistant returns focus to it). */}
         <DialogPrimitive.Content
           aria-describedby={undefined}
           onInteractOutside={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => {
+            e.preventDefault();
+            composerRef.current?.focus();
+          }}
+          onCloseAutoFocus={(e) => e.preventDefault()}
           className={cn(
-            "fixed bottom-6 right-6 z-50 flex max-h-[70vh] w-[22rem] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-2xl border border-white/40 bg-white/80 shadow-xl shadow-black/5 backdrop-blur-xl outline-none dark:border-white/10 dark:bg-zinc-900/80",
+            "fixed bottom-6 right-4 left-4 z-50 flex max-h-[70vh] w-auto flex-col overflow-hidden rounded-2xl border border-white/40 bg-white/80 shadow-xl shadow-black/5 ring-1 ring-primary/15 backdrop-blur-xl outline-none sm:left-auto sm:right-6 sm:w-[22rem] dark:border-white/10 dark:bg-zinc-900/80 dark:ring-primary/20",
             "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           )}
         >
@@ -260,6 +275,7 @@ export function ChatPanel({
             className="flex items-center gap-2 border-t border-border/60 p-3"
           >
             <Input
+              ref={composerRef}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               disabled={pending}

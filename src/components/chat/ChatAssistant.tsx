@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -29,11 +29,24 @@ export function ChatAssistant({ slug }: { slug: string }) {
   const prefersReducedMotion = useReducedMotion();
   const { activeTableKey } = useActiveTable();
   const [open, setOpen] = useState(false);
+  const pillRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(false);
+
+  // Return focus to the pill when the modeless panel closes (WCAG). The pill
+  // unmounts while open, so Radix cannot restore focus to it — do it here once it
+  // remounts. Skip the initial mount (never focus the pill unprompted).
+  useEffect(() => {
+    if (!open && wasOpenRef.current) {
+      pillRef.current?.focus();
+    }
+    wasOpenRef.current = open;
+  }, [open]);
 
   return (
     <>
       {!open ? (
         <button
+          ref={pillRef}
           type="button"
           onClick={() => setOpen(true)}
           aria-label={t("pillLabel")}
