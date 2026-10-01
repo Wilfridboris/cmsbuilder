@@ -140,3 +140,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-12-8-correct-an-issued-invoice-via-credit-note.md`
   summary: Emailing an issued credit note to the customer (Resend send route + delivery island), mirroring invoice delivery (12.6).
   evidence: Story 12.8's resolved delivery decision scopes this story to in-app only (create, issue, freeze PDF, View/Download/Copy Link via /i/[token]); the 12.8 ACs do not require delivery. A follow-up should add a credit-note /send route and a delivery island so the correction reaches the customer by transactional email (CASL), reusing the 12.6 Resend send path with reply-to the owner's address.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-2-add-a-table-via-chat.md`
+  summary: No component test covers ChatPanel's `appliedTable` bubble variant and Undo-gating (an applied add-table result must render the no-Undo table bubble; an applied add-field result must render the Undo bubble).
+  evidence: Verified real — no ChatPanel/MessageBubble component test exists (vitest runs in the `node` env with no jsdom, a convention established by Story 5.1). The data contract (no `fieldKey` on a table add) is already pinned by `route-schema-edit.test.ts` and `schema-chat-client.test.ts`, so only the React ternary at `ChatPanel.tsx` is unverified. Would be settled by a jsdom-based component test (requires test-infra setup) or the spec's manual Playwright check.

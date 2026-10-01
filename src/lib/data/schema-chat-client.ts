@@ -1,12 +1,12 @@
 import type { ApiResponse } from "@/types/api";
-import type { AddFieldChatResult } from "@/app/api/schema/add-field/route";
+import type { EditorChatResult } from "@/app/api/schema/edit/route";
 import type { ChatTurn } from "@/lib/gemini/prompts";
 
 /**
- * Client-side fetch wrapper for the conversational "add a column via chat"
- * endpoint (Story 5.1). Posts the ephemeral chat turn to
- * `POST /api/schema/add-field` and returns the typed server result envelope's
- * `data` (the `{ kind, assistantText, tableKey?, fieldKey?, label? }` contract).
+ * Client-side fetch wrapper for the conversational schema editor endpoint (Story
+ * 5.1 add a column, Story 5.2 add a table). Posts the ephemeral chat turn to
+ * `POST /api/schema/edit` and returns the typed server result envelope's `data`
+ * (the `{ kind, assistantText, tableKey?, fieldKey?, label? }` contract).
  *
  * The endpoint already maps every outcome — success, clarification, decline,
  * validator rejection, and LLM degradation — to a translated, human `assistantText`
@@ -26,19 +26,19 @@ export class SchemaChatError extends Error {
   }
 }
 
-export type AddFieldChatRequest = {
+export type EditorChatRequest = {
   slug: string;
   message: string;
   currentTableKey?: string | null;
   conversation?: ChatTurn[];
 };
 
-export async function postAddFieldChat(
-  request: AddFieldChatRequest,
-): Promise<AddFieldChatResult> {
+export async function postEditorChat(
+  request: EditorChatRequest,
+): Promise<EditorChatResult> {
   let res: Response;
   try {
-    res = await fetch("/api/schema/add-field", {
+    res = await fetch("/api/schema/edit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -52,9 +52,9 @@ export async function postAddFieldChat(
     throw new SchemaChatError("genericError");
   }
 
-  let body: ApiResponse<AddFieldChatResult>;
+  let body: ApiResponse<EditorChatResult>;
   try {
-    body = (await res.json()) as ApiResponse<AddFieldChatResult>;
+    body = (await res.json()) as ApiResponse<EditorChatResult>;
   } catch {
     throw new SchemaChatError("genericError");
   }

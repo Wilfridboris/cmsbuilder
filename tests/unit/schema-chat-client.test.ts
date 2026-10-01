@@ -1,18 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  postAddFieldChat,
+  postEditorChat,
   postUndoHideColumn,
   SchemaChatError,
 } from "@/lib/data/schema-chat-client";
 
 /**
- * Unit coverage for the conversational chat client wrappers (Story 5.1). Mocks
+ * Unit coverage for the conversational chat client wrappers (Story 5.1, 5.2). Mocks
  * `global.fetch` only — no network. Locks the frozen I/O & Edge-Case Matrix row the
  * route tests cannot reach: "Undo a just-added column" (the chat's Undo targets the
  * just-added field through the existing append-only `/api/schema/columns` hide path
- * with `hidden: true`). Also covers `postAddFieldChat` success / transport-failure
- * mapping so a raw error, stack, or SQL never reaches the UI.
+ * with `hidden: true`). Also covers `postEditorChat` success / transport-failure
+ * mapping (posting to `/api/schema/edit`) so a raw error, stack, or SQL never reaches
+ * the UI.
  */
 
 const fetchMock = vi.fn();
@@ -73,8 +74,8 @@ describe("postUndoHideColumn (Story 5.1 — Undo a just-added column)", () => {
   });
 });
 
-describe("postAddFieldChat (Story 5.1)", () => {
-  it("returns the typed result envelope data on success", async () => {
+describe("postEditorChat (Story 5.1, 5.2)", () => {
+  it("returns the typed result envelope data on success and posts to /api/schema/edit", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
         data: {
@@ -88,7 +89,7 @@ describe("postAddFieldChat (Story 5.1)", () => {
       }),
     );
 
-    const result = await postAddFieldChat({
+    const result = await postEditorChat({
       slug: "acme",
       message: "add a warranty date to Jobs",
       currentTableKey: "jobs",
@@ -96,12 +97,36 @@ describe("postAddFieldChat (Story 5.1)", () => {
 
     expect(result.kind).toBe("applied");
     expect(result.fieldKey).toBe("warranty_date");
-    const [, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/schema/edit");
     expect(JSON.parse(init.body as string)).toMatchObject({
       slug: "acme",
       message: "add a warranty date to Jobs",
       currentTableKey: "jobs",
     });
+  });
+
+  it("returns an add-table applied result (tableKey, no fieldKey)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        data: {
+          kind: "applied",
+          tableKey: "employee_timesheets",
+          label: "Employee timesheets",
+          assistantText: "Done. I created Employee timesheets.",
+        },
+        error: null,
+      }),
+    );
+
+    const result = await postEditorChat({
+      slug: "acme",
+      message: "add a table for employee timesheets",
+    });
+
+    expect(result.kind).toBe("applied");
+    expect(result.tableKey).toBe("employee_timesheets");
+    expect(result.fieldKey).toBeUndefined();
   });
 
   it("throws SchemaChatError with the server code on a transport/auth failure", async () => {
@@ -110,7 +135,7 @@ describe("postAddFieldChat (Story 5.1)", () => {
     );
 
     await expect(
-      postAddFieldChat({ slug: "acme", message: "add a column" }),
+      postEditorChat({ slug: "acme", message: "add a column" }),
     ).rejects.toMatchObject({ name: "SchemaChatError", code: "forbidden" });
   });
 
@@ -118,7 +143,7 @@ describe("postAddFieldChat (Story 5.1)", () => {
     fetchMock.mockRejectedValue(new Error("offline"));
 
     await expect(
-      postAddFieldChat({ slug: "acme", message: "add a column" }),
+      postEditorChat({ slug: "acme", message: "add a column" }),
     ).rejects.toBeInstanceOf(SchemaChatError);
   });
 });

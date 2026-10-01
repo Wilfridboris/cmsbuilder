@@ -2,17 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 
 /**
- * Unit coverage for `POST /api/schema/add-field` (Story 5.1) WITHOUT a live DB,
- * LLM, or auth provider. Locks the frozen I/O & Edge-Case Matrix rows that live in
- * the handler (the pure validator/transform are covered in schema-add-field.test.ts),
- * end-to-end through the REAL `requireAdmin` + `resolveUserOrgMembership` (only the
- * caller identity, the admin client, the RLS org lookup, the schema read, the
- * Gemini call, and the guarded `addField` are mocked):
+ * Unit coverage for `POST /api/schema/edit` (Story 5.1 add a column, Story 5.2 add a
+ * table) WITHOUT a live DB, LLM, or auth provider. Locks the frozen I/O & Edge-Case
+ * Matrix rows that live in the handler (the pure validator/transform are covered in
+ * schema-add-field.test.ts / schema-add-table.test.ts), end-to-end through the REAL
+ * `requireAdmin` + `resolveUserOrgMembership` (only the caller identity, the admin
+ * client, the RLS org lookup, the schema read, the Gemini call, and the guarded
+ * `addField`/`addTable` are mocked):
  *   - unauthenticated                        → 401, no LLM, no write;
  *   - malformed body                         → 400, no LLM, no write;
  *   - Member (non-admin) of the target org   → 403, no LLM, no write;
  *   - Admin of a DIFFERENT org than `slug`   → 403, no LLM, no write;
- *   - applied add_field                      → 200 { kind: 'applied', tableKey, fieldKey }, write ran;
+ *   - applied add_field                      → 200 { kind: 'applied', tableKey, fieldKey }, field write ran;
+ *   - applied add_table                      → 200 { kind: 'applied', tableKey, no fieldKey }, table write ran;
  *   - needs_clarification                    → 200 { kind: 'clarify' }, NO write;
  *   - out_of_scope                           → 200 { kind: 'declined' }, NO write;
  *   - validator rejection (addFieldFailed)   → 200 { kind: 'rejected' }, translated copy, no raw leak;
@@ -24,6 +26,7 @@ import type { NextRequest } from "next/server";
 
 const getCurrentUser = vi.fn();
 const addField = vi.fn();
+const addTable = vi.fn();
 const getSchema = vi.fn();
 const callGeminiWithTimeout = vi.fn();
 
@@ -75,7 +78,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient: () => makeRlsClient(),
 }));
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
-vi.mock("@/lib/data/schema-mutate", () => ({ addField }));
+vi.mock("@/lib/data/schema-mutate", () => ({ addField, addTable }));
 vi.mock("@/lib/data/records", () => ({ getSchema }));
 vi.mock("@/lib/gemini/client", () => ({ callGeminiWithTimeout }));
 vi.mock("@/lib/observability/report", () => ({ reportError: vi.fn() }));
@@ -117,11 +120,15 @@ beforeEach(() => {
     data: { tableKey: "jobs", fieldKey: "warranty_date" },
     error: null,
   });
+  addTable.mockResolvedValue({
+    data: { tableKey: "employee_timesheets" },
+    error: null,
+  });
 });
 
-describe("POST /api/schema/add-field", () => {
-  it("applied: valid Admin add_field → 200 applied, guarded write ran", async () => {
-    const { POST } = await import("@/app/api/schema/add-field/route");
+describe("POST /api/schema/edit", () => {
+  it("applied: valid Admin add_field → 200 applied, guarded field write ran", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
     const res = await POST(postReq(validBody));
 
     expect(res.status).toBe(200);
@@ -131,6 +138,7 @@ describe("POST /api/schema/add-field", () => {
     expect(body.data.tableKey).toBe("jobs");
     expect(body.data.fieldKey).toBe("warranty_date");
     expect(addField).toHaveBeenCalledTimes(1);
+    expect(addTable).not.toHaveBeenCalled();
     const call = addField.mock.calls[0];
     expect(call[0]).toEqual(
       expect.objectContaining({ actorId: "user-1", orgId: "org-1" }),
@@ -139,8 +147,93 @@ describe("POST /api/schema/add-field", () => {
     expect(call[2]).toEqual({ label: "Warranty date", type: "date" });
   });
 
+  it("applied: valid Admin add_table → 200 applied (tableKey, no fieldKey), table write ran", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_table",
+      label: "Employee timesheets",
+      fields: [
+        { label: "Employee name", type: "text" },
+        { label: "Hours worked", type: "number" },
+      ],
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "add a table for employee timesheets" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data.kind).toBe("applied");
+    expect(body.data.tableKey).toBe("employee_timesheets");
+    // No fieldKey on a table add → the client shows no Undo.
+    expect(body.data.fieldKey).toBeUndefined();
+    expect(addTable).toHaveBeenCalledTimes(1);
+    expect(addField).not.toHaveBeenCalled();
+    const call = addTable.mock.calls[0];
+    expect(call[0]).toEqual(
+      expect.objectContaining({ actorId: "user-1", orgId: "org-1" }),
+    );
+    expect(call[1]).toEqual({
+      label: "Employee timesheets",
+      fields: [
+        { label: "Employee name", type: "text" },
+        { label: "Hours worked", type: "number" },
+      ],
+    });
+  });
+
+  it("rejected: a shapeless add_table (missing label / non-array fields) → 200 rejected, addTable NOT called", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+
+    // Missing label.
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_table",
+      fields: [{ label: "Title", type: "text" }],
+    });
+    let res = await POST(postReq({ slug: "acme", message: "add a table" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.kind).toBe("rejected");
+
+    // Non-array fields.
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_table",
+      label: "Timesheets",
+      fields: "nope",
+    });
+    res = await POST(postReq({ slug: "acme", message: "add a timesheets table" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.kind).toBe("rejected");
+
+    // The shape guard runs before the mutate layer — addTable is never called.
+    expect(addTable).not.toHaveBeenCalled();
+  });
+
+  it("rejected: an add_table validator rejection → 200 rejected with fixed copy, no raw leak, no field write", async () => {
+    const { AppError } = await import("@/types/api");
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_table",
+      label: "drop",
+      fields: [{ label: "Title", type: "text" }],
+    });
+    addTable.mockRejectedValue(new AppError(400, "addTableFailed"));
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "add a table called drop" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+    expect(body.data.assistantText).not.toContain("addTableFailed");
+    expect(addField).not.toHaveBeenCalled();
+  });
+
   it("401 unauthorized when there is no session, no LLM call, no write", async () => {
-    const { POST } = await import("@/app/api/schema/add-field/route");
+    const { POST } = await import("@/app/api/schema/edit/route");
     getCurrentUser.mockResolvedValue(null);
 
     const res = await POST(postReq(validBody));
@@ -152,7 +245,7 @@ describe("POST /api/schema/add-field", () => {
   });
 
   it("400 on a malformed body (missing message), no LLM, no write", async () => {
-    const { POST } = await import("@/app/api/schema/add-field/route");
+    const { POST } = await import("@/app/api/schema/edit/route");
     const res = await POST(postReq({ slug: "acme" }));
 
     expect(res.status).toBe(400);
@@ -161,7 +254,7 @@ describe("POST /api/schema/add-field", () => {
   });
 
   it("403 when the caller is a Member (not Admin), no LLM, no write", async () => {
-    const { POST } = await import("@/app/api/schema/add-field/route");
+    const { POST } = await import("@/app/api/schema/edit/route");
     membershipRead = {
       data: { organization_id: "org-1", role: "member" },
       error: null,
@@ -176,7 +269,7 @@ describe("POST /api/schema/add-field", () => {
   });
 
   it("403 when the caller is Admin of a DIFFERENT org than the slug", async () => {
-    const { POST } = await import("@/app/api/schema/add-field/route");
+    const { POST } = await import("@/app/api/schema/edit/route");
     adminOrgRead = { data: { slug: "other-org" }, error: null };
 
     const res = await POST(postReq(validBody));
@@ -188,7 +281,7 @@ describe("POST /api/schema/add-field", () => {
   });
 
   it("clarify: needs_clarification → 200 clarify, NO write", async () => {
-    const { POST } = await import("@/app/api/schema/add-field/route");
+    const { POST } = await import("@/app/api/schema/edit/route");
     callGeminiWithTimeout.mockResolvedValue({
       kind: "needs_clarification",
       question: "Which table should Price go on - Jobs or Clients?",
@@ -204,7 +297,7 @@ describe("POST /api/schema/add-field", () => {
   });
 
   it("declined: out_of_scope → 200 declined, NO write", async () => {
-    const { POST } = await import("@/app/api/schema/add-field/route");
+    const { POST } = await import("@/app/api/schema/edit/route");
     callGeminiWithTimeout.mockResolvedValue({
       kind: "out_of_scope",
       reply: "I can only add a column right now.",
@@ -222,7 +315,7 @@ describe("POST /api/schema/add-field", () => {
 
   it("rejected: validator rejection → 200 rejected with fixed copy, no raw leak", async () => {
     const { AppError } = await import("@/types/api");
-    const { POST } = await import("@/app/api/schema/add-field/route");
+    const { POST } = await import("@/app/api/schema/edit/route");
     addField.mockRejectedValue(new AppError(400, "addFieldFailed"));
 
     const res = await POST(postReq(validBody));
@@ -235,7 +328,7 @@ describe("POST /api/schema/add-field", () => {
   });
 
   it("degraded: LLM timeout → 200 degraded, NO write, nothing leaked", async () => {
-    const { POST } = await import("@/app/api/schema/add-field/route");
+    const { POST } = await import("@/app/api/schema/edit/route");
     callGeminiWithTimeout.mockRejectedValue(new Error("Gemini timeout"));
 
     const res = await POST(postReq(validBody));
@@ -249,7 +342,7 @@ describe("POST /api/schema/add-field", () => {
 
   it("degraded: a write 5xx degrades gracefully (CRUD unaffected)", async () => {
     const { AppError } = await import("@/types/api");
-    const { POST } = await import("@/app/api/schema/add-field/route");
+    const { POST } = await import("@/app/api/schema/edit/route");
     addField.mockRejectedValue(new AppError(500, "writeFailed", "boom sql"));
 
     const res = await POST(postReq(validBody));

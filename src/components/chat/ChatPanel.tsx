@@ -9,11 +9,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
-  postAddFieldChat,
+  postEditorChat,
   postUndoHideColumn,
   SchemaChatError,
 } from "@/lib/data/schema-chat-client";
-import type { AddFieldChatResult } from "@/app/api/schema/add-field/route";
+import type { EditorChatResult } from "@/app/api/schema/edit/route";
 import type { ChatTurn } from "@/lib/gemini/prompts";
 import { MessageBubble, ThinkingBubble } from "@/components/chat/MessageBubble";
 
@@ -23,13 +23,14 @@ import { MessageBubble, ThinkingBubble } from "@/components/chat/MessageBubble";
  * trap) with a scrollable message list and a "Smart Input" composer.
  *
  * It holds the ephemeral conversation (never persisted — lost on close/refresh),
- * sends each turn to `postAddFieldChat` with the `activeTableKey` so an unnamed
- * target can be inferred, and maps the typed `{ kind, assistantText, ... }` result
- * to a bubble. On an `applied` result it keeps `tableKey`+`fieldKey` to drive the
- * inline one-tap Undo (which hides the just-added column via the existing
- * `/api/schema/columns` path) and calls `onSchemaChanged` so the dashboard
- * re-reads the schema and the new/undone column appears/disappears. Never renders
- * raw JSON, SQL, or errors.
+ * sends each turn to `postEditorChat` with the `activeTableKey` so an unnamed
+ * add-column target can be inferred, and maps the typed `{ kind, assistantText, ... }`
+ * result to a bubble. On an applied ADD-COLUMN result it keeps `tableKey`+`fieldKey`
+ * to drive the inline one-tap Undo (which hides the just-added column via the existing
+ * `/api/schema/columns` path); an applied ADD-TABLE result (Story 5.2) has no
+ * `fieldKey`, so it shows no Undo and gets the table-success bubble pointing to the
+ * switcher. Either applied result calls `onSchemaChanged` so the dashboard re-reads
+ * the schema and the new column/table appears. Never renders raw JSON, SQL, or errors.
  */
 
 type ChatMessage =
@@ -37,7 +38,7 @@ type ChatMessage =
   | {
       id: string;
       role: "assistant";
-      kind: AddFieldChatResult["kind"];
+      kind: EditorChatResult["kind"];
       text: string;
       /** Present on an `applied` message: drives the one-tap Undo. */
       applied?: { tableKey: string; fieldKey: string };
@@ -96,7 +97,7 @@ export function ChatPanel({
     setPending(true);
 
     try {
-      const result = await postAddFieldChat({
+      const result = await postEditorChat({
         slug,
         message: text,
         currentTableKey: activeTableKey,
@@ -212,7 +213,12 @@ export function ChatPanel({
                   key={message.id}
                   variant={
                     message.kind === "applied" && !message.undone
-                      ? "applied"
+                      ? // An add-column success carries an Undo payload; an add-table
+                        // success does not (table visibility is a later story) and
+                        // gets the table-glyph treatment pointing to the switcher.
+                        message.applied
+                        ? "applied"
+                        : "appliedTable"
                       : message.kind === "declined"
                         ? "declined"
                         : message.kind === "degraded"

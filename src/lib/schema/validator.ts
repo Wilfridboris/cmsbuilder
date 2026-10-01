@@ -6,6 +6,7 @@ import type {
   TableDefinition,
 } from "@/types/db";
 import { GENERATION_FIELD_TYPES } from "@/lib/gemini/prompts";
+import { displayFieldKey } from "@/lib/schema/relations";
 import { reportRejection } from "@/lib/observability/report";
 import { normalizeTableName } from "@/lib/utils";
 
@@ -578,6 +579,163 @@ export function validateAddField(
     valid: true,
     field: { key, label, type },
   };
+}
+
+/** One scalar field the conversational `add_table` path proposes. */
+export type AddTableFieldInput = {
+  /** The human-facing label the model derived (e.g. "Employee name"). */
+  label: string;
+  /** A scalar field type (never `relation`). */
+  type: string;
+};
+
+/** The input the conversational `add_table` path proposes for a new table. */
+export type AddTableInput = {
+  /** The human-facing table label the model derived (e.g. "Employee timesheets"). */
+  label: string;
+  /** The starter set of scalar fields (never a `relation`). */
+  fields: AddTableFieldInput[];
+};
+
+export type ValidateAddTableResult =
+  | { valid: true; table: TableDefinition }
+  | { valid: false; reason: "addTableFailed" };
+
+/**
+ * Focused, targeted `add_table` validator (Story 5.2) — the conversational "add a
+ * table via chat" gate.
+ *
+ * Deliberately separate from `validateGeneratedSchema` (which sanitizes the whole
+ * generation batch and strips post-generation `hidden` flags — re-running it on a
+ * live schema would silently un-hide tables/columns) and mirrors `validateAddField`
+ * (Story 5.1): it validates ONE new table + its starter scalar fields against the
+ * CURRENT stored schema, reusing the shared rule primitives (`normalizeTableName`,
+ * `keyIsBlockedVerb`, `RESERVED_KEYS`, `SCALAR_FIELD_TYPES`) and returns the
+ * sanitized `TableDefinition` to append.
+ *
+ * Accepts only when, against the stored `schema`:
+ *   - `label` is a non-empty string and the derived table key normalizes non-empty,
+ *     is NOT a blocked SQL verb, and (after disambiguation) does not collide with a
+ *     reserved key or an EXISTING table (visible OR hidden) — a collision is
+ *     disambiguated with a numeric suffix (`jobs_2`, `jobs_3`, …), never overwritten;
+ *   - at least one field is proposed, and EACH field: has a non-empty label, a scalar
+ *     `type` (never `relation`/unknown), a derived key that normalizes non-empty, is
+ *     NOT a reserved key and NOT a blocked SQL verb; a field key duplicated within the
+ *     new table is disambiguated with a numeric suffix (never dropped silently).
+ *   - `displayField` is derived via `displayFieldKey` over the sanitized fields.
+ *
+ * Returns the reject CODE `addTableFailed` (the caller maps it to fixed plain-language
+ * rejection copy) on any failure — never a raw detail. Every rejection is logged via
+ * `reportRejection` with the org id + raw LLM output.
+ */
+export function validateAddTable(
+  schema: SchemaDefinition,
+  input: AddTableInput,
+  context: ValidationContext = {},
+): ValidateAddTableResult {
+  const reject = (detail: string): ValidateAddTableResult => {
+    reportRejection(detail, { id: context.id, rawOutput: context.rawOutput });
+    return { valid: false, reason: "addTableFailed" };
+  };
+
+  // Table label must be a non-empty string.
+  if (!isNonEmptyString(input.label)) {
+    return reject("add_table: missing label");
+  }
+  const label = input.label.trim();
+
+  // Derive the table key from the label and run every key protection. A blocked
+  // SQL verb rejects outright (never disambiguated).
+  const baseKey = normalizeTableName(label);
+  if (!baseKey) {
+    return reject("add_table: key normalized to empty");
+  }
+  if (keyIsBlockedVerb(baseKey)) {
+    return reject(`add_table: key is a blocked SQL verb "${baseKey}"`);
+  }
+
+  // Disambiguate a key that collides with a reserved key or an existing table
+  // (visible OR hidden) with a numeric suffix — never overwrite. The suffixed key
+  // is re-checked against the same taken set until it is free.
+  const takenTableKeys = new Set<string>([
+    ...RESERVED_KEYS,
+    ...(schema.tables ?? []).map((t) => t.key),
+  ]);
+  let tableKey = baseKey;
+  if (takenTableKeys.has(tableKey)) {
+    let suffix = 2;
+    while (takenTableKeys.has(`${baseKey}_${suffix}`)) {
+      suffix += 1;
+    }
+    tableKey = `${baseKey}_${suffix}`;
+  }
+
+  // At least one field is required (a table with no columns is not usable).
+  if (!Array.isArray(input.fields) || input.fields.length === 0) {
+    return reject("add_table: no fields proposed");
+  }
+
+  const seenFieldKeys = new Set<string>();
+  const sanitizedFields: FieldDefinition[] = [];
+
+  for (const field of input.fields) {
+    if (!field || typeof field !== "object") {
+      return reject("add_table: a field is not an object");
+    }
+    if (!isNonEmptyString(field.label)) {
+      return reject("add_table: a field is missing a label");
+    }
+    const fieldLabel = field.label.trim();
+
+    // Type must be a scalar type — `relation`/unknown are rejected outright.
+    if (
+      typeof field.type !== "string" ||
+      !(SCALAR_FIELD_TYPES as readonly string[]).includes(field.type)
+    ) {
+      return reject(`add_table: unsupported field type "${String(field.type)}"`);
+    }
+    const type = field.type as ScalarFieldType;
+
+    // Derive the field key from the label and run every key protection.
+    const fieldBaseKey = normalizeTableName(fieldLabel);
+    if (!fieldBaseKey) {
+      return reject("add_table: field key normalized to empty");
+    }
+    if (keyIsBlockedVerb(fieldBaseKey)) {
+      return reject(`add_table: field key is a blocked SQL verb "${fieldBaseKey}"`);
+    }
+    if (RESERVED_KEYS.includes(fieldBaseKey)) {
+      return reject(`add_table: field key collides with reserved key "${fieldBaseKey}"`);
+    }
+
+    // Disambiguate a duplicate field key within THIS new table with a numeric
+    // suffix (never silently drop a column the owner asked for).
+    let fieldKey = fieldBaseKey;
+    if (seenFieldKeys.has(fieldKey)) {
+      let suffix = 2;
+      while (seenFieldKeys.has(`${fieldBaseKey}_${suffix}`)) {
+        suffix += 1;
+      }
+      fieldKey = `${fieldBaseKey}_${suffix}`;
+    }
+    seenFieldKeys.add(fieldKey);
+
+    sanitizedFields.push({ key: fieldKey, label: fieldLabel, type });
+  }
+
+  const table: TableDefinition = {
+    key: tableKey,
+    label,
+    fields: sanitizedFields,
+  };
+  // Derive the canonical display label (first non-hidden text field, else first
+  // field). The starter fields are never hidden, so this always resolves.
+  const display = displayFieldKey(table);
+  if (display) {
+    table.displayField = display;
+  }
+
+  return { valid: true, table };
 }
 
 /**

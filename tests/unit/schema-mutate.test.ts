@@ -20,7 +20,7 @@ const getSchema = vi.fn();
 vi.mock("@/lib/data/records", () => ({ getSchema }));
 
 // Imported AFTER the mock so the layer picks up the stubbed getSchema.
-const { setFieldVisibility, addRelationField, addField } = await import(
+const { setFieldVisibility, addRelationField, addField, addTable } = await import(
   "@/lib/data/schema-mutate"
 );
 
@@ -327,6 +327,106 @@ describe("addField (Story 5.1)", () => {
     const err = await addField(identity(), "jobs", {
       label: "Warranty date",
       type: "date",
+    }).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
+    expect((err as { userMessage: string }).userMessage).not.toContain("boom");
+  });
+});
+
+describe("addTable (Story 5.2)", () => {
+  it("appends a validated new table and writes the re-derived definition scoped to the org", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+
+    const res = await addTable(identity(), {
+      label: "Employee timesheets",
+      fields: [
+        { label: "Employee name", type: "text" },
+        { label: "Hours worked", type: "number" },
+      ],
+    });
+
+    expect(res.error).toBeNull();
+    expect(res.data).toEqual({ tableKey: "employee_timesheets" });
+
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    // The UPDATE is scoped to the caller's own org (tenant isolation).
+    expect(eqArgs).toEqual(["organization_id", "org-1"]);
+
+    const def = updatePayload?.definition as SchemaDefinition;
+    // Existing tables are untouched; the new table is appended last with zero rows.
+    expect(def.tables.map((t) => t.key)).toEqual([
+      "clients",
+      "jobs",
+      "employee_timesheets",
+    ]);
+    const added = def.tables.find((t) => t.key === "employee_timesheets");
+    expect(added?.fields.map((f) => f.key)).toEqual([
+      "employee_name",
+      "hours_worked",
+    ]);
+    expect(added?.displayField).toBe("employee_name");
+    expect(updatePayload).toHaveProperty("updated_at");
+  });
+
+  it("disambiguates a key colliding with an existing table (never overwrites)", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+
+    const res = await addTable(identity(), {
+      label: "Jobs",
+      fields: [{ label: "Title", type: "text" }],
+    });
+
+    expect(res.data).toEqual({ tableKey: "jobs_2" });
+    const def = updatePayload?.definition as SchemaDefinition;
+    // The original jobs table is still present and unchanged.
+    expect(def.tables.find((t) => t.key === "jobs")?.fields).toHaveLength(1);
+    expect(def.tables.find((t) => t.key === "jobs_2")).toBeDefined();
+  });
+
+  it("400 addTableFailed with NO write for a non-scalar (relation) field", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+
+    await expect(
+      addTable(identity(), {
+        label: "Timesheets",
+        fields: [{ label: "Client", type: "relation" }],
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "addTableFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("400 addTableFailed with NO write for a blocked SQL verb table name", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+
+    await expect(
+      addTable(identity(), {
+        label: "drop",
+        fields: [{ label: "Title", type: "text" }],
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "addTableFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("500 writeFailed with NO write when the schema read fails", async () => {
+    getSchema.mockResolvedValue({ data: null, error: "read boom" });
+
+    await expect(
+      addTable(identity(), {
+        label: "Timesheets",
+        fields: [{ label: "Title", type: "text" }],
+      }),
+    ).rejects.toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("500 writeFailed when the UPDATE errors, never leaking the raw message", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+    dbError = { message: "constraint boom" };
+
+    const err = await addTable(identity(), {
+      label: "Timesheets",
+      fields: [{ label: "Title", type: "text" }],
     }).catch((e: unknown) => e);
 
     expect(err).toMatchObject({ statusCode: 500, userMessage: "writeFailed" });

@@ -1,14 +1,18 @@
 "use client";
 
-import { Check } from "lucide-react";
+import { Check, Table2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 /**
- * MessageBubble (Story 5.1) — one iMessage-style chat bubble in the AI Assistant
- * panel. Pure presentation: a user turn is right-aligned on the primary color; an
- * assistant turn is left-aligned on a neutral surface. An `applied` success bubble
- * carries a subtle check accent and renders its inline one-tap Undo as `children`.
+ * MessageBubble (Story 5.1, 5.2) — one iMessage-style chat bubble in the AI
+ * Assistant panel. Pure presentation: a user turn is right-aligned on the primary
+ * color; an assistant turn is left-aligned on a neutral surface. An `applied`
+ * (add-column) success bubble carries a subtle emerald check accent and renders its
+ * inline one-tap Undo as `children`. An `appliedTable` (add-table, Story 5.2) success
+ * bubble reuses the exact same glass shell but swaps the check for a table glyph —
+ * the copy points the Admin to the new table in the switcher, and there is NO Undo
+ * (table visibility is owned by a later story), so it is passed no `children`.
  *
  * Never renders raw JSON, SQL, or errors — the `text` it receives is always a
  * translated, human string produced server-side. All microstates are CSS
@@ -20,6 +24,7 @@ export type BubbleVariant =
   | "user"
   | "assistant"
   | "applied"
+  | "appliedTable"
   | "declined"
   | "degraded";
 
@@ -34,6 +39,7 @@ export function MessageBubble({
 }) {
   const isUser = variant === "user";
   const isApplied = variant === "applied";
+  const isAppliedTable = variant === "appliedTable";
 
   return (
     <div
@@ -53,6 +59,12 @@ export function MessageBubble({
         <div className="flex items-start gap-2">
           {isApplied ? (
             <Check
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+            />
+          ) : null}
+          {isAppliedTable ? (
+            <Table2
               aria-hidden="true"
               className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
             />

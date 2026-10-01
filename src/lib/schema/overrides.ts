@@ -183,3 +183,21 @@ export function addField(
 ): SchemaDefinition {
   return addRelationField(schema, tableKey, field);
 }
+
+/**
+ * Append a (validated) new table to the schema's `tables` (Story 5.2 — add a table
+ * via chat). Pure and immutable — returns a NEW `SchemaDefinition` with a NEW
+ * `tables` array (the new table appended last); the input schema and every existing
+ * table are never mutated, so existing tables and all `records` rows are untouched.
+ * Callers MUST pass a table already sanitized/disambiguated by `validateAddTable` —
+ * this transform does no validation of its own (mirrors `addField`/`addRelationField`).
+ */
+export function addTable(
+  schema: SchemaDefinition,
+  table: TableDefinition,
+): SchemaDefinition {
+  return {
+    ...schema,
+    tables: [...schema.tables, table],
+  };
+}

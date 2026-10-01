@@ -10,11 +10,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { getSchema } from "@/lib/data/records";
 import { visibleTables } from "@/lib/schema/overrides";
-import { addField } from "@/lib/data/schema-mutate";
+import { addField, addTable } from "@/lib/data/schema-mutate";
 import { callGeminiWithTimeout } from "@/lib/gemini/client";
 import {
-  ADD_FIELD_RESPONSE_SCHEMA,
-  buildAddFieldPrompt,
+  EDITOR_RESPONSE_SCHEMA,
+  buildEditorPrompt,
   type ChatTableSummary,
 } from "@/lib/gemini/prompts";
 import {
@@ -23,11 +23,11 @@ import {
   handleError,
 } from "@/lib/api/route-helpers";
 import { reportError } from "@/lib/observability/report";
-import { addFieldChatSchema } from "./schemas";
+import { editorChatSchema } from "./schemas";
 
 /**
- * `POST /api/schema/add-field` (Story 5.1) — the Admin-only conversational
- * "add a column via chat" endpoint.
+ * `POST /api/schema/edit` (Story 5.1 add a column, Story 5.2 add a table) — the
+ * Admin-only conversational schema editor endpoint.
  *
  * Flow (every guard server-side; the LLM is NEVER a dependency for core CRUD):
  *   1. `getCurrentUser()` (JWT-validated) → 401 if no session;
@@ -39,16 +39,20 @@ import { addFieldChatSchema } from "./schemas";
  *   5. `resolveWritableOrgIdentity(slug)` builds the RLS-scoped client + org id
  *      (and rejects a read_only / expired-trial org before any write);
  *   6. load the org's CURRENT schema (the table list the model may target);
- *   7. ONE `callGeminiWithTimeout` with `buildAddFieldPrompt` (the hardened system
+ *   7. ONE `callGeminiWithTimeout` with `buildEditorPrompt` (the hardened system
  *      prompt is injected by the client on 100% of calls; hard 15s timeout);
  *   8. branch on the model's `kind`:
  *        - `add_field`          → `schema-mutate.addField` (focused validator +
- *                                 append-only write). A validator rejection becomes
- *                                 the fixed plain-language rejection copy; a 5xx
- *                                 degrades gracefully. On success → `applied` with
+ *                                 append-only write). On success → `applied` with
  *                                 the tableKey/fieldKey so the client can drive Undo;
+ *        - `add_table`          → `schema-mutate.addTable` (focused validator +
+ *                                 append-only write). On success → `applied` with
+ *                                 ONLY the tableKey (no fieldKey → the client shows
+ *                                 no Undo; Story 5.5 owns table visibility);
  *        - `needs_clarification` → `clarify` with the model's question;
  *        - `out_of_scope`/other → `declined` with a friendly non-technical decline.
+ *      A validator rejection (either branch) → the fixed plain-language `rejected`
+ *      copy; a 5xx degrades gracefully.
  *   9. On ANY LLM timeout/failure → `degraded` with a translated message; CRUD is
  *      untouched. No raw JSON, SQL, schema, error, or stack ever reaches the user.
  *
@@ -58,24 +62,25 @@ import { addFieldChatSchema } from "./schemas";
 export const dynamic = "force-dynamic";
 
 /** The server result contract (model -> route -> client). `assistantText` is always a translated human string. */
-export type AddFieldChatResult = {
+export type EditorChatResult = {
   kind: "applied" | "clarify" | "declined" | "rejected" | "degraded";
-  /** Present on `applied`: the table the column was added to (drives Undo). */
+  /** Present on `applied`: the table the change targets (an add-field target, or the new table). */
   tableKey?: string;
-  /** Present on `applied`: the added field key (drives Undo). */
+  /** Present on an `applied` ADD-FIELD only: the added field key (drives Undo). Absent for an add-table. */
   fieldKey?: string;
-  /** Present on `applied`: the added column's label, for the success message. */
+  /** Present on `applied`: the added column's / new table's label, for the success message. */
   label?: string;
   /** Always a translated, human-readable sentence. Never raw JSON/SQL/errors. */
   assistantText: string;
 };
 
 /** Shape returned by the single Gemini call (flat — the route reads by `kind`). */
-type GeminiAddFieldOutput = {
-  kind?: "add_field" | "needs_clarification" | "out_of_scope";
+type GeminiEditorOutput = {
+  kind?: "add_field" | "add_table" | "needs_clarification" | "out_of_scope";
   tableKey?: unknown;
   label?: unknown;
   type?: unknown;
+  fields?: unknown;
   question?: unknown;
   reply?: unknown;
 };
@@ -86,7 +91,7 @@ function isNonEmptyString(value: unknown): value is string {
 
 export async function POST(
   req: NextRequest,
-): Promise<NextResponse<ApiResponse<AddFieldChatResult>>> {
+): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
   try {
     // 1. Identify the caller. No session → 401.
     const user = await getCurrentUser();
@@ -101,7 +106,7 @@ export async function POST(
     } catch {
       throw new AppError(400, "genericError");
     }
-    const parsed = addFieldChatSchema.safeParse(raw);
+    const parsed = editorChatSchema.safeParse(raw);
     if (!parsed.success) {
       throw new AppError(400, "genericError");
     }
@@ -135,20 +140,20 @@ export async function POST(
 
     // 7. ONE hardened, timeout-wrapped Gemini call. Any failure (timeout, parse,
     //    network) is caught below and degrades gracefully — CRUD is never blocked.
-    let output: GeminiAddFieldOutput;
+    let output: GeminiEditorOutput;
     try {
-      const prompt = buildAddFieldPrompt(message, {
+      const prompt = buildEditorPrompt(message, {
         tables,
         currentTableKey: currentTableKey ?? null,
         conversation,
       });
-      output = await callGeminiWithTimeout<GeminiAddFieldOutput>(
+      output = await callGeminiWithTimeout<GeminiEditorOutput>(
         prompt,
-        ADD_FIELD_RESPONSE_SCHEMA,
+        EDITOR_RESPONSE_SCHEMA,
       );
     } catch (llmErr) {
       // Degrade gracefully with a translated message; no write, nothing leaked.
-      reportError(llmErr, { route: "/api/schema/add-field", stage: "llm" });
+      reportError(llmErr, { route: "/api/schema/edit", stage: "llm" });
       return json(
         { data: { kind: "degraded", assistantText: t("degraded") }, error: null },
         200,
@@ -221,11 +226,39 @@ export async function POST(
           200,
         );
       } catch (mutateErr) {
-        // A validator rejection (reserved/blocked/colliding key, non-scalar type,
-        // unknown table) is `AppError(400, "addFieldFailed")` — it was already
-        // logged with the org id + raw output by `validateAddField`. Show the fixed
-        // plain-language rejection copy; nothing was written.
-        if (mutateErr instanceof AppError && mutateErr.statusCode === 400) {
+        return handleMutateError(mutateErr, t, "mutate");
+      }
+    }
+
+    if (output.kind === "add_table") {
+      // A malformed add_table (missing label or no fields) is treated as a rejection
+      // rather than trusted — the validator does the real gating, but a shapeless
+      // output never reaches it.
+      if (!isNonEmptyString(output.label) || !Array.isArray(output.fields)) {
+        return json(
+          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+          200,
+        );
+      }
+
+      // Project the model's fields down to the `{ label, type }` scalar input; the
+      // validator rejects any malformed/non-scalar entry.
+      const fields = output.fields.map((field) => {
+        const f = (field ?? {}) as { label?: unknown; type?: unknown };
+        return {
+          label: typeof f.label === "string" ? f.label : "",
+          type: typeof f.type === "string" ? f.type : "",
+        };
+      });
+
+      try {
+        const result = await addTable(
+          identity,
+          { label: output.label.trim(), fields },
+          { rawOutput: output },
+        );
+
+        if (!result.data) {
           return json(
             {
               data: { kind: "rejected", assistantText: t("rejection") },
@@ -234,18 +267,26 @@ export async function POST(
             200,
           );
         }
-        // A 5xx (write failure) degrades gracefully — CRUD stays available.
-        reportError(mutateErr, {
-          route: "/api/schema/add-field",
-          stage: "mutate",
-        });
+
+        // Surface-only navigation: the success copy points the Admin to the new
+        // table in the switcher (the client's router.refresh makes it appear). No
+        // fieldKey is set → the client shows no Undo (Story 5.5 owns table hide).
         return json(
           {
-            data: { kind: "degraded", assistantText: t("degraded") },
+            data: {
+              kind: "applied",
+              tableKey: result.data.tableKey,
+              label: output.label.trim(),
+              assistantText: t("successTableAdded", {
+                table: output.label.trim(),
+              }),
+            },
             error: null,
           },
           200,
         );
+      } catch (mutateErr) {
+        return handleMutateError(mutateErr, t, "mutate-table");
       }
     }
 
@@ -258,6 +299,31 @@ export async function POST(
       200,
     );
   } catch (err) {
-    return handleError<AddFieldChatResult>(err, "/api/schema/add-field");
+    return handleError<EditorChatResult>(err, "/api/schema/edit");
   }
+}
+
+/**
+ * Map a guarded-write failure to a safe chat result. A validator rejection
+ * (`AppError(400, ...)` — reserved/blocked/colliding key, non-scalar type, unknown
+ * table) was already logged with the org id + raw output by the validator; show the
+ * fixed plain-language rejection copy (nothing was written). A 5xx (write failure)
+ * degrades gracefully so CRUD stays available. A raw error/stack/SQL never leaks.
+ */
+function handleMutateError(
+  err: unknown,
+  t: Awaited<ReturnType<typeof getTranslations>>,
+  stage: "mutate" | "mutate-table",
+): NextResponse<ApiResponse<EditorChatResult>> {
+  if (err instanceof AppError && err.statusCode === 400) {
+    return json(
+      { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+      200,
+    );
+  }
+  reportError(err, { route: "/api/schema/edit", stage });
+  return json(
+    { data: { kind: "degraded", assistantText: t("degraded") }, error: null },
+    200,
+  );
 }
