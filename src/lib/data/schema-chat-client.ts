@@ -1,0 +1,102 @@
+import type { ApiResponse } from "@/types/api";
+import type { AddFieldChatResult } from "@/app/api/schema/add-field/route";
+import type { ChatTurn } from "@/lib/gemini/prompts";
+
+/**
+ * Client-side fetch wrapper for the conversational "add a column via chat"
+ * endpoint (Story 5.1). Posts the ephemeral chat turn to
+ * `POST /api/schema/add-field` and returns the typed server result envelope's
+ * `data` (the `{ kind, assistantText, tableKey?, fieldKey?, label? }` contract).
+ *
+ * The endpoint already maps every outcome — success, clarification, decline,
+ * validator rejection, and LLM degradation — to a translated, human `assistantText`
+ * with a 200 status, so the only thing left for the client is a true transport /
+ * auth failure (401/403/5xx or a network error). Those surface through a thrown
+ * `SchemaChatError` carrying the server error CODE, which the panel maps to the
+ * degraded message — a raw error, stack, or SQL never reaches the UI.
+ */
+
+/** Carries the server error code (or `genericError`) for a true transport failure. */
+export class SchemaChatError extends Error {
+  readonly code: string;
+  constructor(code: string) {
+    super(code);
+    this.name = "SchemaChatError";
+    this.code = code;
+  }
+}
+
+export type AddFieldChatRequest = {
+  slug: string;
+  message: string;
+  currentTableKey?: string | null;
+  conversation?: ChatTurn[];
+};
+
+export async function postAddFieldChat(
+  request: AddFieldChatRequest,
+): Promise<AddFieldChatResult> {
+  let res: Response;
+  try {
+    res = await fetch("/api/schema/add-field", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug: request.slug,
+        message: request.message,
+        currentTableKey: request.currentTableKey ?? undefined,
+        conversation: request.conversation,
+      }),
+    });
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  let body: ApiResponse<AddFieldChatResult>;
+  try {
+    body = (await res.json()) as ApiResponse<AddFieldChatResult>;
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  if (!res.ok || body.error !== null || body.data === null) {
+    throw new SchemaChatError(body.error ?? "genericError");
+  }
+  return body.data;
+}
+
+/**
+ * Undo a just-added column (Story 5.1) by hiding it through the EXISTING
+ * append-only column-visibility path (`POST /api/schema/columns`, Story 3.5) with
+ * `hidden: true`. Undo never deletes: the field definition and any data are
+ * retained; the column simply disappears from view. Throws `SchemaChatError` on a
+ * true transport/auth failure so the panel can show a translated retry message — a
+ * raw error, stack, or SQL never reaches the UI.
+ */
+export async function postUndoHideColumn(
+  slug: string,
+  tableKey: string,
+  fieldKey: string,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch("/api/schema/columns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, tableKey, fieldKey, hidden: true }),
+    });
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  let body: { error: string | null } | null = null;
+  try {
+    body = (await res.json()) as { error: string | null };
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  if (!res.ok || body?.error) {
+    throw new SchemaChatError(body?.error ?? "genericError");
+  }
+}

@@ -6,6 +6,8 @@ import { resolveUserOrgMembership } from "@/lib/auth/org";
 import { reportError } from "@/lib/observability/report";
 import { DashboardNav } from "@/components/layout/DashboardNav";
 import { TrialBanner } from "@/components/layout/TrialBanner";
+import { ActiveTableProvider } from "@/components/dashboard/ActiveTableProvider";
+import { ChatAssistant } from "@/components/chat/ChatAssistant";
 import type { SubscriptionStatus } from "@/types/db";
 
 /** Whole days from `now` until `trialExpiresAt` (negative past expiry); null when unset. */
@@ -88,8 +90,14 @@ export default async function SlugLayout({
     }
   }
 
+  // Story 5.1: the floating AI Assistant chat is Admin-only (hidden for Members
+  // per RBAC); the endpoint's `requireAdmin` is the real server-side gate. Only an
+  // Admin of THIS org gets the pill.
+  const isAdminHere =
+    showNav && membership !== null && membership.role === "admin";
+
   return (
-    <>
+    <ActiveTableProvider>
       {showNav ? <DashboardNav slug={slug} role={membership.role} /> : null}
       {showNav && membership && banner ? (
         <TrialBanner
@@ -100,6 +108,7 @@ export default async function SlugLayout({
         />
       ) : null}
       {children}
-    </>
+      {isAdminHere ? <ChatAssistant slug={slug} /> : null}
+    </ActiveTableProvider>
   );
 }

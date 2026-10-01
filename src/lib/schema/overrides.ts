@@ -165,3 +165,21 @@ export function addRelationField(
     ),
   };
 }
+
+/**
+ * Append a (validated) scalar field to a table's `fields` (Story 5.1 — add a
+ * column via chat). Pure and immutable — returns a NEW `SchemaDefinition` with a
+ * NEW `fields` array for the target table; the input schema and every other table
+ * are never mutated. No-op for an unknown table key (returns an equivalent new
+ * schema). Callers MUST pass a field already sanitized by `validateAddField` —
+ * this transform does no validation of its own (mirrors `addRelationField`). It is
+ * a thin, deliberately separate alias so the add-column intent reads clearly at
+ * the call site even though the append shape matches `addRelationField`.
+ */
+export function addField(
+  schema: SchemaDefinition,
+  tableKey: string,
+  field: FieldDefinition,
+): SchemaDefinition {
+  return addRelationField(schema, tableKey, field);
+}

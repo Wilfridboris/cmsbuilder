@@ -4,11 +4,16 @@ import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { getSchema } from "@/lib/data/records";
 import {
+  addField as addFieldTransform,
   addRelationField as addRelationFieldTransform,
   hideField,
   showField,
 } from "@/lib/schema/overrides";
-import { validateRelationField } from "@/lib/schema/validator";
+import {
+  validateAddField,
+  validateRelationField,
+  type AddFieldInput,
+} from "@/lib/schema/validator";
 import { normalizeTableName } from "@/lib/utils";
 
 /**
@@ -160,6 +165,79 @@ export async function addRelationField(
         fieldKey: result.field.key,
         targetTable: result.field.relationConfig.targetTable,
       },
+      error: null,
+    };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/**
+ * Append an Admin-added scalar field to a table (Story 5.1 — add a column via
+ * chat). Mirrors `addRelationField`'s guarded read-validate-write contract exactly:
+ *   - read the org's CURRENT authoritative definition under the RLS client;
+ *   - run the focused `validateAddField` against the stored schema (NOT the
+ *     whole-schema generation validator, which strips `hidden`) → a validator
+ *     rejection is `AppError(400, "addFieldFailed")` with NO write, and is logged
+ *     to Sentry with the org id + raw LLM output (the `context` the caller passes);
+ *   - apply the pure `addField` transform (append-only; existing `records` rows are
+ *     never touched — a new field simply starts absent from existing rows' `data`);
+ *   - write the full definition back under the RLS client (tenant-isolation policy
+ *     scopes the UPDATE to the caller's own org).
+ *
+ * A client can never post an arbitrary schema — the definition is always
+ * re-derived from the stored one and only a validated scalar field is added.
+ * Returns the created field's `{ tableKey, fieldKey }`; raw SQL is never leaked.
+ */
+export async function addField(
+  identity: SchemaMutateIdentity,
+  tableKey: string,
+  input: AddFieldInput,
+  context: { rawOutput?: unknown } = {},
+): Promise<ApiResponse<{ tableKey: string; fieldKey: string }>> {
+  try {
+    const { client, orgId } = identity;
+
+    // 1. Read the org's CURRENT authoritative definition under the RLS client.
+    const current = await getSchema(client, orgId);
+    if (current.error || !current.data) {
+      throw new AppError(500, "writeFailed");
+    }
+    const schema = current.data;
+
+    // Normalize the incoming table key on read, mirroring the read layer.
+    const normalizedTableKey = normalizeTableName(tableKey);
+
+    // 2. Focused validation against the stored schema. A reserved/blocked/
+    //    colliding key, non-scalar type, missing label, or unknown/hidden table →
+    //    400 with NO write. The rejection is logged with the org id + raw output.
+    const result = validateAddField(schema, normalizedTableKey, input, {
+      id: orgId,
+      rawOutput: context.rawOutput,
+    });
+    if (!result.valid) {
+      throw new AppError(400, result.reason);
+    }
+
+    // 3. Apply the pure, immutable append (only the target table's fields grow;
+    //    existing records rows are never migrated or mutated).
+    const next = addFieldTransform(schema, normalizedTableKey, result.field);
+
+    // 4. Persist the full definition back under the RLS client.
+    const { error } = await client
+      .from("org_schemas")
+      .update({ definition: next, updated_at: new Date().toISOString() })
+      .eq("organization_id", orgId);
+
+    if (error) {
+      throw new AppError(500, "writeFailed", error.message);
+    }
+
+    return {
+      data: { tableKey: normalizedTableKey, fieldKey: result.field.key },
       error: null,
     };
   } catch (err) {

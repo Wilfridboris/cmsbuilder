@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useSwipeable } from "react-swipeable";
@@ -61,6 +61,7 @@ import { useFilterSortState } from "@/components/dashboard/useFilterSortState";
 import { useAddDraft } from "@/components/dashboard/useAddDraft";
 import { useRecordActions } from "@/components/dashboard/useRecordActions";
 import { applyFilterSort, eligibleFields, type SortState } from "@/lib/data/filter-sort";
+import { useActiveTable } from "@/components/dashboard/ActiveTableProvider";
 
 /**
  * RecordsView (Story 3.1 + 3.2) — the responsive records surface for the
@@ -135,6 +136,15 @@ export function RecordsView({
   const activeTable = tables[safeIndex];
   const tableKey = activeTable.key;
   const hasSwitcher = tables.length > 1;
+
+  // Story 5.1: publish the currently-selected table key so the floating AI
+  // Assistant chat can infer an unnamed add-column target from the current view.
+  // Safe no-op when no `ActiveTableProvider` is mounted (e.g. the 3.1 unit test).
+  const { setActiveTableKey } = useActiveTable();
+  useEffect(() => {
+    setActiveTableKey(tableKey);
+    return () => setActiveTableKey(null);
+  }, [tableKey, setActiveTableKey]);
 
   const visibleFields = useMemo(
     () => activeTable.fields.filter((field) => !field.hidden),

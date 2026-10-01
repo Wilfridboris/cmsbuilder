@@ -473,6 +473,24 @@
       "is": "is"
     }
   },
+  "ChatAssistant": {
+    "pillLabel": "Open the AI Assistant",
+    "title": "AI Assistant",
+    "close": "Close assistant",
+    "greeting": "Hi! I can add a new column to one of your tables. Try something like \"add a warranty date to Jobs\".",
+    "placeholder": "Describe the column to add…",
+    "send": "Send",
+    "thinking": "Thinking…",
+    "successApplied": "Done. I added {field} to {table}.",
+    "undo": "Undo",
+    "undone": "Undone. That column is hidden again, and your data is safe.",
+    "undoFailed": "I couldn't undo that just now. Please try again in a moment.",
+    "rejection": "That change isn't allowed. Try describing what you'd like to add instead.",
+    "declineFallback": "Right now I can only add a new column to one of your tables. I can help with that whenever you like.",
+    "clarifyFallback": "Which table should this column go on?",
+    "degraded": "I couldn't reach the assistant just now. Your tables and records are all still working. Please try again in a moment.",
+    "forbidden": "You don't have permission to use the assistant."
+  },
   "Invoices": {
     "listTitle": "Invoices",
     "listSubtitle": "Draft, review, and manage the invoices you bill your customers.",

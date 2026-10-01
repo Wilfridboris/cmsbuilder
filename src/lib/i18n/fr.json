@@ -473,6 +473,24 @@
       "is": "est"
     }
   },
+  "ChatAssistant": {
+    "pillLabel": "Ouvrir l'assistant IA",
+    "title": "Assistant IA",
+    "close": "Fermer l'assistant",
+    "greeting": "Bonjour ! Je peux ajouter une nouvelle colonne à l'une de vos tables. Essayez par exemple « ajouter une date de garantie aux Travaux ».",
+    "placeholder": "Décrivez la colonne à ajouter…",
+    "send": "Envoyer",
+    "thinking": "Réflexion…",
+    "successApplied": "C'est fait. J'ai ajouté {field} à {table}.",
+    "undo": "Annuler",
+    "undone": "Annulé. Cette colonne est de nouveau masquée, et vos données sont intactes.",
+    "undoFailed": "Je n'ai pas pu annuler pour le moment. Veuillez réessayer dans un instant.",
+    "rejection": "Ce changement n'est pas autorisé. Essayez plutôt de décrire ce que vous souhaitez ajouter.",
+    "declineFallback": "Pour l'instant, je peux seulement ajouter une nouvelle colonne à l'une de vos tables. Je peux vous aider avec cela quand vous voulez.",
+    "clarifyFallback": "Sur quelle table cette colonne doit-elle aller ?",
+    "degraded": "Je n'ai pas pu joindre l'assistant pour le moment. Vos tables et vos enregistrements fonctionnent toujours. Veuillez réessayer dans un instant.",
+    "forbidden": "Vous n'avez pas la permission d'utiliser l'assistant."
+  },
   "Invoices": {
     "listTitle": "Factures",
     "listSubtitle": "Rédigez, révisez et gérez les factures que vous adressez à vos clients.",

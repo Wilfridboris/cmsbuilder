@@ -470,6 +470,117 @@ export function validateRelationField(
 }
 
 /**
+ * The scalar field types the conversational editor may add via chat (Story 5.1).
+ * Mirrors `GENERATION_FIELD_TYPES` but is asserted here as an explicit, local
+ * allowlist so the editor path NEVER accepts `relation` (relations have their own
+ * dedicated flow, Story 3.7). Any type outside this set is rejected.
+ */
+export const SCALAR_FIELD_TYPES = [
+  "text",
+  "number",
+  "date",
+  "datetime",
+  "boolean",
+  "currency",
+  "email",
+  "phone",
+] as const;
+
+export type ScalarFieldType = (typeof SCALAR_FIELD_TYPES)[number];
+
+/** The input the conversational add-column path proposes for one scalar field. */
+export type AddFieldInput = {
+  /** The human-facing label the model derived (e.g. "Warranty date"). */
+  label: string;
+  /** A scalar field type (never `relation`). */
+  type: string;
+};
+
+export type ValidateAddFieldResult =
+  | { valid: true; field: FieldDefinition }
+  | { valid: false; reason: "addFieldFailed" };
+
+/**
+ * Focused, targeted scalar `add_field` validator (Story 5.1) — the conversational
+ * "add a column via chat" gate.
+ *
+ * Deliberately separate from `validateGeneratedSchema` (which sanitizes the whole
+ * generation batch and strips post-generation `hidden` flags — re-running it on a
+ * live schema would silently un-hide columns) and mirrors `validateRelationField`
+ * (Story 3.7): it validates ONE new scalar field against the CURRENT stored schema,
+ * reusing the shared rule primitives (`normalizeTableName`, `keyIsBlockedVerb`,
+ * `RESERVED_KEYS`) and returns the sanitized field to append.
+ *
+ * Accepts only when, against the stored `schema`:
+ *   - `tableKey` (normalized) names an existing, non-hidden table;
+ *   - `type` is one of `SCALAR_FIELD_TYPES` (never `relation`, never unknown);
+ *   - `label` is a non-empty string;
+ *   - the derived key (from `label`) normalizes non-empty, is NOT a reserved key,
+ *     is NOT a blocked SQL verb, and does not collide with an existing field key
+ *     (including a hidden one — never silently overwrite a definition).
+ * Returns the reject CODE `addFieldFailed` (the caller maps it to fixed
+ * plain-language rejection copy) on any failure — never a raw detail. Every
+ * rejection is logged via `reportRejection` with the org id + raw LLM output.
+ */
+export function validateAddField(
+  schema: SchemaDefinition,
+  tableKey: string,
+  input: AddFieldInput,
+  context: ValidationContext = {},
+): ValidateAddFieldResult {
+  const reject = (detail: string): ValidateAddFieldResult => {
+    reportRejection(detail, { id: context.id, rawOutput: context.rawOutput });
+    return { valid: false, reason: "addFieldFailed" };
+  };
+
+  const tables = schema.tables ?? [];
+
+  // The table the field is added to must exist and be visible.
+  const normalizedTableKey = normalizeTableName(tableKey);
+  const table = tables.find((t) => t.key === normalizedTableKey && !t.hidden);
+  if (!table) {
+    return reject(`add_field: unknown or hidden table "${tableKey}"`);
+  }
+
+  // Label must be a non-empty string.
+  if (!isNonEmptyString(input.label)) {
+    return reject("add_field: missing label");
+  }
+  const label = input.label.trim();
+
+  // Type must be a scalar type — `relation`/unknown are rejected outright.
+  if (
+    typeof input.type !== "string" ||
+    !(SCALAR_FIELD_TYPES as readonly string[]).includes(input.type)
+  ) {
+    return reject(`add_field: unsupported type "${String(input.type)}"`);
+  }
+  const type = input.type as ScalarFieldType;
+
+  // Derive the field key from the label and run every key protection.
+  const key = normalizeTableName(label);
+  if (!key) {
+    return reject("add_field: key normalized to empty");
+  }
+  if (keyIsBlockedVerb(key)) {
+    return reject(`add_field: key is a blocked SQL verb "${key}"`);
+  }
+  if (RESERVED_KEYS.includes(key)) {
+    return reject(`add_field: key collides with reserved key "${key}"`);
+  }
+  // Unique within the table — a derived key colliding with ANY existing field
+  // (including a hidden one) is rejected: never silently overwrite a definition.
+  if (table.fields.some((f) => f.key === key)) {
+    return reject(`add_field: key collides with existing field "${key}"`);
+  }
+
+  return {
+    valid: true,
+    field: { key, label, type },
+  };
+}
+
+/**
  * Filter the LLM's `seedRows` for a validated table down to well-formed rows.
  * A malformed `seedRows` section must NOT invalidate a valid schema — bad rows
  * are silently dropped (FR: "persist the schema, skip bad rows, proceed").
