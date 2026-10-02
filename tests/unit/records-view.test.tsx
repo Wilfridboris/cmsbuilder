@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CellStrings } from "@/lib/format";
-import type { RecordData, TableDefinition } from "@/types/db";
+import type { RecordData, TableDefinition, ViewDefinition } from "@/types/db";
 
 /**
  * Coverage for the Story 3.1 responsive records surface (`RecordsView`), closing
@@ -23,6 +23,8 @@ vi.mock("next-intl", () => ({
     if (vars?.table !== undefined) return `${key}:${String(vars.table)}`;
     // Inline-edit trigger names interpolate `{field}` (Story 3.3).
     if (vars?.field !== undefined) return `${key}:${String(vars.field)}`;
+    // View tab label / overflow menu interpolate `{view}` (Story 5.3 / 5.6).
+    if (vars?.view !== undefined) return `${key}:${String(vars.view)}`;
     return key;
   },
 }));
@@ -76,6 +78,7 @@ function render(
   tables: TableDefinition[],
   recordsByTable: Record<string, RecordData[]>,
   role: "admin" | "member" = "member",
+  views: ViewDefinition[] = [],
 ) {
   const queryClient = new QueryClient();
   return renderToStaticMarkup(
@@ -85,12 +88,21 @@ function render(
         orgId="org-1"
         role={role}
         tables={tables}
+        views={views}
         recordsByTable={recordsByTable}
         cellStrings={cellStrings}
       />
     </QueryClientProvider>,
   );
 }
+
+const unpaidView: ViewDefinition = {
+  key: "unpaid",
+  label: "Unpaid",
+  sourceTableKey: "jobs",
+  filters: [{ field: "status", operator: "equals", value: "unpaid" }],
+  sort: null,
+};
 
 describe("RecordsView rendering (I/O matrix)", () => {
   it("lists every table in an accessible switcher when there is more than one", () => {
@@ -112,6 +124,30 @@ describe("RecordsView rendering (I/O matrix)", () => {
   it("renders the Admin-only Columns control for an Admin (Story 3.5)", () => {
     const adminHtml = render([jobs], { jobs: jobRows }, "admin");
     expect(adminHtml).toContain("columnsManager");
+  });
+
+  it("renders the Admin-only per-view Remove-view menu trigger for an Admin (Story 5.6)", () => {
+    const adminHtml = render(
+      [jobs, customers],
+      { jobs: jobRows, customers: [] },
+      "admin",
+      [unpaidView],
+    );
+    // next-intl is mocked to echo keys; the overflow trigger's aria-label
+    // interpolates the view label.
+    expect(adminHtml).toContain("viewTabMenu:Unpaid");
+  });
+
+  it("hides the per-view Remove-view menu from a Member (Story 5.6 RBAC gate)", () => {
+    const memberHtml = render(
+      [jobs, customers],
+      { jobs: jobRows, customers: [] },
+      "member",
+      [unpaidView],
+    );
+    // The view tab itself still renders, but never the Admin-only overflow menu.
+    expect(memberHtml).toContain("viewTabLabel:Unpaid");
+    expect(memberHtml).not.toContain("viewTabMenu");
   });
 
   it("renders the active table as a desktop table with a caption and visible-field columns", () => {

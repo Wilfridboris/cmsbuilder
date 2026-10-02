@@ -229,3 +229,25 @@ export function addView(
     views: [...(schema.views ?? []), view],
   };
 }
+
+/**
+ * Remove a (validated) view from the schema's `views` (Story 5.6 — remove a view
+ * via chat). Pure and immutable — returns a NEW `SchemaDefinition` with a NEW
+ * `views` array that has the matching view FILTERED OUT; the input schema, every
+ * other view, and every table + `records` row are never mutated.
+ *
+ * This is a TRUE removal (not a `hidden` flag): a view holds no rows, so deleting
+ * its definition loses no data, and it is the one deletion the append-only
+ * guarantee permits. No-op for an unknown view key (returns an equivalent new
+ * schema with the same views). Reversibility is provided by the caller re-adding
+ * the removed definition through `addView` (the freed key re-derives identically).
+ */
+export function removeView(
+  schema: SchemaDefinition,
+  viewKey: string,
+): SchemaDefinition {
+  return {
+    ...schema,
+    views: (schema.views ?? []).filter((view) => view.key !== viewKey),
+  };
+}

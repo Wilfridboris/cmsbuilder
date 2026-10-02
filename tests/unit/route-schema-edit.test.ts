@@ -29,6 +29,7 @@ const getCurrentUser = vi.fn();
 const addField = vi.fn();
 const addTable = vi.fn();
 const addView = vi.fn();
+const removeView = vi.fn();
 const setFieldVisibility = vi.fn();
 const getSchema = vi.fn();
 const callGeminiWithTimeout = vi.fn();
@@ -85,6 +86,7 @@ vi.mock("@/lib/data/schema-mutate", () => ({
   addField,
   addTable,
   addView,
+  removeView,
   setFieldVisibility,
 }));
 vi.mock("@/lib/data/records", () => ({ getSchema }));
@@ -127,6 +129,15 @@ beforeEach(() => {
           ],
         },
       ],
+      views: [
+        {
+          key: "unpaid_jobs",
+          label: "Unpaid jobs",
+          sourceTableKey: "jobs",
+          filters: [{ field: "status", operator: "equals", value: "unpaid" }],
+          sort: null,
+        },
+      ],
     },
     error: null,
   });
@@ -146,6 +157,18 @@ beforeEach(() => {
   });
   addView.mockResolvedValue({
     data: { viewKey: "unpaid_jobs" },
+    error: null,
+  });
+  removeView.mockResolvedValue({
+    data: {
+      view: {
+        key: "unpaid_jobs",
+        label: "Unpaid jobs",
+        sourceTableKey: "jobs",
+        filters: [{ field: "status", operator: "equals", value: "unpaid" }],
+        sort: null,
+      },
+    },
     error: null,
   });
   setFieldVisibility.mockResolvedValue({
@@ -234,9 +257,10 @@ describe("POST /api/schema/edit", () => {
     expect(body.error).toBeNull();
     expect(body.data.kind).toBe("applied");
     expect(body.data.viewKey).toBe("unpaid_jobs");
-    // No fieldKey / no undo on a view add → the client shows no Undo.
+    // Story 5.6: an add-view now carries undo:"remove" + the viewKey so the chat
+    // bubble offers an Undo that removes the just-added view. No fieldKey.
     expect(body.data.fieldKey).toBeUndefined();
-    expect(body.data.undo).toBeUndefined();
+    expect(body.data.undo).toBe("remove");
     expect(addView).toHaveBeenCalledTimes(1);
     expect(addField).not.toHaveBeenCalled();
     expect(addTable).not.toHaveBeenCalled();
@@ -589,6 +613,127 @@ describe("POST /api/schema/edit", () => {
     expect(body.data.assistantText).toBe("rejection");
     expect(body.data.assistantText).not.toContain("DROP");
     expect(setFieldVisibility).not.toHaveBeenCalled();
+    expect(reportRejection).toHaveBeenCalled();
+  });
+
+  it("applied: remove_view (in-summary key) → 200 applied naming the view, removeView ran, no other write", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "remove_view",
+      viewKey: "unpaid_jobs",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "remove the Unpaid jobs view" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data.kind).toBe("applied");
+    expect(body.data.viewKey).toBe("unpaid_jobs");
+    // The success copy names the view (never a raw key).
+    expect(body.data.assistantText).toBe("viewRemoved");
+    expect(removeView).toHaveBeenCalledTimes(1);
+    const call = removeView.mock.calls[0];
+    expect(call[0]).toEqual(
+      expect.objectContaining({ actorId: "user-1", orgId: "org-1" }),
+    );
+    expect(call[1]).toBe("unpaid_jobs");
+    expect(addField).not.toHaveBeenCalled();
+    expect(addTable).not.toHaveBeenCalled();
+    expect(addView).not.toHaveBeenCalled();
+    expect(setFieldVisibility).not.toHaveBeenCalled();
+  });
+
+  it("rejected: a shapeless remove_view (missing viewKey) → 200 rejected, removeView NOT called", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({ kind: "remove_view" });
+
+    const res = await POST(postReq({ slug: "acme", message: "remove a view" }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.kind).toBe("rejected");
+    expect(removeView).not.toHaveBeenCalled();
+  });
+
+  it("declined: remove_view with an out-of-summary (stale/hallucinated) key → 200 declined, NO mutator call", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "remove_view",
+      viewKey: "ghost_view",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "remove the ghost view" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("declined");
+    expect(body.data.assistantText).toBe("declineFallback");
+    expect(removeView).not.toHaveBeenCalled();
+  });
+
+  it("declined: remove_view of an in-summary view but the mutator 400s (stale/race) → 200 declined, no raw leak", async () => {
+    const { AppError } = await import("@/types/api");
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "remove_view",
+      viewKey: "unpaid_jobs",
+    });
+    removeView.mockRejectedValue(new AppError(400, "removeViewFailed"));
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "remove the Unpaid jobs view" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("declined");
+    expect(body.data.assistantText).toBe("declineFallback");
+  });
+
+  it("degraded: remove_view when the mutator throws a 5xx → 200 degraded, no raw detail leaked", async () => {
+    const { AppError } = await import("@/types/api");
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "remove_view",
+      viewKey: "unpaid_jobs",
+    });
+    removeView.mockRejectedValue(new AppError(500, "writeFailed", "boom raw detail"));
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "remove the Unpaid jobs view" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("degraded");
+    expect(body.data.assistantText).toBe("degraded");
+    expect(body.data.assistantText).not.toContain("boom");
+  });
+
+  it("rejected: raw SQL in a remove_view output → 200 rejected, no write, reportRejection logged", async () => {
+    const { reportRejection } = await import("@/lib/observability/report");
+    vi.mocked(reportRejection).mockClear();
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "remove_view",
+      viewKey: "unpaid_jobs",
+      smuggled: "DROP TABLE records;",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "remove the unpaid view" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+    expect(body.data.assistantText).not.toContain("DROP");
+    expect(removeView).not.toHaveBeenCalled();
     expect(reportRejection).toHaveBeenCalled();
   });
 

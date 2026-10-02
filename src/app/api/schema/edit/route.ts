@@ -9,11 +9,12 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { getSchema } from "@/lib/data/records";
-import { visibleTables } from "@/lib/schema/overrides";
+import { visibleTables, visibleViews } from "@/lib/schema/overrides";
 import {
   addField,
   addTable,
   addView,
+  removeView,
   setFieldVisibility,
 } from "@/lib/data/schema-mutate";
 import { assertEditorOperationAllowed } from "@/lib/schema/validator";
@@ -22,6 +23,7 @@ import {
   EDITOR_RESPONSE_SCHEMA,
   buildEditorPrompt,
   type ChatTableSummary,
+  type ChatViewSummary,
 } from "@/lib/gemini/prompts";
 import {
   json,
@@ -49,8 +51,8 @@ import { editorChatSchema } from "./schemas";
  *      prompt is injected by the client on 100% of calls; hard 15s timeout);
  *   8. the explicit operation-allowlist + raw-SQL discard fence (Story 5.4, 5.5):
  *        `assertEditorOperationAllowed` rejects any `kind` outside
- *        `add_field`/`add_table`/`add_view`/`hide_field` and any output containing
- *        raw SQL before any write, logging each via `reportRejection` with the org
+ *        `add_field`/`add_table`/`add_view`/`hide_field`/`remove_view` and any
+ *        output containing raw SQL before any write, logging each via `reportRejection` with the org
  *        id + raw output. `needs_clarification`/`out_of_scope` are conversational
  *        kinds, not operations, and bypass the fence into their own flows below;
  *      then branch on the model's `kind`:
@@ -63,8 +65,15 @@ import { editorChatSchema } from "./schemas";
  *                                 no Undo; Story 5.5 owns table visibility);
  *        - `add_view`           → `schema-mutate.addView` (focused validator +
  *                                 append-only write). On success → `applied` with
- *                                 ONLY the viewKey (no fieldKey → no Undo; view
- *                                 hide is deferred);
+ *                                 the viewKey + undo:"remove" so the client offers
+ *                                 an Undo that removes the just-added view (Story
+ *                                 5.6; a view holds no rows, so removal is safe);
+ *        - `remove_view`        → `schema-mutate.removeView` (resolve the viewKey
+ *                                 against the shown views summary before any write;
+ *                                 out-of-summary → reassuring `declined`). On
+ *                                 success → `applied` naming the removed view. The
+ *                                 one permitted true removal (a view stores no
+ *                                 rows); view HIDE is never built;
  *        - `hide_field`         → `schema-mutate.setFieldVisibility(..., true)` —
  *                                 the SAFE answer to "delete/remove this column"
  *                                 (Story 5.5): hides one column via the append-only
@@ -92,16 +101,17 @@ export type EditorChatResult = {
   tableKey?: string;
   /** Present on an `applied` ADD-FIELD or HIDE-FIELD: the field key (drives Undo). Absent for an add-table/add-view. */
   fieldKey?: string;
-  /** Present on an `applied` ADD-VIEW only: the created view key. Absent for an add-field/add-table/hide-field. */
+  /** Present on an `applied` ADD-VIEW or REMOVE-VIEW: the created / removed view key. Absent for an add-field/add-table/hide-field. */
   viewKey?: string;
   /**
-   * Present on an `applied` ADD-FIELD or HIDE-FIELD: which way the inline Undo
-   * flips the column's visibility. `"hide"` means the change SHOWED the column
-   * (an add-field; Undo hides it), `"show"` means the change HID the column (a
-   * hide-field; Undo shows it again). The client drives one generalized
-   * visibility Undo from this direction. Absent → no Undo.
+   * Present on an `applied` column change OR add-view: which way the inline Undo
+   * reverses the change. `"hide"` means the change SHOWED a column (an add-field;
+   * Undo hides it), `"show"` means the change HID a column (a hide-field; Undo
+   * shows it again), `"remove"` means the change ADDED a view (an add-view; Undo
+   * removes that just-added view via the `remove_view` path, keyed by `viewKey`).
+   * The client drives the matching Undo from this direction. Absent → no Undo.
    */
-  undo?: "hide" | "show";
+  undo?: "hide" | "show" | "remove";
   /** Present on `applied`: the added column's / hidden column's / new table's / new view's label, for the success message. */
   label?: string;
   /** Always a translated, human-readable sentence. Never raw JSON/SQL/errors. */
@@ -115,10 +125,12 @@ type GeminiEditorOutput = {
     | "add_table"
     | "add_view"
     | "hide_field"
+    | "remove_view"
     | "needs_clarification"
     | "out_of_scope";
   tableKey?: unknown;
   fieldKey?: unknown;
+  viewKey?: unknown;
   sourceTableKey?: unknown;
   label?: unknown;
   type?: unknown;
@@ -193,6 +205,15 @@ export async function POST(
           })),
       }),
     );
+    // The existing views the model may be asked to REMOVE (Story 5.6) — exact
+    // key + label + source table, so a remove request resolves to one real view.
+    const views: ChatViewSummary[] = visibleViews(schemaResult.data).map(
+      (view) => ({
+        key: view.key,
+        label: view.label,
+        sourceTableKey: view.sourceTableKey,
+      }),
+    );
 
     // 7. ONE hardened, timeout-wrapped Gemini call. Any failure (timeout, parse,
     //    network) is caught below and degrades gracefully — CRUD is never blocked.
@@ -200,6 +221,7 @@ export async function POST(
     try {
       const prompt = buildEditorPrompt(message, {
         tables,
+        views,
         currentTableKey: currentTableKey ?? null,
         conversation,
       });
@@ -436,14 +458,17 @@ export async function POST(
         }
 
         // Surface-only navigation: the success copy points the Admin to the new
-        // view in the switcher (the client's router.refresh makes it appear). No
-        // fieldKey/undo → the client shows no Undo. Story 5.5 added only COLUMN
-        // hide; view hide (and an add-view Undo) are deferred to a follow-up.
+        // view in the switcher (the client's router.refresh makes it appear). The
+        // result now carries `undo: "remove"` + the created `viewKey` so the chat
+        // bubble offers a one-tap Undo that removes the just-added view via the
+        // `remove_view` path (Story 5.6). A view holds no rows, so its removal is
+        // non-destructive and the freed key re-derives identically on re-add.
         return json(
           {
             data: {
               kind: "applied",
               viewKey: result.data.viewKey,
+              undo: "remove",
               label: output.label.trim(),
               assistantText: t("successViewAdded", {
                 view: output.label.trim(),
@@ -544,6 +569,84 @@ export async function POST(
           );
         }
         reportError(hideErr, { route: "/api/schema/edit", stage: "hide-field" });
+        return json(
+          { data: { kind: "degraded", assistantText: t("degraded") }, error: null },
+          200,
+        );
+      }
+    }
+
+    if (output.kind === "remove_view") {
+      // Remove a saved view (Story 5.6) — the ONE permitted true removal, because
+      // a view holds no rows. A shapeless remove_view (missing an exact viewKey)
+      // is treated as a rejection rather than trusted — the model must name an
+      // exact, existing view.
+      if (!isNonEmptyString(output.viewKey)) {
+        return json(
+          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+          200,
+        );
+      }
+
+      const viewKey = output.viewKey.trim();
+
+      // Resolve-before-write guard (mirrors the Story 5.5 hide_field guard):
+      // enforce the viewKey against the VIEWS summary the model was actually shown
+      // (`views`), not just the model's obedience. A key outside it (a hallucinated
+      // or stale key) is NOT a removable target: reassure and write nothing. This
+      // also guarantees the label below resolves (the message never shows a raw key).
+      const targetView = views.find((view) => view.key === viewKey);
+      if (!targetView) {
+        return json(
+          {
+            data: { kind: "declined", assistantText: t("declineFallback") },
+            error: null,
+          },
+          200,
+        );
+      }
+
+      try {
+        const result = await removeView(identity, viewKey);
+
+        if (!result.data) {
+          // Defensive: the guarded layer throws on failure, so this is unreachable
+          // in practice — treat as a rejection rather than leak anything.
+          return json(
+            {
+              data: { kind: "rejected", assistantText: t("rejection") },
+              error: null,
+            },
+            200,
+          );
+        }
+
+        return json(
+          {
+            data: {
+              kind: "applied",
+              viewKey,
+              label: targetView.label,
+              assistantText: t("viewRemoved", { view: targetView.label }),
+            },
+            error: null,
+          },
+          200,
+        );
+      } catch (removeErr) {
+        // A missing view is `AppError(400)` from the mutator — map it to a
+        // reassuring decline (nothing was written), NOT a rejection/error screen.
+        // A 5xx degrades gracefully. No raw detail ever reaches the user.
+        if (removeErr instanceof AppError && removeErr.statusCode === 400) {
+          return json(
+            {
+              data: { kind: "declined", assistantText: t("declineFallback") },
+              error: null,
+            },
+            200,
+          );
+        }
+        reportError(removeErr, { route: "/api/schema/edit", stage: "remove-view" });
         return json(
           { data: { kind: "degraded", assistantText: t("degraded") }, error: null },
           200,

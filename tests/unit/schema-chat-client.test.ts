@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   postEditorChat,
+  postRemoveView,
+  postRestoreView,
   postSetColumnVisibility,
   SchemaChatError,
 } from "@/lib/data/schema-chat-client";
+import type { ViewDefinition } from "@/types/db";
 
 /**
  * Unit coverage for the conversational chat client wrappers (Story 5.1, 5.2, 5.5).
@@ -188,5 +191,76 @@ describe("postEditorChat (Story 5.1, 5.2)", () => {
     await expect(
       postEditorChat({ slug: "acme", message: "add a column" }),
     ).rejects.toBeInstanceOf(SchemaChatError);
+  });
+});
+
+describe("postRemoveView / postRestoreView (Story 5.6)", () => {
+  const view: ViewDefinition = {
+    key: "unpaid_invoices",
+    label: "Unpaid invoices",
+    sourceTableKey: "invoices",
+    filters: [{ field: "status", operator: "equals", value: "unpaid" }],
+    sort: { field: "due_date", direction: "desc" },
+  };
+
+  it("postRemoveView POSTs action:remove + viewKey and returns the removed def", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ data: { action: "remove", view }, error: null }),
+    );
+
+    await expect(postRemoveView("acme", "unpaid_invoices")).resolves.toEqual(view);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/schema/views");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      slug: "acme",
+      action: "remove",
+      viewKey: "unpaid_invoices",
+    });
+  });
+
+  it("postRestoreView POSTs action:restore + the view payload", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ data: { action: "restore", viewKey: "unpaid_invoices" }, error: null }),
+    );
+
+    await expect(postRestoreView("acme", view)).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/schema/views");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      slug: "acme",
+      action: "restore",
+      view: {
+        label: "Unpaid invoices",
+        sourceTableKey: "invoices",
+        filters: [{ field: "status", operator: "equals", value: "unpaid" }],
+        sort: { field: "due_date", direction: "desc" },
+      },
+    });
+  });
+
+  it("postRemoveView throws SchemaChatError with the server code on a forbidden write", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ data: null, error: "forbidden" }, false, 403),
+    );
+
+    await expect(postRemoveView("acme", "unpaid_invoices")).rejects.toMatchObject({
+      name: "SchemaChatError",
+      code: "forbidden",
+    });
+  });
+
+  it("postRestoreView throws SchemaChatError('genericError') on a network failure", async () => {
+    fetchMock.mockRejectedValue(new Error("network down"));
+
+    await expect(postRestoreView("acme", view)).rejects.toMatchObject({
+      name: "SchemaChatError",
+      code: "genericError",
+    });
   });
 });

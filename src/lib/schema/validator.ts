@@ -68,6 +68,12 @@ export const PERMITTED_OPERATIONS = [
   "add_table",
   "add_view",
   "hide_field",
+  // Story 5.6: the ONE permitted true removal. A view holds no rows, so deleting
+  // its definition is inherently non-destructive (there is no view visibility
+  // flag; the view is removed outright and re-added on Undo). It rides this same
+  // allowlist + raw-SQL fence rather than being exempted. Its op name contains no
+  // BLOCKED_KEYWORDS substring, so the blocklist is unchanged.
+  "remove_view",
 ] as const;
 
 export type PermittedOperation = (typeof PERMITTED_OPERATIONS)[number];

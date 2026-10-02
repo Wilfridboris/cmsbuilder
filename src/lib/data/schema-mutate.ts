@@ -2,12 +2,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
+import type { ViewDefinition } from "@/types/db";
 import { getSchema } from "@/lib/data/records";
 import {
   addField as addFieldTransform,
   addRelationField as addRelationFieldTransform,
   addTable as addTableTransform,
   addView as addViewTransform,
+  removeView as removeViewTransform,
   hideField,
   showField,
 } from "@/lib/schema/overrides";
@@ -384,6 +386,70 @@ export async function addView(
     }
 
     return { data: { viewKey: result.view.key }, error: null };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/**
+ * Remove an Admin-named view from the org schema (Story 5.6 — remove a view via
+ * chat, and the tab-surface "Remove view" control). Mirrors `addView`'s guarded
+ * read-validate-write contract:
+ *   - read the org's CURRENT authoritative definition under the RLS client;
+ *   - a missing/empty `viewKey`, or a `viewKey` that resolves to no stored view,
+ *     is `AppError(400, "removeViewFailed")` with NO write — the server never
+ *     trusts a client-supplied key and never removes a view that is not there;
+ *   - apply the pure `removeView` transform (true removal — a view holds no rows,
+ *     so no `records` row is ever touched; every table is untouched);
+ *   - write the full definition back under the RLS client (tenant-isolation policy
+ *     scopes the UPDATE to the caller's own org).
+ *
+ * A client can never post an arbitrary schema — the definition is always
+ * re-derived from the stored one and only an EXISTING view is removed. Returns the
+ * REMOVED `ViewDefinition` so a restore/Undo can re-add it unchanged through
+ * `addView` (the freed key re-derives identically). Raw SQL is never leaked.
+ */
+export async function removeView(
+  identity: SchemaMutateIdentity,
+  viewKey: string,
+): Promise<ApiResponse<{ view: ViewDefinition }>> {
+  try {
+    const { client, orgId } = identity;
+
+    // 1. Read the org's CURRENT authoritative definition under the RLS client.
+    const current = await getSchema(client, orgId);
+    if (current.error || !current.data) {
+      throw new AppError(500, "writeFailed");
+    }
+    const schema = current.data;
+
+    // 2. Verify the targeted view actually exists. A missing/empty key, or a key
+    //    that names no stored view, is a 400 with NO write — the server never
+    //    trusts a client-supplied identifier and never removes a phantom view.
+    const key = typeof viewKey === "string" ? viewKey.trim() : "";
+    const removed = (schema.views ?? []).find((view) => view.key === key);
+    if (!key || !removed) {
+      throw new AppError(400, "removeViewFailed");
+    }
+
+    // 3. Apply the pure, immutable transform (only the one view is dropped; every
+    //    table and every records row is untouched).
+    const next = removeViewTransform(schema, key);
+
+    // 4. Persist the full definition back under the RLS client.
+    const { error } = await client
+      .from("org_schemas")
+      .update({ definition: next, updated_at: new Date().toISOString() })
+      .eq("organization_id", orgId);
+
+    if (error) {
+      throw new AppError(500, "writeFailed", error.message);
+    }
+
+    return { data: { view: removed }, error: null };
   } catch (err) {
     if (err instanceof AppError) {
       throw err;

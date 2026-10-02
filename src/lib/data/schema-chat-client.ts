@@ -1,6 +1,7 @@
 import type { ApiResponse } from "@/types/api";
 import type { EditorChatResult } from "@/app/api/schema/edit/route";
 import type { ChatTurn } from "@/lib/gemini/prompts";
+import type { ViewDefinition } from "@/types/db";
 
 /**
  * Client-side fetch wrapper for the conversational schema editor endpoint (Story
@@ -90,6 +91,90 @@ export async function postSetColumnVisibility(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ slug, tableKey, fieldKey, hidden }),
+    });
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  let body: { error: string | null } | null = null;
+  try {
+    body = (await res.json()) as { error: string | null };
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  if (!res.ok || body?.error) {
+    throw new SchemaChatError(body?.error ?? "genericError");
+  }
+}
+
+/**
+ * Remove a saved view by its key (Story 5.6) through the direct, non-LLM
+ * `POST /api/schema/views` (`action: "remove"`). Used by the view-tab "Remove
+ * view" control and the add-view chat-bubble Undo (removing the just-added view).
+ * Returns the REMOVED `ViewDefinition` so the caller can offer a restore/Undo that
+ * re-adds it unchanged. A view holds no rows, so this removal is non-destructive.
+ * Throws `SchemaChatError` on a true transport/auth failure so the caller can show
+ * a translated retry message — a raw error, stack, or SQL never reaches the UI.
+ */
+export async function postRemoveView(
+  slug: string,
+  viewKey: string,
+): Promise<ViewDefinition> {
+  let res: Response;
+  try {
+    res = await fetch("/api/schema/views", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, action: "remove", viewKey }),
+    });
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  let body: ApiResponse<{ action: "remove"; view: ViewDefinition }> | null = null;
+  try {
+    body = (await res.json()) as ApiResponse<{
+      action: "remove";
+      view: ViewDefinition;
+    }>;
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  if (!res.ok || body.error !== null || body.data === null) {
+    throw new SchemaChatError(body?.error ?? "genericError");
+  }
+  return body.data.view;
+}
+
+/**
+ * Restore a previously-removed view (the Undo of a removal, Story 5.6) through the
+ * direct, non-LLM `POST /api/schema/views` (`action: "restore"`). Re-adds the
+ * view's `{label, sourceTableKey, filters, sort}` via the already-validated
+ * `addView`; because the removed key's slot is free, the same view key re-derives.
+ * Throws `SchemaChatError` on a true transport/auth failure so the caller can show
+ * a translated retry message — a raw error, stack, or SQL never reaches the UI.
+ */
+export async function postRestoreView(
+  slug: string,
+  view: ViewDefinition,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch("/api/schema/views", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        slug,
+        action: "restore",
+        view: {
+          label: view.label,
+          sourceTableKey: view.sourceTableKey,
+          filters: view.filters,
+          sort: view.sort,
+        },
+      }),
     });
   } catch {
     throw new SchemaChatError("genericError");

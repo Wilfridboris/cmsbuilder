@@ -13,6 +13,7 @@ import {
   Eye,
   ListFilter,
   Maximize2,
+  MoreHorizontal,
   Trash2,
 } from "lucide-react";
 
@@ -41,8 +42,17 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { fetchRecords } from "@/lib/data/records-client";
+import {
+  postRemoveView,
+  postRestoreView,
+} from "@/lib/data/schema-chat-client";
 import { AddRecordForm } from "@/components/dashboard/AddRecordForm";
 import { DeleteConfirmDialog } from "@/components/dashboard/DeleteConfirmDialog";
 import { RecordReverseListDialog } from "@/components/dashboard/RecordReverseListDialog";
@@ -141,6 +151,24 @@ export function RecordsView({
   const router = useRouter();
   const [activeIndex, setActiveIndex] = useState(0);
 
+  // Story 5.6: the Admin-only "Remove view" tab control. Removal is optimistic —
+  // the view key is added to `removedViewKeys` so its tab disappears immediately —
+  // and an inline Undo banner (in the StatusMessage region) offers to restore it
+  // unchanged via the direct `/api/schema/views` path. A view holds no rows, so
+  // removal is non-destructive. On failure the tab is restored and a reassuring
+  // banner is shown. `router.refresh()` reconciles with the server after each.
+  const [removedViewKeys, setRemovedViewKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [viewUndo, setViewUndo] = useState<{
+    view: ViewDefinition;
+    busy: boolean;
+  } | null>(null);
+  const [viewError, setViewError] = useState<string | null>(null);
+  // A brief, neutral confirmation shown after a successful Undo-restore (Story 5.6).
+  const [viewNotice, setViewNotice] = useState<string | null>(null);
+  const [removingViewKey, setRemovingViewKey] = useState<string | null>(null);
+
   // The switcher's tabs are the tables followed by the saved views (Story 5.3).
   // A `view` tab drives its SOURCE table's rows through the view's saved
   // filters/sort; a `table` tab is the plain surface. A view whose source table
@@ -160,7 +188,10 @@ export function RecordsView({
       view: null as ViewDefinition | null,
     }));
     const viewTabs = views
-      .filter((view) => tableByKey.has(view.sourceTableKey))
+      .filter(
+        (view) =>
+          tableByKey.has(view.sourceTableKey) && !removedViewKeys.has(view.key),
+      )
       .map((view) => ({
         kind: "view" as const,
         id: `view:${view.key}`,
@@ -169,7 +200,7 @@ export function RecordsView({
         view,
       }));
     return [...tableTabs, ...viewTabs];
-  }, [tables, views, tableByKey]);
+  }, [tables, views, tableByKey, removedViewKeys]);
 
   const safeIndex = Math.min(activeIndex, selections.length - 1);
   const activeSelection = selections[safeIndex];
@@ -297,6 +328,56 @@ export function RecordsView({
     setActiveIndex(clampTableIndex(index, selections.length));
   };
 
+  // Optimistically remove a view (Admin tab control, Story 5.6): hide its tab now,
+  // then call the direct endpoint. On success offer an inline Undo + refresh; on
+  // failure restore the tab and show a reassuring banner. A view holds no rows.
+  const handleRemoveView = async (view: ViewDefinition) => {
+    if (removingViewKey) return;
+    setViewError(null);
+    setViewNotice(null);
+    setViewUndo(null);
+    setRemovingViewKey(view.key);
+    setRemovedViewKeys((prev) => new Set(prev).add(view.key));
+    try {
+      await postRemoveView(slug, view.key);
+      setViewUndo({ view, busy: false });
+      router.refresh();
+    } catch {
+      // Roll back the optimistic removal and reassure (nothing was deleted).
+      setRemovedViewKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(view.key);
+        return next;
+      });
+      setViewError(t("removeViewFailed"));
+    } finally {
+      setRemovingViewKey(null);
+    }
+  };
+
+  // Undo a tab removal: restore the view unchanged via the direct endpoint, then
+  // drop it from the optimistic-removed set and refresh so the tab returns.
+  const handleUndoRemoveView = async () => {
+    if (!viewUndo || viewUndo.busy) return;
+    const { view } = viewUndo;
+    setViewUndo({ view, busy: true });
+    try {
+      await postRestoreView(slug, view);
+      setRemovedViewKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(view.key);
+        return next;
+      });
+      setViewUndo(null);
+      // Confirm the restore (I/O matrix: a tab-removal Undo shows `viewRestored`).
+      setViewNotice(t("viewRestored", { view: view.label }));
+      router.refresh();
+    } catch {
+      setViewUndo({ view, busy: false });
+      setViewError(t("restoreViewFailed"));
+    }
+  };
+
   const swipeHandlers = useSwipeable({
     onSwipedLeft: () => goTo(safeIndex + 1),
     onSwipedRight: () => goTo(safeIndex - 1),
@@ -315,54 +396,92 @@ export function RecordsView({
           {selections.map((selection, index) => {
             const selected = index === safeIndex;
             const isView = selection.kind === "view";
+            // Story 5.6: an Admin gets a per-view overflow menu ("Remove view")
+            // tucked against the tab. Members never see it (the server route's
+            // requireAdmin is the real gate). A table tab never gets one.
+            const showViewMenu = isView && role === "admin" && selection.view;
             return (
-              <button
+              <div
                 key={selection.id}
-                type="button"
-                role="tab"
-                id={`records-tab-${selection.id}`}
-                aria-selected={selected}
-                aria-controls={`records-panel-${selection.id}`}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => goTo(index)}
-                onKeyDown={(event) => {
-                  const count = selections.length;
-                  let next: number | null = null;
-                  if (event.key === "ArrowRight") next = (index + 1) % count;
-                  else if (event.key === "ArrowLeft")
-                    next = (index - 1 + count) % count;
-                  else if (event.key === "Home") next = 0;
-                  else if (event.key === "End") next = count - 1;
-                  if (next === null) return;
-                  event.preventDefault();
-                  goTo(next);
-                  document
-                    .getElementById(`records-tab-${selections[next].id}`)
-                    ?.focus();
-                }}
                 className={cn(
-                  "relative flex min-h-12 min-w-12 items-center gap-1.5 rounded-t-md px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                  selected
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
+                  "relative flex items-center",
+                  showViewMenu ? "pr-1" : null,
                 )}
               >
-                {isView ? (
-                  <ListFilter
-                    aria-hidden="true"
-                    className="size-3.5 shrink-0 text-primary/70"
-                  />
+                <button
+                  type="button"
+                  role="tab"
+                  id={`records-tab-${selection.id}`}
+                  aria-selected={selected}
+                  aria-controls={`records-panel-${selection.id}`}
+                  tabIndex={selected ? 0 : -1}
+                  onClick={() => goTo(index)}
+                  onKeyDown={(event) => {
+                    const count = selections.length;
+                    let next: number | null = null;
+                    if (event.key === "ArrowRight") next = (index + 1) % count;
+                    else if (event.key === "ArrowLeft")
+                      next = (index - 1 + count) % count;
+                    else if (event.key === "Home") next = 0;
+                    else if (event.key === "End") next = count - 1;
+                    if (next === null) return;
+                    event.preventDefault();
+                    goTo(next);
+                    document
+                      .getElementById(`records-tab-${selections[next].id}`)
+                      ?.focus();
+                  }}
+                  className={cn(
+                    "relative flex min-h-12 min-w-12 items-center gap-1.5 rounded-t-md px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                    showViewMenu ? "pr-1" : null,
+                    selected
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {isView ? (
+                    <ListFilter
+                      aria-hidden="true"
+                      className="size-3.5 shrink-0 text-primary/70"
+                    />
+                  ) : null}
+                  <span className="truncate">
+                    {isView ? t("viewTabLabel", { view: selection.label }) : selection.label}
+                  </span>
+                  {selected ? (
+                    <span
+                      aria-hidden="true"
+                      className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary"
+                    />
+                  ) : null}
+                </button>
+                {showViewMenu ? (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0 text-muted-foreground hover:text-foreground"
+                        aria-label={t("viewTabMenu", { view: selection.label })}
+                      >
+                        <MoreHorizontal aria-hidden="true" className="size-4" />
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-44 p-1">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-sm px-2 py-2 text-left text-sm text-destructive transition-colors hover:bg-destructive/10 focus-visible:bg-destructive/10 focus-visible:outline-none disabled:opacity-60"
+                        disabled={removingViewKey !== null}
+                        onClick={() => void handleRemoveView(selection.view!)}
+                      >
+                        <Trash2 aria-hidden="true" className="size-4 shrink-0" />
+                        {t("removeView")}
+                      </button>
+                    </PopoverContent>
+                  </Popover>
                 ) : null}
-                <span className="truncate">
-                  {isView ? t("viewTabLabel", { view: selection.label }) : selection.label}
-                </span>
-                {selected ? (
-                  <span
-                    aria-hidden="true"
-                    className="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-primary"
-                  />
-                ) : null}
-              </button>
+              </div>
             );
           })}
         </div>
@@ -381,6 +500,24 @@ export function RecordsView({
       >
         {/* Rollback / error line for the whole surface. */}
         <StatusMessage message={actions.message} />
+
+        {/* Story 5.6: the view-removal error line (reassuring, non-technical). */}
+        <StatusMessage message={viewError} />
+
+        {/* Story 5.6: the inline "view removed" Undo banner. Reuses the same
+            animated region; its Undo restores the view unchanged. */}
+        <ViewRemovedBanner
+          message={
+            viewUndo ? t("viewRemovedUndo", { view: viewUndo.view.label }) : null
+          }
+          undoLabel={t("undo")}
+          onUndo={() => void handleUndoRemoveView()}
+          busy={viewUndo?.busy ?? false}
+        />
+
+        {/* Story 5.6: the neutral "view restored" confirmation after a tab-removal
+            Undo. Reuses the same animated region (no new toast dependency). */}
+        <ViewNotice message={viewNotice} />
 
         {/* Filter & sort toolbar — governs both the table and the cards. The
             Admin-only Columns manager (Story 3.5) sits alongside it in the same
@@ -600,6 +737,76 @@ function StatusMessage({ message }: { message: string | null }) {
           exit={{ opacity: 0 }}
           role="alert"
           className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {message}
+        </motion.p>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * The inline "view removed" Undo banner (Story 5.6). Reuses the same animated
+ * region as `StatusMessage` (no new toast dependency) but carries a neutral,
+ * reassuring tone and a one-tap Undo that restores the removed view unchanged.
+ */
+function ViewRemovedBanner({
+  message,
+  undoLabel,
+  onUndo,
+  busy,
+}: {
+  message: string | null;
+  undoLabel: string;
+  onUndo: () => void;
+  busy: boolean;
+}) {
+  const prefersReducedMotion = useReducedMotion();
+  return (
+    <AnimatePresence>
+      {message ? (
+        <motion.div
+          key="view-removed"
+          initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted px-3 py-2 text-sm text-foreground"
+        >
+          <span>{message}</span>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-9"
+            disabled={busy}
+            onClick={onUndo}
+          >
+            {undoLabel}
+          </Button>
+        </motion.div>
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
+/**
+ * A brief, neutral confirmation line (Story 5.6) — the "view restored" message
+ * after a tab-removal Undo. Reuses the same animated region as `StatusMessage`
+ * (no toast dependency) with a reassuring, non-destructive tone.
+ */
+function ViewNotice({ message }: { message: string | null }) {
+  const prefersReducedMotion = useReducedMotion();
+  return (
+    <AnimatePresence>
+      {message ? (
+        <motion.p
+          key="view-notice"
+          initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0 }}
+          role="status"
+          className="rounded-md bg-muted px-3 py-2 text-sm text-foreground"
         >
           {message}
         </motion.p>

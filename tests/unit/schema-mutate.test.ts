@@ -20,8 +20,14 @@ const getSchema = vi.fn();
 vi.mock("@/lib/data/records", () => ({ getSchema }));
 
 // Imported AFTER the mock so the layer picks up the stubbed getSchema.
-const { setFieldVisibility, addRelationField, addField, addTable, addView } =
-  await import("@/lib/data/schema-mutate");
+const {
+  setFieldVisibility,
+  addRelationField,
+  addField,
+  addTable,
+  addView,
+  removeView,
+} = await import("@/lib/data/schema-mutate");
 
 function baseSchema(): SchemaDefinition {
   return {
@@ -65,6 +71,28 @@ function invoicesSchema(): SchemaDefinition {
           { key: "status", label: "Status", type: "text" },
           { key: "due_date", label: "Due date", type: "date" },
         ],
+      },
+    ],
+  };
+}
+
+function invoicesWithViewsSchema(): SchemaDefinition {
+  return {
+    tables: invoicesSchema().tables,
+    views: [
+      {
+        key: "unpaid_invoices",
+        label: "Unpaid invoices",
+        sourceTableKey: "invoices",
+        filters: [{ field: "status", operator: "equals", value: "unpaid" }],
+        sort: { field: "due_date", direction: "desc" },
+      },
+      {
+        key: "overdue",
+        label: "Overdue",
+        sourceTableKey: "invoices",
+        filters: [{ field: "status", operator: "equals", value: "overdue" }],
+        sort: null,
       },
     ],
   };
@@ -547,6 +575,84 @@ describe("addView (Story 5.3)", () => {
       filters: [{ field: "status", operator: "equals", value: "unpaid" }],
       sort: null,
     }).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
+    expect((err as { userMessage: string }).userMessage).not.toContain("boom");
+  });
+});
+
+describe("removeView (Story 5.6)", () => {
+  it("removes only the target view, returns the removed def, writes the re-derived definition scoped to the org", async () => {
+    getSchema.mockResolvedValue({ data: invoicesWithViewsSchema(), error: null });
+
+    const res = await removeView(identity(), "unpaid_invoices");
+
+    expect(res.error).toBeNull();
+    // The removed definition is returned so a restore/Undo can re-add it unchanged.
+    expect(res.data).toEqual({
+      view: {
+        key: "unpaid_invoices",
+        label: "Unpaid invoices",
+        sourceTableKey: "invoices",
+        filters: [{ field: "status", operator: "equals", value: "unpaid" }],
+        sort: { field: "due_date", direction: "desc" },
+      },
+    });
+
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    expect(eqArgs).toEqual(["organization_id", "org-1"]);
+
+    const def = updatePayload?.definition as SchemaDefinition;
+    // Only the one view is dropped; the sibling view remains; no table/row touched.
+    expect(def.views?.map((v) => v.key)).toEqual(["overdue"]);
+    expect(def.tables).toEqual(invoicesSchema().tables);
+    expect(updatePayload).toHaveProperty("updated_at");
+  });
+
+  it("400 removeViewFailed with NO write when the view key does not exist", async () => {
+    getSchema.mockResolvedValue({ data: invoicesWithViewsSchema(), error: null });
+
+    await expect(
+      removeView(identity(), "does_not_exist"),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "removeViewFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("400 removeViewFailed with NO write when the view key is empty", async () => {
+    getSchema.mockResolvedValue({ data: invoicesWithViewsSchema(), error: null });
+
+    await expect(removeView(identity(), "")).rejects.toMatchObject({
+      statusCode: 400,
+      userMessage: "removeViewFailed",
+    });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("400 removeViewFailed with NO write when the schema has no views at all", async () => {
+    getSchema.mockResolvedValue({ data: invoicesSchema(), error: null });
+
+    await expect(
+      removeView(identity(), "unpaid_invoices"),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "removeViewFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("500 writeFailed with NO write when the schema read fails", async () => {
+    getSchema.mockResolvedValue({ data: null, error: "read boom" });
+
+    await expect(
+      removeView(identity(), "unpaid_invoices"),
+    ).rejects.toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("500 writeFailed when the UPDATE errors, never leaking the raw message", async () => {
+    getSchema.mockResolvedValue({ data: invoicesWithViewsSchema(), error: null });
+    dbError = { message: "constraint boom" };
+
+    const err = await removeView(identity(), "unpaid_invoices").catch(
+      (e: unknown) => e,
+    );
 
     expect(err).toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
     expect((err as { userMessage: string }).userMessage).not.toContain("boom");

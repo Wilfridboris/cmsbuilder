@@ -5,12 +5,17 @@ import {
   canHideTable,
   hideField,
   hideTable,
+  removeView,
   renameField,
   renameTable,
   showField,
   visibleTables,
 } from "@/lib/schema/overrides";
-import type { FieldDefinition, SchemaDefinition } from "@/types/db";
+import type {
+  FieldDefinition,
+  SchemaDefinition,
+  ViewDefinition,
+} from "@/types/db";
 
 /**
  * Unit coverage for the pure schema-override transforms (Story 1.7). Covers the
@@ -266,5 +271,57 @@ describe("addRelationField (Story 3.7)", () => {
     const schema = makeSchema();
     const next = addRelationField(schema, "nope", relationField);
     expect(snapshot(next)).toBe(snapshot(schema));
+  });
+});
+
+describe("removeView (Story 5.6)", () => {
+  const views: ViewDefinition[] = [
+    {
+      key: "unpaid",
+      label: "Unpaid",
+      sourceTableKey: "jobs",
+      filters: [{ field: "title", operator: "contains", value: "x" }],
+      sort: null,
+    },
+    {
+      key: "recent",
+      label: "Recent",
+      sourceTableKey: "jobs",
+      filters: [],
+      sort: { field: "price", direction: "desc" },
+    },
+  ];
+
+  function schemaWithViews(): SchemaDefinition {
+    return { ...makeSchema(), views: views.map((v) => ({ ...v })) };
+  }
+
+  it("filters out ONLY the matching view (a true removal, not a flag)", () => {
+    const next = removeView(schemaWithViews(), "unpaid");
+    expect(next.views?.map((v) => v.key)).toEqual(["recent"]);
+    // The removed view is gone entirely — no hidden flag is set on it.
+    expect(next.views?.find((v) => v.key === "unpaid")).toBeUndefined();
+  });
+
+  it("leaves tables and rows metadata untouched", () => {
+    const next = removeView(schemaWithViews(), "unpaid");
+    expect(next.tables).toEqual(makeSchema().tables);
+  });
+
+  it("does not mutate the input schema", () => {
+    const schema = schemaWithViews();
+    const before = snapshot(schema);
+    removeView(schema, "unpaid");
+    expect(snapshot(schema)).toBe(before);
+  });
+
+  it("is a no-op for an unknown view key (keeps all views)", () => {
+    const next = removeView(schemaWithViews(), "nope");
+    expect(next.views?.map((v) => v.key)).toEqual(["unpaid", "recent"]);
+  });
+
+  it("is safe on a schema with no views", () => {
+    const next = removeView(makeSchema(), "unpaid");
+    expect(next.views).toEqual([]);
   });
 });

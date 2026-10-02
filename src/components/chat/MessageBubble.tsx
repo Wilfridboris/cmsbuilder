@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, EyeOff, ListFilter, Table2 } from "lucide-react";
+import { Check, EyeOff, FilterX, ListFilter, Table2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -14,7 +14,10 @@ import { cn } from "@/lib/utils";
  * the copy points the Admin to the new table in the switcher, and there is NO Undo
  * (table visibility is deferred), so it is passed no `children`. An `appliedView`
  * (add-view, Story 5.3) success bubble is identical but swaps in a filter glyph and
- * likewise has no Undo. A `hidden` (hide-column, Story 5.5 — the SAFE answer to
+ * likewise has no Undo. A `removedView` (remove-view via chat, Story 5.6) success
+ * bubble swaps in a muted filter-off glyph — a view holds no rows, so its removal is
+ * safe — and has no Undo (the removal was the request). A `hidden` (hide-column,
+ * Story 5.5 — the SAFE answer to
  * "delete this column") bubble swaps in a reassuring amber eye-off glyph and DOES
  * carry a one-tap "show again" Undo as `children` (the data is never deleted).
  *
@@ -30,6 +33,7 @@ export type BubbleVariant =
   | "applied"
   | "appliedTable"
   | "appliedView"
+  | "removedView"
   | "hidden"
   | "declined"
   | "degraded";
@@ -47,6 +51,7 @@ export function MessageBubble({
   const isApplied = variant === "applied";
   const isAppliedTable = variant === "appliedTable";
   const isAppliedView = variant === "appliedView";
+  const isRemovedView = variant === "removedView";
   const isHidden = variant === "hidden";
 
   return (
@@ -81,6 +86,15 @@ export function MessageBubble({
             <ListFilter
               aria-hidden="true"
               className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+            />
+          ) : null}
+          {isRemovedView ? (
+            // A view removal is not a creation and not a hide — a muted filter-off
+            // glyph marks "view cleared away" distinctly from the emerald "created"
+            // states and the amber hide. Safe: a view holds no rows.
+            <FilterX
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-zinc-500 dark:text-zinc-400"
             />
           ) : null}
           {isHidden ? (
