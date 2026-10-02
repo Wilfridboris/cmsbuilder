@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Sparkles } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -11,22 +10,25 @@ import { useActiveTable } from "@/components/dashboard/ActiveTableProvider";
 import { ChatPanel } from "@/components/chat/ChatPanel";
 
 /**
- * ChatAssistant (Story 5.1) — the Admin-only floating "AI Assistant" entry point.
+ * ChatAssistant (Story 5.1, 5.2) — the Admin-only floating "AI Assistant" entry
+ * point.
  *
- * Renders a glass pill fixed bottom-right. Tapping it expands the iMessage-style
- * `ChatPanel` with a Framer Motion open/close transition (the justified FM use is
- * the exit animation). It is mounted by `[slug]/layout.tsx` ONLY when the caller's
- * role is admin — a Member never receives it (the server endpoint's `requireAdmin`
- * is the real gate). It reads the currently-viewed table key from
+ * Renders a glass pill fixed bottom-right. Tapping it mounts the iMessage-style
+ * `ChatPanel`, whose portaled, position:fixed Radix content animates itself in with
+ * CSS (`animate-in` zoom/fade). We deliberately do NOT wrap it in a Framer Motion
+ * element: that wrapper stays in the document flow while its content is portaled
+ * away, so animating its transform briefly extended the page and flashed the window
+ * scrollbar on open/close. It is mounted by `[slug]/layout.tsx` ONLY when the
+ * caller's role is admin — a Member never receives it (the server endpoint's
+ * `requireAdmin` is the real gate). It reads the currently-viewed table key from
  * `ActiveTableProvider` so an unnamed add-column request can be inferred, and runs
  * `router.refresh()` after an applied add / undo so the server re-reads the schema
- * and the column appears/disappears without a full reload.
+ * and the column/table appears without a full reload.
  */
 
 export function ChatAssistant({ slug }: { slug: string }) {
   const t = useTranslations("ChatAssistant");
   const router = useRouter();
-  const prefersReducedMotion = useReducedMotion();
   const { activeTableKey } = useActiveTable();
   const [open, setOpen] = useState(false);
   const pillRef = useRef<HTMLButtonElement>(null);
@@ -59,32 +61,14 @@ export function ChatAssistant({ slug }: { slug: string }) {
         </button>
       ) : null}
 
-      <AnimatePresence>
-        {open ? (
-          <motion.div
-            key="chat-panel"
-            initial={
-              prefersReducedMotion
-                ? { opacity: 0 }
-                : { opacity: 0, scale: 0.95, y: 8 }
-            }
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={
-              prefersReducedMotion
-                ? { opacity: 0 }
-                : { opacity: 0, scale: 0.95, y: 8 }
-            }
-            transition={{ type: "spring", bounce: 0.2, duration: 0.5 }}
-          >
-            <ChatPanel
-              slug={slug}
-              activeTableKey={activeTableKey}
-              onClose={() => setOpen(false)}
-              onSchemaChanged={() => router.refresh()}
-            />
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+      {open ? (
+        <ChatPanel
+          slug={slug}
+          activeTableKey={activeTableKey}
+          onClose={() => setOpen(false)}
+          onSchemaChanged={() => router.refresh()}
+        />
+      ) : null}
     </>
   );
 }
