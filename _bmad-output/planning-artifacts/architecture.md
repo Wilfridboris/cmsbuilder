@@ -26,6 +26,8 @@ status: 'complete'
 completedAt: '2026-05-17'
 revisedAt: '2026-09-27'
 revisionHistory:
+  - date: '2026-10-02'
+    changes: 'Added single-select list-of-values field type (§Conversational Editor / Schema Validator); FieldType gains ''select'' + SelectOption + SchemaField.options. SchemaOperation gains remove_view (FR97), hide_table (FR98), and add/rename/archive_select_option (FR96). org_schemas tables gain a table-level hidden flag. Schema Validator allowlist extended (blocklist unchanged). Non-empty add/edit validation (FR99). MVP FR96–FR99. Per sprint-change-proposal-2026-10-02.'
   - date: '2026-09-27'
     changes: 'Reconciled to PRD invoice-to-cash pivot. Removed usage-based metering (flat tiers replace it); added the Invoicing, Payments & Delivery MVP module (FR82–95) as a fixed compliant module in dedicated typed platform tables with in-house PDF (@react-pdf/renderer) frozen to Supabase Storage, out-of-band payment tracking, and multi-channel PDF delivery. See changeNote.'
   - date: '2026-09-26'
@@ -421,13 +423,25 @@ Re-evaluate all three at the NFR-SC3 ceiling (20 tables / 50k rows per org).
 ```typescript
 // src/lib/schema/validator.ts
 // Validates schema-METADATA operations (never DDL — no SQL is generated in this architecture).
-const PERMITTED_OPERATIONS = ['add_table', 'add_field', 'add_view'] as const; // MVP append-only set
+const PERMITTED_OPERATIONS = [
+  'add_table', 'add_field', 'add_view',                              // append-only additive set
+  'remove_view', 'hide_table',                                       // FR97/FR98 — safe (no row deletion)
+  'add_select_option', 'rename_select_option', 'archive_select_option', // FR96 — list-of-values management
+] as const; // MVP set — every op is non-destructive on stored rows
 const RESERVED_KEYS = ['id', 'organization_id', 'table_key', 'data', 'created_at', 'updated_at', 'deleted_at'];
 const BLOCKED_KEYWORDS = ['DROP', 'GRANT', 'TRUNCATE', 'DELETE', 'EXEC', '--', ';', '/*']; // defense-in-depth on names
+// Note: op-type strings are NOT user-supplied free text; none of the new op names contain a
+// blocked keyword, so the blocklist is unchanged.
 
 // Reject: operations outside PERMITTED_OPERATIONS
 // Reject: table_key / field names that collide with RESERVED_KEYS (would shadow record columns)
 // Reject: any name containing a blocked keyword (belt-and-suspenders — no DDL path exists to exploit)
+// Select rule (FR96): accept add_field with dataType 'select' only with a non-empty options[]
+//         (unique, normalized values); accept add/rename/archive_select_option only against an
+//         existing field whose dataType === 'select'. archive_select_option NEVER removes the
+//         option object (sets archived:true) so existing records.data values stay valid (append-only).
+// remove_view (FR97): targets only an existing view name; never a table or field — no rows affected.
+// hide_table (FR98): sets the table-level hidden flag only; never drops rows or touches another table.
 // Relation rule (NFR-S7) — validate(op, { phase, source }). TWO-PASS: first collect every table_key in
 //         the batch, then accept a 'relation' field only if relationConfig.targetTable is in that set
 //         (self-reference and cycles ARE allowed — no DB FK exists to deadlock). Accept cardinality
@@ -965,7 +979,12 @@ NextResponse.json({ data: null, error: "User-facing message" }, { status: 4xx | 
 type SchemaOperation =
   | { type: 'add_field'; tableKey: string; field: SchemaField }
   | { type: 'add_table'; tableKey: string; fields: SchemaField[]; reason?: string }
-  | { type: 'add_view'; name: string; sourceTableKey: string; filters?: Filter[] };
+  | { type: 'add_view'; name: string; sourceTableKey: string; filters?: Filter[] }
+  | { type: 'remove_view'; name: string }                                  // FR97 — safe (view holds no rows)
+  | { type: 'hide_table'; tableKey: string }                               // FR98 — non-destructive, restorable
+  | { type: 'add_select_option'; tableKey: string; fieldKey: string; option: SelectOption }               // FR96
+  | { type: 'rename_select_option'; tableKey: string; fieldKey: string; value: string; label: string }    // FR96
+  | { type: 'archive_select_option'; tableKey: string; fieldKey: string; value: string };                 // FR96
 
 // Explainability (FR46): every generated table/field carries a plain-language reason.
 type SchemaField = {
@@ -977,9 +996,19 @@ type SchemaField = {
   sensitive?: boolean;  // drives the PIPEDA SensitivityBadge (FR40)
   hidden?: boolean;     // append-only "hide"/soft-remove (FR11, FR47) — data retained in records.data
   relationConfig?: RelationConfig; // required when dataType === 'relation' (FR70–FR72)
+  options?: SelectOption[];        // required when dataType === 'select' (FR96)
 };
 
-type FieldType = 'text' | 'number' | 'boolean' | 'date' | 'datetime' | 'email' | 'phone' | 'currency' | 'relation';
+type FieldType = 'text' | 'number' | 'boolean' | 'date' | 'datetime' | 'email' | 'phone' | 'currency' | 'relation' | 'select';
+
+// A 'select' field is a single-choice list of values (FR96). Its value in records.data is one
+// option `value`. Values are managed via the Conversational Editor (add/rename/archive) and an
+// Admin inline "+ Add value"; multi-select is Growth.
+type SelectOption = {
+  value: string;        // stable stored key written into records.data (normalized)
+  label: string;        // display text; rename edits this, stored value is unchanged
+  archived?: boolean;   // append-only "archive": kept for existing rows, not selectable for new
+};
 
 // A 'relation' field is a cross-table lookup (FR70–FR81). Its value in records.data is the
 // target record's id (single) or an id array (multi-select — Growth, FR79).
@@ -989,6 +1018,8 @@ type RelationConfig = {
 };
 // Each logical table in org_schemas also carries displayField: string (FR75) — the field used
 // to represent its records wherever they appear as a reference (picker, label, related list).
+// A logical table also carries an optional table-level hidden?: boolean (FR98) — append-only
+// table hide, mirroring the field-level hidden flag; hiding retains all rows in records.
 // MVP relations (FR70–FR78) are created at generation time or via the manual add-field UI;
 // open-ended Conversational-Editor relation creation (FR80) is Growth. See §Relationships.
 

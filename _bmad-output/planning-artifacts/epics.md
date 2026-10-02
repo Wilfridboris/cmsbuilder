@@ -353,6 +353,10 @@ This document provides the complete epic and story breakdown for Scheza, decompo
 - FR93: Epic 12 — Send PDF from the owner's own device via native share; SMS unguessable link
 - FR94: Epic 12 — Desktop send via Resend (reply-to owner) + Download PDF + Copy Link
 - FR95: Epic 12 — Language/tax from customer province; Ontario now, Quebec-ready seam
+- FR96: Epic 13 — Single-select list-of-values field; values managed via chat + inline add; archive-not-delete
+- FR97: Epic 5 — Remove a view (non-destructive; view stores no rows)
+- FR98: Epic 5 — Hide (not delete) a table; append-only, restorable
+- FR99: Epic 3 — Reject a fully-empty record on add/edit (required enforcement deferred)
 
 **Growth (post-$1K MRR)**
 
@@ -399,7 +403,7 @@ Turn a demo into a committed customer. A visitor claims their generated app via 
 
 ### Epic 3: Core Data Management (Daily Driver)
 The everyday surface: team members manage their real business records. Responsive DataTable on desktop and swipeable cards on mobile, add via schema-typed forms, inline edit-on-blur with optimistic UI, delete, filter/sort, Admin column-hide (no data loss), and real-time multi-user sync — all through the guarded `mutate.ts` layer under RLS. This is where the tool stops being a demo and becomes the business's system of record.
-**FRs covered:** FR6, FR7, FR8, FR9, FR10, FR11, FR12, FR71, FR72, FR73, FR74, FR76, FR77
+**FRs covered:** FR6, FR7, FR8, FR9, FR10, FR11, FR12, FR71, FR72, FR73, FR74, FR76, FR77, FR99
 **NFRs woven in:** NFR-P3, NFR-P4, NFR-P5, NFR-P9, NFR-A2, NFR-A3, NFR-A4, NFR-FC1
 
 > **Boundary vs Epic 1:** this epic owns the **full CRUD/real-time/filter-sort/column-hide suite on the claimed org's real data**; the pre-account demo's browse + basic edit lives in Epic 1. Depends only on Epics 1–2 (data model, `mutate.ts`, real account) — never a future epic.
@@ -459,6 +463,11 @@ The product's revenue heart: turn finished work into a sent, compliant invoice a
 **Architecture refs:** §Invoicing, Payments & Delivery — Consistency Invariants I1 (numbering), I2 (totals), I3 (HST/registration date), I4 (share_token), I5 (storage/proxy), I6 (snapshots), I7 (immutability trigger), I8 (one render path)
 
 > **🚦 Hard release gate:** an Ontario lawyer and a CPA must review the invoice templates, HST logic, and terms **before invoicing is enabled in production**. Product copy must never claim every invoice is legally compliant — only that it carries the configured compliance information. All invoice email is strictly transactional (CASL).
+
+### Epic 13: List-of-Values (Single-Select) Field Type *(MVP — added via sprint-change-proposal-2026-10-02)*
+> A single-choice "picklist" field (e.g. Status: Paid / Unpaid / Rejected), created and managed through the Conversational Editor and rendered as a dropdown everywhere data is entered. Backs the dropdowns the PRD journeys already assume. Reuses the Gemini client + Schema Validator (Epic 1) and the guarded `mutate.ts` layer (Epic 3). Plain (no colors), single-select only; value management is append-only (add / rename / archive-not-delete). Multi-select and colored pills are deferred to Growth.
+**FRs covered:** FR96
+**Depends on:** Epics 1, 3, 5 (no later epic).
 
 ---
 
@@ -791,7 +800,7 @@ So that "numéro" and "coût" become usable fields instead of collapsing and dum
 
 The everyday surface: team members manage their real business records. Responsive DataTable on desktop and swipeable cards on mobile, add via schema-typed forms, inline edit-on-blur with optimistic UI, delete, filter/sort, Admin column-hide (no data loss), and real-time multi-user sync — all through the guarded `mutate.ts` layer under RLS. This is where the tool stops being a demo and becomes the business's system of record. Operates on the claimed org's real data; depends only on Epics 1–2.
 
-*(Covers FR6, FR7, FR8, FR9, FR10, FR11, FR12. NFRs woven in: NFR-P3, NFR-P4, NFR-P5, NFR-A2, NFR-A3, NFR-A4, NFR-FC1. UX: UX-DR5, UX-DR6, UX-DR7, UX-DR8.)*
+*(Covers FR6, FR7, FR8, FR9, FR10, FR11, FR12, FR99. NFRs woven in: NFR-P3, NFR-P4, NFR-P5, NFR-A2, NFR-A3, NFR-A4, NFR-FC1. UX: UX-DR5, UX-DR6, UX-DR7, UX-DR8.)*
 
 ### Story 3.1: Responsive Table & Card Views
 
@@ -992,6 +1001,28 @@ So that I get the full picture of an account without hunting across tables.
 **When** the related list runs
 **Then** it handles single-reference relations correctly; multi-select reverse lookups are deferred to Epic 9 (FR77 scope boundary)
 
+### Story 3.10: Non-Empty Validation on Add/Edit
+
+As a team member,
+I want the form to stop me saving a completely blank record,
+So that my data stays usable.
+
+*(Added via sprint-change-proposal-2026-10-02. Covers FR99. Build the server-side empty-check on a shared validator seam, not a throwaway: it is the first slice of the broader server-side `data`-vs-schema conformance validation deferred for both the add and edit paths (`deferred-work.md`, spec-3-2 and spec-3-3), which those entries note should be shared with the Epic 5 conversational-editor guardrails.)*
+
+**Acceptance Criteria:**
+
+**Given** the Add Entry form or an inline edit
+**When** the user attempts to save a record in which every field is blank
+**Then** the write is rejected before any call to `mutate.ts`, and a translated, non-technical message is shown (never a raw error) (FR99)
+
+**Given** a save with at least one field populated
+**When** the user saves
+**Then** the record is written normally through the guarded `mutate.ts` layer (no change to existing Story 3.2 behavior)
+
+**Given** this story's scope
+**When** validation runs
+**Then** per-field required (`nullable:false`) enforcement is explicitly **out of scope** here (deferred), to keep fast mobile entry frictionless
+
 ---
 
 ## Epic 4: Data Import — CSV/Excel with AI Column Mapping
@@ -1086,7 +1117,7 @@ So that my dashboard becomes my actual system of record.
 
 The product's highest-risk surface, isolated as its own epic. An Admin evolves the app's structure by chatting — add a column, add a table, add a view — with every request forced through the Schema Validator allowlist, restricted-keyword rejection, non-destructive row preservation, and Sentry logging of rejections. Unsupported operations (delete/rename) get a safe, non-technical response and a frontend visibility change. Reuses the Gemini client and Schema Validator established in Epic 1; Admin-only per Epic 2 RBAC.
 
-*(Covers FR13, FR14, FR15, FR16, FR17, FR42, FR43, FR45. NFRs woven in: NFR-S4, NFR-S5, NFR-R1. UX: UX-DR4.)*
+*(Covers FR13, FR14, FR15, FR16, FR17, FR42, FR43, FR45, FR97, FR98. NFRs woven in: NFR-S4, NFR-S5, NFR-R1. UX: UX-DR4.)*
 
 ### Story 5.1: Add a Column via Chat
 
@@ -1196,6 +1227,58 @@ So that I stay confident in the tool instead of hitting an error.
 **Given** any unsupported request
 **When** it is handled
 **Then** no raw JSON, SQL, schema object, or error stack is ever exposed to the user
+
+### Story 5.6: Remove a View via Chat
+
+As an Admin,
+I want to remove a view I no longer need,
+So that my view list stays tidy.
+
+*(Added via sprint-change-proposal-2026-10-02. Covers FR97. **Supersedes the "hide a view / `setViewVisibility`" framing deferred from Story 5.5** (`deferred-work.md`, spec-5-5): a view is **removed**, not hidden — it stores no rows, so deletion is non-destructive and no visibility flag is built for views. Picks up the parked **Undo on add-view** from that same deferral.)*
+
+**Acceptance Criteria:**
+
+**Given** an Admin in the chat editor
+**When** they ask to remove an existing view (e.g., "remove the Unpaid view")
+**Then** the request produces a validated `remove_view` operation (allowlisted), the view definition is removed from `org_schemas`, and no rows in `records` are affected — a view stores no data (FR97, aligns FR16)
+
+**Given** the view-tab surface (RecordsView)
+**When** an Admin opens a view's overflow menu
+**Then** a "Remove view" control is available (Admins only, per Epic 2 RBAC) and removal shows a confirm toast with an Undo action
+
+**Given** a newly applied `add_view` result in chat (the Undo deferred from Story 5.5)
+**When** it is shown
+**Then** it carries an Undo affordance that removes the just-added view via the same `remove_view` path
+
+**Given** a remove-view request that names no existing view
+**When** it is processed
+**Then** the editor asks a clarifying question and removes nothing until the target is confirmed; no raw JSON/SQL/error is ever exposed
+
+### Story 5.7: Hide a Table via Chat (in place of Delete)
+
+As an Admin,
+I want a mistaken or unused table out of my way without losing its data,
+So that I can declutter safely.
+
+*(Added via sprint-change-proposal-2026-10-02. Covers FR98. Supersedes the table-delete branch of Story 5.5 — its column-hide behavior is unchanged. **Realizes the "hide a whole table via chat + persisted `setTableVisibility` mutator/route" deferred from Story 5.5** (`deferred-work.md`, spec-5-5); a pure `hideTable` transform already exists and the `route.ts` anchors (L324–326, L412–414) reserve this work. Picks up the parked **Undo on add-table** from that same deferral.)*
+
+**Acceptance Criteria:**
+
+**Given** an Admin requests deletion of a table
+**When** the request is processed
+**Then** no table or rows are deleted; the AI responds with a safe message and offers to hide it, and on confirmation a validated `hide_table` operation sets the table-level `hidden` flag in `org_schemas` (append-only) while all rows in `records` are preserved, via a persisted visibility mutator (not an in-memory transform only) (FR98, aligns FR16/FR17)
+
+**Given** a hidden table
+**When** an Admin opens the Hidden tables area (Settings)
+**Then** the table is listed and can be restored (unhidden) unchanged; true deletion remains unsupported
+
+**Given** a newly applied `add_table` result in chat (the Undo deferred from Story 5.5)
+**When** it is shown
+**Then** it carries an Undo affordance that hides the just-added table via the same `hide_table` path
+
+**Given** a Member
+**When** they use the dashboard
+**Then** the hide/restore controls are not available to them (per Epic 2 RBAC)
 
 ---
 
@@ -1718,3 +1801,123 @@ So that my records stay audit-clean and compliant.
 **Given** a credit note is finalized
 **When** it is issued
 **Then** it renders and freezes a PDF like an invoice and is itself immutable; the original issued invoice is never edited (FR88)
+
+---
+
+## Epic 13: List-of-Values (Single-Select) Field Type
+
+A single-choice "picklist" field (e.g. Status: Paid / Unpaid / Rejected), created and managed entirely through the Conversational Editor and rendered as a dropdown everywhere data is entered. This backs the dropdowns the PRD's user journeys already assume ("selects Service Complete from a dropdown"; "Type of Issue dropdown") but which had no field type behind them. Plain (no colors), single-select only. Value management is append-only: add a value, rename a value's label (stored value stays stable), and archive — never delete — a value that is in use. Reuses the Gemini client + Schema Validator (Epic 1) and the guarded `mutate.ts` layer (Epic 3); Admin-only management per Epic 2 RBAC.
+
+*(Added via sprint-change-proposal-2026-10-02. Covers FR96. NFRs woven in: NFR-S4, NFR-S5. Depends on Epics 1, 3, 5.)*
+
+### Story 13.1: Single-Select Field in the Data Model & Validator
+
+As the platform owner,
+I want the schema model and validator to understand a single-select field,
+So that every other surface can rely on a well-formed list-of-values type.
+
+**Acceptance Criteria:**
+
+**Given** the schema types
+**When** a `select` field is defined
+**Then** `FieldType` includes `'select'`, `SchemaField` carries `options: SelectOption[]`, and each `SelectOption` has a stable normalized `value`, a display `label`, and an optional `archived` flag (FR96)
+
+**Given** a proposed `add_field` with `dataType: 'select'`
+**When** the Schema Validator runs
+**Then** it is accepted only with a non-empty `options[]` of unique, normalized values, and rejected (plain-language) otherwise; reserved-key and blocklist rules are unchanged
+
+**Given** the Schema Validator unit tests
+**When** they run in CI
+**Then** they cover select acceptance, empty/duplicate-option rejection, the new allowlisted ops, and confirm the blocklist is unchanged
+
+### Story 13.2: Render & Edit Single-Select Across Views & Forms
+
+As a team member,
+I want single-select fields to show and edit as a dropdown,
+So that I pick a consistent value instead of free-typing.
+
+**Acceptance Criteria:**
+
+**Given** a `select` field in a table or card view
+**When** records render
+**Then** the field shows its option `label` as plain text (archived values still render for existing rows) (FR96)
+
+**Given** the Add/Edit form or an inline edit (Story 3.2 / 3.3 patterns)
+**When** the user edits a `select` field
+**Then** a dropdown of non-archived options is presented, and the write persists the option `value`; optimistic update + rollback are preserved
+
+**Given** an Admin viewing the dropdown
+**When** it is open
+**Then** an Admin-only "+ Add value" affordance appears at the bottom (hidden for Members per Epic 2 RBAC), calling the same validated `add_select_option` path (Story 13.4)
+
+### Story 13.3: Create a Single-Select Field (with Values) via Chat
+
+As an Admin,
+I want to create a status-style field and its values in one sentence,
+So that I can set up a picklist without any configuration screen.
+
+**Acceptance Criteria:**
+
+**Given** an Admin in the chat editor
+**When** they describe a single-select field with its values (e.g., "add a status field with Paid, Unpaid, Rejected")
+**Then** the request produces a single validated `add_field` operation with `dataType: 'select'` and the three options, persisted to `org_schemas`; all existing rows are preserved (FR96, aligns FR16)
+
+**Given** a create request that does not name a target table
+**When** it is processed
+**Then** the editor infers the target from the current table if unambiguous, otherwise asks a clarifying question, and writes nothing until the target is confirmed (reuses Story 5.1 behavior)
+
+### Story 13.4: Manage Single-Select Values (Chat + Inline, Append-Only)
+
+As an Admin,
+I want to add, rename, and retire values on a list field,
+So that the field keeps up with my business without risking existing data.
+
+**Acceptance Criteria:**
+
+**Given** an existing `select` field
+**When** the Admin adds a value via chat ("add a value Partially Paid") or the inline "+ Add value"
+**Then** a validated `add_select_option` is applied and the value becomes immediately selectable (FR96)
+
+**Given** an existing value
+**When** the Admin renames it
+**Then** `rename_select_option` edits the `label` only; the stored `value` key is unchanged, so existing records are unaffected (FR96, aligns FR16)
+
+**Given** a request to remove a value
+**When** it is handled
+**Then** if the value is in use it is archived (`archive_select_option` sets `archived: true`) — existing records keep it and it is not selectable for new records; an unused value may be hard-removed; a plain-language message explains the archive behavior and no row migration occurs (FR96)
+
+### Story 13.5: Generation & Fallback Emit Select Fields
+
+As an Admin,
+I want generated schemas to use real dropdowns where they make sense,
+So that my dashboard looks right from the first second.
+
+**Acceptance Criteria:**
+
+**Given** AI schema generation (Epic 1 pipeline)
+**When** a status-like field is appropriate (e.g. a Status on Jobs or Invoices)
+**Then** it may be proposed as a `select` field with sensible options and a plain-language reason (FR46), validated by the Schema Validator like any other field
+
+**Given** the Universal Field Service hard-fallback template
+**When** it is deployed
+**Then** it includes a `select` Status field with generic options, so the fallback path also demonstrates the dropdown
+
+### Story 13.6: Single-Select on Intake Forms & CSV Import
+
+As an Admin,
+I want list fields to behave correctly on the public form and during import,
+So that picklists are consistent across every entry point.
+
+**Acceptance Criteria:**
+
+**Given** a public intake form (Epic 6) that includes a `select` field
+**When** it renders
+**Then** the field is a dropdown of non-archived options, and a submission persists a valid option `value` (FR96)
+
+**Given** a CSV/Excel import (Epic 4) mapping a source column onto a `select` field
+**When** the mapping is applied
+**Then** values matching an existing option are accepted and values matching no option are flagged for the user to resolve before import completes (reuses the FR49–FR51 confirm/flag flow)
+
+**Given** this story's scope
+**When** import mapping runs
+**Then** mapping onto an *existing* `select` field is in scope; **creating a new `select` field during import is out of scope** and remains with the deferred "map an import column to a brand-NEW field" work (`deferred-work.md`, spec-4-3 and spec-4-4)

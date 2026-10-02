@@ -50,6 +50,7 @@
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-2-add-delete-records.md`
   summary: No server-side validation of the add-record `data` payload against the table's field schema; the POST body accepts arbitrary keys and value types and stores them verbatim.
+  related: Story 3.10 (sprint-change-proposal-2026-10-02, FR99) adds a server-side empty-record check as the FIRST SLICE of this validator seam; full key/type conformance (this entry) and per-field required enforcement remain deferred.
   evidence: `createBodySchema` uses `data: z.record(z.string(), z.unknown())` and the route passes it straight to `mutate`→`insertRecord`, which stores the JSONB as-is; client-side `coerceAddValue` is the only type check. Harm is low — writes are RLS-scoped to the caller's own org with `actorId` set (no cross-tenant risk), and `mutate` never validated payload shape (pre-existing). Settling it needs a schema-aware server validator that checks keys exist in the org schema and values match each `field.type`, shared with the future conversational-editor guardrails (Epic 5).
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-2-add-delete-records.md`
@@ -102,6 +103,7 @@
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-3-edit-mapping-resolve-flagged-columns.md`
   summary: Let the Admin map an import column to a brand-NEW schema field (name + type) during import, not only to an existing field or skip.
+  related: Story 13.6 (sprint-change-proposal-2026-10-02) maps import columns onto EXISTING `select` fields only; creating a new field (incl. a new `select`) during import stays with this deferral.
   evidence: FR50 says the Admin can change an assignment "including mapping to a new field." At Story 4.3 planning (2026-09-28) this was scoped OUT and "map to a new field" was interpreted as remap to a different EXISTING field, because 4.3 is a strict no-write phase and there is no scalar add-field server path yet (only relation fields, Story 3.7, via `validateRelationField` + `addRelationField`). Literal new-field creation means capturing label+type in the picker (validated against the Schema Validator's reserved-key/blocked-verb rules) and actually creating the field at commit — it belongs with Story 4.4's commit that realizes the write. Fold it into 4.4 or a dedicated follow-up: extend the `MappingDecision` model with a `new`-kind target, add a "＋ New field" dialog to the picker, and create the field via the guarded schema-mutate layer at commit.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-3-edit-mapping-resolve-flagged-columns.md`
@@ -154,5 +156,7 @@
   evidence: Presentational glyph/variant selection; the repo has no chat-component tests (same disposition as Story 5.2's deferred ChatPanel variant test). The underlying data contract (an applied view result carries viewKey and no fieldKey, so no Undo) is pinned by tests/unit/route-schema-edit.test.ts and tests/unit/schema-chat-client.test.ts. Closing it needs jsdom-based component rendering the repo does not use.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-5-safe-handling-of-unsupported-operations.md`
+  status: SCHEDULED — now Stories 5.7 (hide a table) and 5.6 (view) per sprint-change-proposal-2026-10-02.
+  resolution: Table path is unchanged (persisted setTableVisibility / hide_table + Undo on add-table → Story 5.7). VIEW path CHANGED: the proposal removes a view (remove_view) instead of hiding it — a view stores no rows, so deletion is non-destructive and NO setViewVisibility flag is built. Undo on add-view is picked up by Story 5.6 (undo = remove_view).
   summary: Hide a whole table and hide a view via chat (plus Undo on add-table / add-view), using new persisted setTableVisibility / setViewVisibility mutators.
   evidence: Story 5.5 was scoped to column-hide only (epic AC FR17 names columns). The committed route.ts comments (L324-326, L412-414) note "Story 5.5 owns table hide / view visibility" and the add-table/add-view flows omit Undo pending it; a pure hideTable transform exists but no persisted table/view visibility mutator or route. Deferred to keep 5.5 single-goal.

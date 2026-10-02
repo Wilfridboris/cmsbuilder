@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: '10-02-2026 (5-5 review; 5-1..5-4 marked done)'
+last_updated: '10-02-2026 (correct-course: +Epic 13, stories 5-6/5-7/3-10 backlog per sprint-change-proposal-2026-10-02)'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -91,6 +91,7 @@ development_status:
   3-7-relationship-lookup-field-record-picker: done
   3-8-filter-sort-by-relationship-safe-delete-of-referenced-record: done
   3-9-reverse-related-list: done
+  3-10-non-empty-validation-on-add-edit: backlog
   epic-3-retrospective: done
 
   epic-4: done
@@ -106,6 +107,8 @@ development_status:
   5-3-create-a-view-via-chat: done
   5-4-schema-validator-guardrails-rejection-handling: done
   5-5-safe-handling-of-unsupported-operations: review
+  5-6-remove-a-view-via-chat: backlog
+  5-7-hide-a-table-via-chat: backlog
   epic-5-retrospective: optional
 
   epic-6: backlog
@@ -151,6 +154,17 @@ development_status:
   12-7-track-payment-out-of-band-no-processing: done
   12-8-correct-an-issued-invoice-via-credit-note: done
   epic-12-retrospective: done
+
+  # ── Epic 13: List-of-Values (Single-Select) Field Type ───────────────────
+  # Added via sprint-change-proposal-2026-10-02.md (MVP; FR96)
+  epic-13: backlog
+  13-1-single-select-field-in-data-model-validator: backlog
+  13-2-render-edit-single-select-across-views-forms: backlog
+  13-3-create-single-select-field-with-values-via-chat: backlog
+  13-4-manage-single-select-values-chat-and-inline: backlog
+  13-5-generation-fallback-emit-select-fields: backlog
+  13-6-single-select-on-intake-forms-csv-import: backlog
+  epic-13-retrospective: optional
 action_items:
   - id: "epic-1-retro-item-1-reconcile-the-gemini-model-in-architectu"
     epic: 1

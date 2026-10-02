@@ -596,7 +596,7 @@ Stripe is a Day 1 dependency for **Scheza's own SaaS subscription** (billing the
 | Ontario-localized synthetic data injection | Full — trade-specific, GTA/Ottawa-localized |
 | Dynamic Table/Card Views (desktop + mobile) | Full — shadcn/ui DataTable + swipeable card view |
 | Contextual Add/Edit forms | Full — auto-generated from schema column types |
-| Conversational Editor | **Append-Only** — add tables, add columns, generate views only |
+| Conversational Editor | **Append-Only** — add tables/columns (incl. single-select lists), generate & remove views, manage list values (add/rename/archive), hide (not delete) tables/columns |
 | Deferred auth + magic link claim | Full |
 | PWA setup | Full — auto-generated manifest + service workers |
 | Two-role system (Admin / Member) | Full — metadata tag in Supabase Auth, conditional UI rendering |
@@ -612,14 +612,17 @@ Stripe is a Day 1 dependency for **Scheza's own SaaS subscription** (billing the
 ### Conversational Editor — Append-Only Constraint
 
 **What the AI CAN do in V1:**
-- Add a new column to an existing table
+- Add a new column to an existing table (including single-select list-of-values fields)
 - Add a new table
-- Generate a new view (filtered or sorted presentation of existing data)
+- Generate a new view, and remove a view (safe — a view stores no rows)
+- Manage list-of-values on a single-select field: add a value, rename a value's label, archive a value (archive, never delete, when the value is already in use)
+- Hide a table or column (non-destructive, restorable) in place of deletion
 
 **What the AI CANNOT do in V1:**
-- Delete a table
-- Delete a column
-- Rename an existing column or table
+- Delete a table or column (offers a non-destructive hide instead)
+- Rename an existing column or table key (labels may be renamed; the stored key is stable)
+
+Note: removing a view is the one removal that is permitted, precisely because the Append-Only guarantee protects *data* and a view has none.
 
 **User-Facing Behaviour for Unsupported Operations:**
 When a user requests a delete or rename, the AI responds: *"To keep your data safe, I can't delete columns yet — but I've hidden [column name] from your view. You won't see it, but your existing data is still protected."*
@@ -802,6 +805,8 @@ Ordered by dependency and payoff. Items 1–4 and 4b are MVP; 5–11 are Growth,
 - **FR10:** User can filter and sort records within any table view
 - **FR11:** Admin can hide a column from all views without deleting the column or its stored data
 - **FR12:** Multiple team members can view and edit records concurrently with changes reflected in real time
+- **FR96:** A field can be a single-select "list of values" (picklist). Its value set is created and managed through the Conversational Editor (add a value, rename a value's label, archive a value) and, for Admins, via an inline "+ Add value" in the dropdown. Removing a value that is already in use archives it non-destructively — existing records keep the value; it is no longer selectable for new records. Single-select only (multi-select is Growth)
+- **FR99:** The Add/Edit form rejects a completely empty record (every field blank) with an inline, non-technical message and no write; per-field required enforcement is deferred
 
 ### Relationships & Lookups (MVP)
 
@@ -824,6 +829,8 @@ Ordered by dependency and payoff. Items 1–4 and 4b are MVP; 5–11 are Growth,
 - **FR15:** Admin can request a new filtered or sorted view of an existing table in natural language
 - **FR16:** The system preserves all existing row data when schema changes are executed via the Conversational Editor
 - **FR17:** The system responds with a safe, non-technical message when a user requests an unsupported operation (column delete, table delete, rename), and applies a frontend visibility change where applicable
+- **FR97:** Admin can remove a view through the Conversational Editor; removal is non-destructive because a view stores no rows, and an Undo is offered
+- **FR98:** When a user requests deletion of a table, the system does not delete it; it offers a non-destructive "hide table" (append-only visibility). Hidden tables retain all rows and can be restored at any time
 
 ### User Access & Permissions
 
