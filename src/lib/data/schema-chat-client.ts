@@ -66,24 +66,30 @@ export async function postEditorChat(
 }
 
 /**
- * Undo a just-added column (Story 5.1) by hiding it through the EXISTING
- * append-only column-visibility path (`POST /api/schema/columns`, Story 3.5) with
- * `hidden: true`. Undo never deletes: the field definition and any data are
- * retained; the column simply disappears from view. Throws `SchemaChatError` on a
- * true transport/auth failure so the panel can show a translated retry message — a
- * raw error, stack, or SQL never reaches the UI.
+ * Undo an applied column-visibility change (Story 5.1 add-column, Story 5.5
+ * hide-column) by flipping the EXISTING append-only column-visibility flag
+ * through `POST /api/schema/columns` (Story 3.5). `hidden` is the direction the
+ * Undo sets:
+ *   - undo of an ADD-column hides it (`hidden: true`) — the field definition and
+ *     any data are retained; the column simply disappears from view;
+ *   - undo of a HIDE-column shows it again (`hidden: false`) — the column
+ *     reappears with no data change.
+ * Neither direction ever deletes anything. Throws `SchemaChatError` on a true
+ * transport/auth failure so the panel can show a translated retry message — a raw
+ * error, stack, or SQL never reaches the UI.
  */
-export async function postUndoHideColumn(
+export async function postSetColumnVisibility(
   slug: string,
   tableKey: string,
   fieldKey: string,
+  hidden: boolean,
 ): Promise<void> {
   let res: Response;
   try {
     res = await fetch("/api/schema/columns", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, tableKey, fieldKey, hidden: true }),
+      body: JSON.stringify({ slug, tableKey, fieldKey, hidden }),
     });
   } catch {
     throw new SchemaChatError("genericError");

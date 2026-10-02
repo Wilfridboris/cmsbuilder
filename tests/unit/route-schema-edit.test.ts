@@ -2,13 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 
 /**
- * Unit coverage for `POST /api/schema/edit` (Story 5.1 add a column, Story 5.2 add a
- * table) WITHOUT a live DB, LLM, or auth provider. Locks the frozen I/O & Edge-Case
+ * Unit coverage for `POST /api/schema/edit` (Story 5.1 add a column, 5.2 add a
+ * table, 5.3 add a view, 5.5 hide a column / safe handling of unsupported ops)
+ * WITHOUT a live DB, LLM, or auth provider. Locks the frozen I/O & Edge-Case
  * Matrix rows that live in the handler (the pure validator/transform are covered in
  * schema-add-field.test.ts / schema-add-table.test.ts), end-to-end through the REAL
  * `requireAdmin` + `resolveUserOrgMembership` (only the caller identity, the admin
  * client, the RLS org lookup, the schema read, the Gemini call, and the guarded
- * `addField`/`addTable` are mocked):
+ * `addField`/`addTable`/`addView`/`setFieldVisibility` are mocked):
  *   - unauthenticated                        → 401, no LLM, no write;
  *   - malformed body                         → 400, no LLM, no write;
  *   - Member (non-admin) of the target org   → 403, no LLM, no write;
@@ -28,6 +29,7 @@ const getCurrentUser = vi.fn();
 const addField = vi.fn();
 const addTable = vi.fn();
 const addView = vi.fn();
+const setFieldVisibility = vi.fn();
 const getSchema = vi.fn();
 const callGeminiWithTimeout = vi.fn();
 
@@ -79,7 +81,12 @@ vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient: () => makeRlsClient(),
 }));
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
-vi.mock("@/lib/data/schema-mutate", () => ({ addField, addTable, addView }));
+vi.mock("@/lib/data/schema-mutate", () => ({
+  addField,
+  addTable,
+  addView,
+  setFieldVisibility,
+}));
 vi.mock("@/lib/data/records", () => ({ getSchema }));
 vi.mock("@/lib/gemini/client", () => ({ callGeminiWithTimeout }));
 vi.mock("@/lib/observability/report", () => ({
@@ -114,7 +121,10 @@ beforeEach(() => {
         {
           key: "jobs",
           label: "Jobs",
-          fields: [{ key: "status", label: "Status", type: "text" }],
+          fields: [
+            { key: "status", label: "Status", type: "text" },
+            { key: "notes", label: "Notes", type: "text" },
+          ],
         },
       ],
     },
@@ -138,6 +148,10 @@ beforeEach(() => {
     data: { viewKey: "unpaid_jobs" },
     error: null,
   });
+  setFieldVisibility.mockResolvedValue({
+    data: { tableKey: "jobs", fieldKey: "notes", hidden: true },
+    error: null,
+  });
 });
 
 describe("POST /api/schema/edit", () => {
@@ -151,6 +165,8 @@ describe("POST /api/schema/edit", () => {
     expect(body.data.kind).toBe("applied");
     expect(body.data.tableKey).toBe("jobs");
     expect(body.data.fieldKey).toBe("warranty_date");
+    // Undo of an add-column HIDES it; the client gates its Undo on this direction.
+    expect(body.data.undo).toBe("hide");
     expect(addField).toHaveBeenCalledTimes(1);
     expect(addTable).not.toHaveBeenCalled();
     const call = addField.mock.calls[0];
@@ -181,8 +197,9 @@ describe("POST /api/schema/edit", () => {
     expect(body.error).toBeNull();
     expect(body.data.kind).toBe("applied");
     expect(body.data.tableKey).toBe("employee_timesheets");
-    // No fieldKey on a table add → the client shows no Undo.
+    // No fieldKey / no undo on a table add → the client shows no Undo.
     expect(body.data.fieldKey).toBeUndefined();
+    expect(body.data.undo).toBeUndefined();
     expect(addTable).toHaveBeenCalledTimes(1);
     expect(addField).not.toHaveBeenCalled();
     const call = addTable.mock.calls[0];
@@ -217,8 +234,9 @@ describe("POST /api/schema/edit", () => {
     expect(body.error).toBeNull();
     expect(body.data.kind).toBe("applied");
     expect(body.data.viewKey).toBe("unpaid_jobs");
-    // No fieldKey on a view add → the client shows no Undo.
+    // No fieldKey / no undo on a view add → the client shows no Undo.
     expect(body.data.fieldKey).toBeUndefined();
+    expect(body.data.undo).toBeUndefined();
     expect(addView).toHaveBeenCalledTimes(1);
     expect(addField).not.toHaveBeenCalled();
     expect(addTable).not.toHaveBeenCalled();
@@ -392,6 +410,222 @@ describe("POST /api/schema/edit", () => {
     expect(body.data.assistantText).not.toContain("DROP");
     expect(addField).not.toHaveBeenCalled();
     expect(reportRejection).toHaveBeenCalled();
+  });
+
+  it("applied: hide_field → 200 applied (undo: show), setFieldVisibility(true) ran, no destructive write", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "hide_field",
+      tableKey: "jobs",
+      fieldKey: "notes",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete the Notes column from Jobs" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data.kind).toBe("applied");
+    expect(body.data.tableKey).toBe("jobs");
+    expect(body.data.fieldKey).toBe("notes");
+    // A hide offers a show-again Undo.
+    expect(body.data.undo).toBe("show");
+    // The reassuring, non-technical copy names the column + table.
+    expect(body.data.assistantText).toBe("columnHidden");
+    // The hide is a metadata-only visibility flip — no add op ran.
+    expect(setFieldVisibility).toHaveBeenCalledTimes(1);
+    expect(addField).not.toHaveBeenCalled();
+    expect(addTable).not.toHaveBeenCalled();
+    expect(addView).not.toHaveBeenCalled();
+    const call = setFieldVisibility.mock.calls[0];
+    expect(call[0]).toEqual(
+      expect.objectContaining({ actorId: "user-1", orgId: "org-1" }),
+    );
+    expect(call[1]).toBe("jobs");
+    expect(call[2]).toBe("notes");
+    // hidden=true — the hide direction, never a delete.
+    expect(call[3]).toBe(true);
+  });
+
+  it("rejected: a shapeless hide_field (missing tableKey/fieldKey) → 200 rejected, no write", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+
+    callGeminiWithTimeout.mockResolvedValue({ kind: "hide_field", tableKey: "jobs" });
+    let res = await POST(postReq({ slug: "acme", message: "remove a column" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.kind).toBe("rejected");
+
+    callGeminiWithTimeout.mockResolvedValue({ kind: "hide_field", fieldKey: "notes" });
+    res = await POST(postReq({ slug: "acme", message: "remove notes" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.kind).toBe("rejected");
+
+    expect(setFieldVisibility).not.toHaveBeenCalled();
+  });
+
+  it("declined: hide_field on a field NOT in the visible summary (unknown key) → 200 declined, NO mutator call", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "hide_field",
+      tableKey: "jobs",
+      fieldKey: "ghost",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete the ghost column from Jobs" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    // A key the model was never shown is not a hideable target: reassure, write
+    // nothing, and never reach the mutator.
+    expect(body.data.kind).toBe("declined");
+    expect(body.data.assistantText).toBe("declineFallback");
+    expect(setFieldVisibility).not.toHaveBeenCalled();
+  });
+
+  it("declined: hide_field targeting a relation / already-hidden column (not in the visible-scalar summary) → 200 declined, NO mutator call", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    // The schema has a hidden column and a relation column; the route's summary
+    // exposes only visible SCALAR fields, so neither is a hideable target.
+    getSchema.mockResolvedValue({
+      data: {
+        tables: [
+          {
+            key: "jobs",
+            label: "Jobs",
+            fields: [
+              { key: "status", label: "Status", type: "text" },
+              { key: "archived_notes", label: "Archived notes", type: "text", hidden: true },
+              { key: "client", label: "Client", type: "relation" },
+            ],
+          },
+        ],
+      },
+      error: null,
+    });
+
+    for (const fieldKey of ["archived_notes", "client"]) {
+      callGeminiWithTimeout.mockResolvedValue({
+        kind: "hide_field",
+        tableKey: "jobs",
+        fieldKey,
+      });
+      const res = await POST(
+        postReq({ slug: "acme", message: `delete the ${fieldKey} column` }),
+      );
+      expect(res.status).toBe(200);
+      expect((await res.json()).data.kind).toBe("declined");
+    }
+    expect(setFieldVisibility).not.toHaveBeenCalled();
+  });
+
+  it("declined: hide_field of an in-summary field but the mutator 400s (stale/race) → 200 declined, reassuring, no raw leak", async () => {
+    const { AppError } = await import("@/types/api");
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "hide_field",
+      tableKey: "jobs",
+      fieldKey: "notes",
+    });
+    // The field is in the summary, but the mutator still 400s (e.g. concurrently
+    // removed). The catch maps it to a graceful decline, never an error or raw detail.
+    setFieldVisibility.mockRejectedValue(new AppError(400, "genericError"));
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete the Notes column from Jobs" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("declined");
+    expect(body.data.assistantText).toBe("declineFallback");
+    expect(body.data.assistantText).not.toContain("genericError");
+  });
+
+  it("degraded: hide_field when the mutator throws a 5xx → 200 degraded, no raw detail leaked", async () => {
+    const { AppError } = await import("@/types/api");
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "hide_field",
+      tableKey: "jobs",
+      fieldKey: "notes",
+    });
+    setFieldVisibility.mockRejectedValue(
+      new AppError(500, "writeFailed", "boom raw detail"),
+    );
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete the Notes column from Jobs" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("degraded");
+    expect(body.data.assistantText).toBe("degraded");
+    expect(body.data.assistantText).not.toContain("boom");
+  });
+
+  it("rejected: raw SQL in a hide_field output → 200 rejected, no write, reportRejection logged", async () => {
+    const { reportRejection } = await import("@/lib/observability/report");
+    vi.mocked(reportRejection).mockClear();
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "hide_field",
+      tableKey: "jobs",
+      fieldKey: "notes",
+      smuggled: "DROP TABLE records;",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete notes from jobs" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+    expect(body.data.assistantText).not.toContain("DROP");
+    expect(setFieldVisibility).not.toHaveBeenCalled();
+    expect(reportRejection).toHaveBeenCalled();
+  });
+
+  it("declined: delete-a-table stays out_of_scope → 200 declined, NO write", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "out_of_scope",
+      reply: "To keep your data safe, I can't delete a whole table.",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete the Jobs table" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("declined");
+    expect(setFieldVisibility).not.toHaveBeenCalled();
+    expect(addField).not.toHaveBeenCalled();
+    expect(addTable).not.toHaveBeenCalled();
+    expect(addView).not.toHaveBeenCalled();
+  });
+
+  it("declined: rename stays out_of_scope → 200 declined, NO write", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "out_of_scope",
+      reply: "I can't rename columns yet.",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "rename Notes to Comments" }),
+    );
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.kind).toBe("declined");
+    expect(setFieldVisibility).not.toHaveBeenCalled();
   });
 
   it("401 unauthorized when there is no session, no LLM call, no write", async () => {

@@ -486,6 +486,8 @@
     "successApplied": "Done. I added {field} to {table}.",
     "successTableAdded": "Done. I created {table}. You'll find it in your table switcher at the top of the dashboard.",
     "successViewAdded": "Done. I created the {view} view. You'll find it in your table switcher at the top of the dashboard.",
+    "columnHidden": "To keep your data safe, I don't delete columns. I've hidden {field} from {table} instead, so it no longer shows up. Your information is still saved and you can bring it back anytime.",
+    "restored": "Done. That column is visible again, and your data was never touched.",
     "undo": "Undo",
     "undone": "Undone. That column is hidden again, and your data is safe.",
     "undoFailed": "I couldn't undo that just now. Please try again in a moment.",

@@ -2,18 +2,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   postEditorChat,
-  postUndoHideColumn,
+  postSetColumnVisibility,
   SchemaChatError,
 } from "@/lib/data/schema-chat-client";
 
 /**
- * Unit coverage for the conversational chat client wrappers (Story 5.1, 5.2). Mocks
- * `global.fetch` only — no network. Locks the frozen I/O & Edge-Case Matrix row the
- * route tests cannot reach: "Undo a just-added column" (the chat's Undo targets the
- * just-added field through the existing append-only `/api/schema/columns` hide path
- * with `hidden: true`). Also covers `postEditorChat` success / transport-failure
- * mapping (posting to `/api/schema/edit`) so a raw error, stack, or SQL never reaches
- * the UI.
+ * Unit coverage for the conversational chat client wrappers (Story 5.1, 5.2, 5.5).
+ * Mocks `global.fetch` only — no network. Locks the frozen I/O & Edge-Case Matrix
+ * rows the route tests cannot reach: the chat's visibility Undo targets a field
+ * through the existing append-only `/api/schema/columns` path — `hidden: true` to
+ * undo an ADD (Story 5.1), `hidden: false` to undo a HIDE / show-again (Story 5.5).
+ * Also covers `postEditorChat` success / transport-failure mapping (posting to
+ * `/api/schema/edit`) so a raw error, stack, or SQL never reaches the UI.
  */
 
 const fetchMock = vi.fn();
@@ -35,12 +35,12 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
   } as unknown as Response;
 }
 
-describe("postUndoHideColumn (Story 5.1 — Undo a just-added column)", () => {
-  it("POSTs the just-added field to the column-hide path with hidden: true", async () => {
+describe("postSetColumnVisibility (Story 5.1 Undo add, Story 5.5 show-again)", () => {
+  it("POSTs hidden: true to the column path (undo of an add-column)", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ data: { hidden: true }, error: null }));
 
     await expect(
-      postUndoHideColumn("acme", "jobs", "warranty_date"),
+      postSetColumnVisibility("acme", "jobs", "warranty_date", true),
     ).resolves.toBeUndefined();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -55,13 +55,32 @@ describe("postUndoHideColumn (Story 5.1 — Undo a just-added column)", () => {
     });
   });
 
-  it("throws SchemaChatError carrying the server error code on a failed hide", async () => {
+  it("POSTs hidden: false to the column path (show-again Undo of a hide)", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ data: { hidden: false }, error: null }));
+
+    await expect(
+      postSetColumnVisibility("acme", "jobs", "notes", false),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/schema/columns");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      slug: "acme",
+      tableKey: "jobs",
+      fieldKey: "notes",
+      hidden: false,
+    });
+  });
+
+  it("throws SchemaChatError carrying the server error code on a failed write", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ data: null, error: "forbidden" }, false, 403),
     );
 
     await expect(
-      postUndoHideColumn("acme", "jobs", "warranty_date"),
+      postSetColumnVisibility("acme", "jobs", "warranty_date", true),
     ).rejects.toMatchObject({ name: "SchemaChatError", code: "forbidden" });
   });
 
@@ -69,7 +88,7 @@ describe("postUndoHideColumn (Story 5.1 — Undo a just-added column)", () => {
     fetchMock.mockRejectedValue(new Error("network down"));
 
     await expect(
-      postUndoHideColumn("acme", "jobs", "warranty_date"),
+      postSetColumnVisibility("acme", "jobs", "warranty_date", true),
     ).rejects.toMatchObject({ name: "SchemaChatError", code: "genericError" });
   });
 });

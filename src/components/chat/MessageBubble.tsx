@@ -1,20 +1,22 @@
 "use client";
 
-import { Check, ListFilter, Table2 } from "lucide-react";
+import { Check, EyeOff, ListFilter, Table2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 /**
- * MessageBubble (Story 5.1, 5.2) — one iMessage-style chat bubble in the AI
- * Assistant panel. Pure presentation: a user turn is right-aligned on the primary
+ * MessageBubble (Story 5.1, 5.2, 5.3, 5.5) — one iMessage-style chat bubble in the
+ * AI Assistant panel. Pure presentation: a user turn is right-aligned on the primary
  * color; an assistant turn is left-aligned on a neutral surface. An `applied`
  * (add-column) success bubble carries a subtle emerald check accent and renders its
  * inline one-tap Undo as `children`. An `appliedTable` (add-table, Story 5.2) success
  * bubble reuses the exact same glass shell but swaps the check for a table glyph —
  * the copy points the Admin to the new table in the switcher, and there is NO Undo
- * (table visibility is owned by a later story), so it is passed no `children`. An
- * `appliedView` (add-view, Story 5.3) success bubble is identical but swaps in a
- * filter glyph and likewise has no Undo (view visibility is Story 5.5).
+ * (table visibility is deferred), so it is passed no `children`. An `appliedView`
+ * (add-view, Story 5.3) success bubble is identical but swaps in a filter glyph and
+ * likewise has no Undo. A `hidden` (hide-column, Story 5.5 — the SAFE answer to
+ * "delete this column") bubble swaps in a reassuring amber eye-off glyph and DOES
+ * carry a one-tap "show again" Undo as `children` (the data is never deleted).
  *
  * Never renders raw JSON, SQL, or errors — the `text` it receives is always a
  * translated, human string produced server-side. All microstates are CSS
@@ -28,6 +30,7 @@ export type BubbleVariant =
   | "applied"
   | "appliedTable"
   | "appliedView"
+  | "hidden"
   | "declined"
   | "degraded";
 
@@ -44,6 +47,7 @@ export function MessageBubble({
   const isApplied = variant === "applied";
   const isAppliedTable = variant === "appliedTable";
   const isAppliedView = variant === "appliedView";
+  const isHidden = variant === "hidden";
 
   return (
     <div
@@ -77,6 +81,14 @@ export function MessageBubble({
             <ListFilter
               aria-hidden="true"
               className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+            />
+          ) : null}
+          {isHidden ? (
+            // A hide is reassurance, not a creation — an amber eye-off glyph marks
+            // "safely tucked away" distinctly from the emerald "created" states.
+            <EyeOff
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"
             />
           ) : null}
           <p className="min-w-0 whitespace-pre-wrap">{text}</p>

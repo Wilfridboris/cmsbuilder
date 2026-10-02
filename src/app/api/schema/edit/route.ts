@@ -10,7 +10,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { getSchema } from "@/lib/data/records";
 import { visibleTables } from "@/lib/schema/overrides";
-import { addField, addTable, addView } from "@/lib/data/schema-mutate";
+import {
+  addField,
+  addTable,
+  addView,
+  setFieldVisibility,
+} from "@/lib/data/schema-mutate";
 import { assertEditorOperationAllowed } from "@/lib/schema/validator";
 import { callGeminiWithTimeout } from "@/lib/gemini/client";
 import {
@@ -42,11 +47,11 @@ import { editorChatSchema } from "./schemas";
  *   6. load the org's CURRENT schema (the table list the model may target);
  *   7. ONE `callGeminiWithTimeout` with `buildEditorPrompt` (the hardened system
  *      prompt is injected by the client on 100% of calls; hard 15s timeout);
- *   8. the explicit operation-allowlist + raw-SQL discard fence (Story 5.4):
+ *   8. the explicit operation-allowlist + raw-SQL discard fence (Story 5.4, 5.5):
  *        `assertEditorOperationAllowed` rejects any `kind` outside
- *        `add_field`/`add_table`/`add_view` and any output containing raw SQL
- *        before any write, logging each via `reportRejection` with the org id +
- *        raw output. `needs_clarification`/`out_of_scope` are conversational
+ *        `add_field`/`add_table`/`add_view`/`hide_field` and any output containing
+ *        raw SQL before any write, logging each via `reportRejection` with the org
+ *        id + raw output. `needs_clarification`/`out_of_scope` are conversational
  *        kinds, not operations, and bypass the fence into their own flows below;
  *      then branch on the model's `kind`:
  *        - `add_field`          → `schema-mutate.addField` (focused validator +
@@ -58,8 +63,16 @@ import { editorChatSchema } from "./schemas";
  *                                 no Undo; Story 5.5 owns table visibility);
  *        - `add_view`           → `schema-mutate.addView` (focused validator +
  *                                 append-only write). On success → `applied` with
- *                                 ONLY the viewKey (no fieldKey → no Undo; Story 5.5
- *                                 owns view visibility);
+ *                                 ONLY the viewKey (no fieldKey → no Undo; view
+ *                                 hide is deferred);
+ *        - `hide_field`         → `schema-mutate.setFieldVisibility(..., true)` —
+ *                                 the SAFE answer to "delete/remove this column"
+ *                                 (Story 5.5): hides one column via the append-only
+ *                                 visibility flag (data intact). On success →
+ *                                 `applied` with tableKey/fieldKey + undo:"show" so
+ *                                 the client offers a show-again Undo. A missing
+ *                                 table/field (`AppError(400)`) maps to a reassuring
+ *                                 `declined`, never an error;
  *        - `needs_clarification` → `clarify` with the model's question;
  *        - `out_of_scope`/other → `declined` with a friendly non-technical decline.
  *      A validator rejection (either branch) → the fixed plain-language `rejected`
@@ -75,13 +88,21 @@ export const dynamic = "force-dynamic";
 /** The server result contract (model -> route -> client). `assistantText` is always a translated human string. */
 export type EditorChatResult = {
   kind: "applied" | "clarify" | "declined" | "rejected" | "degraded";
-  /** Present on `applied`: the table the change targets (an add-field target, or the new table). */
+  /** Present on `applied`: the table the change targets (an add-field target, a hidden column's table, or the new table). */
   tableKey?: string;
-  /** Present on an `applied` ADD-FIELD only: the added field key (drives Undo). Absent for an add-table/add-view. */
+  /** Present on an `applied` ADD-FIELD or HIDE-FIELD: the field key (drives Undo). Absent for an add-table/add-view. */
   fieldKey?: string;
-  /** Present on an `applied` ADD-VIEW only: the created view key. Absent for an add-field/add-table. */
+  /** Present on an `applied` ADD-VIEW only: the created view key. Absent for an add-field/add-table/hide-field. */
   viewKey?: string;
-  /** Present on `applied`: the added column's / new table's / new view's label, for the success message. */
+  /**
+   * Present on an `applied` ADD-FIELD or HIDE-FIELD: which way the inline Undo
+   * flips the column's visibility. `"hide"` means the change SHOWED the column
+   * (an add-field; Undo hides it), `"show"` means the change HID the column (a
+   * hide-field; Undo shows it again). The client drives one generalized
+   * visibility Undo from this direction. Absent → no Undo.
+   */
+  undo?: "hide" | "show";
+  /** Present on `applied`: the added column's / hidden column's / new table's / new view's label, for the success message. */
   label?: string;
   /** Always a translated, human-readable sentence. Never raw JSON/SQL/errors. */
   assistantText: string;
@@ -93,9 +114,11 @@ type GeminiEditorOutput = {
     | "add_field"
     | "add_table"
     | "add_view"
+    | "hide_field"
     | "needs_clarification"
     | "out_of_scope";
   tableKey?: unknown;
+  fieldKey?: unknown;
   sourceTableKey?: unknown;
   label?: unknown;
   type?: unknown;
@@ -268,6 +291,8 @@ export async function POST(
               kind: "applied",
               tableKey: result.data.tableKey,
               fieldKey: result.data.fieldKey,
+              // Undo of an add-field HIDES the just-added column.
+              undo: "hide",
               label: output.label.trim(),
               assistantText: t("successApplied", {
                 field: output.label.trim(),
@@ -323,7 +348,8 @@ export async function POST(
 
         // Surface-only navigation: the success copy points the Admin to the new
         // table in the switcher (the client's router.refresh makes it appear). No
-        // fieldKey is set → the client shows no Undo (Story 5.5 owns table hide).
+        // fieldKey/undo is set → the client shows no Undo. Story 5.5 added only
+        // COLUMN hide; whole-table hide (and an add-table Undo) are deferred.
         return json(
           {
             data: {
@@ -411,7 +437,8 @@ export async function POST(
 
         // Surface-only navigation: the success copy points the Admin to the new
         // view in the switcher (the client's router.refresh makes it appear). No
-        // fieldKey → the client shows no Undo (Story 5.5 owns view visibility).
+        // fieldKey/undo → the client shows no Undo. Story 5.5 added only COLUMN
+        // hide; view hide (and an add-view Undo) are deferred to a follow-up.
         return json(
           {
             data: {
@@ -428,6 +455,99 @@ export async function POST(
         );
       } catch (mutateErr) {
         return handleMutateError(mutateErr, t, "mutate-view");
+      }
+    }
+
+    if (output.kind === "hide_field") {
+      // The safe answer to "delete/remove this column" (Story 5.5): hide that one
+      // column via the append-only visibility flag — the field definition and all
+      // row data stay intact, and the hide is reversible from the chat. A shapeless
+      // hide_field (missing an exact table/field key) is treated as a rejection
+      // rather than trusted — the model must name an exact, existing target.
+      if (!isNonEmptyString(output.tableKey) || !isNonEmptyString(output.fieldKey)) {
+        return json(
+          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+          200,
+        );
+      }
+
+      const tableKey = output.tableKey.trim();
+      const fieldKey = output.fieldKey.trim();
+
+      // Enforce the hide target against the VISIBLE-SCALAR summary the model was
+      // actually shown (`tables`), not just the model's obedience. The summary
+      // excludes relation columns and already-hidden fields, so a fieldKey outside
+      // it (a relation, an already-hidden column, or a hallucinated key) is NOT a
+      // hideable target: reassure and write nothing. This keeps the frozen "never
+      // expose a relation/already-hidden column as a hide target" invariant a
+      // route-side check (matching the distrust-the-model posture of Story 5.4),
+      // and guarantees the labels below resolve (so the message never shows a raw
+      // key).
+      const targetTable = tables.find((table) => table.key === tableKey);
+      const targetField = targetTable?.fields?.find(
+        (field) => field.key === fieldKey,
+      );
+      if (!targetTable || !targetField) {
+        return json(
+          {
+            data: { kind: "declined", assistantText: t("declineFallback") },
+            error: null,
+          },
+          200,
+        );
+      }
+
+      try {
+        const result = await setFieldVisibility(identity, tableKey, fieldKey, true);
+
+        if (!result.data) {
+          // Defensive: the guarded layer throws on failure, so this is unreachable
+          // in practice — treat as a rejection rather than leak anything.
+          return json(
+            {
+              data: { kind: "rejected", assistantText: t("rejection") },
+              error: null,
+            },
+            200,
+          );
+        }
+
+        return json(
+          {
+            data: {
+              kind: "applied",
+              tableKey: result.data.tableKey,
+              fieldKey: result.data.fieldKey,
+              // Undo of a hide SHOWS the column again (the inverse of add-field).
+              undo: "show",
+              label: targetField.label,
+              assistantText: t("columnHidden", {
+                field: targetField.label,
+                table: targetTable.label,
+              }),
+            },
+            error: null,
+          },
+          200,
+        );
+      } catch (hideErr) {
+        // A missing table/field is `AppError(400)` from the mutator — map it to a
+        // reassuring decline (nothing was written), NOT a rejection/error screen.
+        // A 5xx degrades gracefully. No raw detail ever reaches the user.
+        if (hideErr instanceof AppError && hideErr.statusCode === 400) {
+          return json(
+            {
+              data: { kind: "declined", assistantText: t("declineFallback") },
+              error: null,
+            },
+            200,
+          );
+        }
+        reportError(hideErr, { route: "/api/schema/edit", stage: "hide-field" });
+        return json(
+          { data: { kind: "degraded", assistantText: t("degraded") }, error: null },
+          200,
+        );
       }
     }
 

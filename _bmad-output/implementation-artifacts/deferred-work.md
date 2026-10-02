@@ -152,3 +152,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-3-create-a-view-via-chat.md`
   summary: The ChatPanel `appliedView` success bubble (filter glyph, no Undo) and MessageBubble `appliedView` variant have no component test.
   evidence: Presentational glyph/variant selection; the repo has no chat-component tests (same disposition as Story 5.2's deferred ChatPanel variant test). The underlying data contract (an applied view result carries viewKey and no fieldKey, so no Undo) is pinned by tests/unit/route-schema-edit.test.ts and tests/unit/schema-chat-client.test.ts. Closing it needs jsdom-based component rendering the repo does not use.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-5-5-safe-handling-of-unsupported-operations.md`
+  summary: Hide a whole table and hide a view via chat (plus Undo on add-table / add-view), using new persisted setTableVisibility / setViewVisibility mutators.
+  evidence: Story 5.5 was scoped to column-hide only (epic AC FR17 names columns). The committed route.ts comments (L324-326, L412-414) note "Story 5.5 owns table hide / view visibility" and the add-table/add-view flows omit Undo pending it; a pure hideTable transform exists but no persisted table/view visibility mutator or route. Deferred to keep 5.5 single-goal.

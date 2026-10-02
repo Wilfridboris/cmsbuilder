@@ -485,11 +485,12 @@ describe("filterSeedRows — malformed rows are skipped, not fatal", () => {
  * collisions still reject.
  */
 describe("Story 5.4 — PERMITTED_OPERATIONS allowlist", () => {
-  it("names exactly the three additive editor ops", () => {
+  it("names exactly the permitted editor ops (three additive + hide_field)", () => {
     expect([...PERMITTED_OPERATIONS]).toEqual([
       "add_field",
       "add_table",
       "add_view",
+      "hide_field",
     ]);
   });
 
@@ -539,6 +540,24 @@ describe("Story 5.4 — PERMITTED_OPERATIONS allowlist", () => {
         filters: [{ field: "status", operator: "equals", value: "unpaid" }],
       }),
     ).toEqual({ allowed: true, kind: "add_view" });
+    // Story 5.5 — hide_field rides the SAME allowlist + raw-SQL fence.
+    expect(
+      assertEditorOperationAllowed({
+        kind: "hide_field",
+        tableKey: "jobs",
+        fieldKey: "notes",
+      }),
+    ).toEqual({ allowed: true, kind: "hide_field" });
+  });
+
+  it("discards a hide_field whose raw output carries SQL (same fence as the add ops)", () => {
+    const result = assertEditorOperationAllowed({
+      kind: "hide_field",
+      tableKey: "jobs",
+      fieldKey: "notes",
+      smuggled: "DROP TABLE records;",
+    });
+    expect(result).toEqual({ allowed: false, reason: "rawSqlRejected" });
   });
 
   it("rejects an out-of-allowlist / unknown / conversational op as operationNotAllowed", () => {

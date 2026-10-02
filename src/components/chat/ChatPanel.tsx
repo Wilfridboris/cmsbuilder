@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   postEditorChat,
-  postUndoHideColumn,
+  postSetColumnVisibility,
   SchemaChatError,
 } from "@/lib/data/schema-chat-client";
 import type { EditorChatResult } from "@/app/api/schema/edit/route";
@@ -32,12 +32,17 @@ import { MessageBubble, ThinkingBubble } from "@/components/chat/MessageBubble";
  * It holds the ephemeral conversation (never persisted — lost on close/refresh),
  * sends each turn to `postEditorChat` with the `activeTableKey` so an unnamed
  * add-column target can be inferred, and maps the typed `{ kind, assistantText, ... }`
- * result to a bubble. On an applied ADD-COLUMN result it keeps `tableKey`+`fieldKey`
- * to drive the inline one-tap Undo (which hides the just-added column via the existing
- * `/api/schema/columns` path); an applied ADD-TABLE result (Story 5.2) has no
- * `fieldKey`, so it shows no Undo and gets the table-success bubble pointing to the
- * switcher. Either applied result calls `onSchemaChanged` so the dashboard re-reads
- * the schema and the new column/table appears. Never renders raw JSON, SQL, or errors.
+ * result to a bubble. An applied result that carries an `undo` direction + a
+ * `tableKey`/`fieldKey` drives the inline one-tap Undo, which flips the column's
+ * append-only visibility via the existing `/api/schema/columns` path:
+ *   - ADD-COLUMN (Story 5.1) → `undo: "hide"`: Undo hides the just-added column;
+ *   - HIDE-COLUMN (Story 5.5 — the safe answer to "delete this column") →
+ *     `undo: "show"`: Undo shows the column again.
+ * An applied ADD-TABLE (Story 5.2) / ADD-VIEW (Story 5.3) result has no `undo`, so
+ * it shows no Undo and gets a glyph-only success bubble pointing to the switcher.
+ * Any applied result calls `onSchemaChanged` so the dashboard re-reads the schema
+ * and the column/table/view appears (or disappears). Never renders raw JSON, SQL,
+ * or errors.
  */
 
 type ChatMessage =
@@ -47,11 +52,21 @@ type ChatMessage =
       role: "assistant";
       kind: EditorChatResult["kind"];
       text: string;
-      /** Present on an `applied` ADD-COLUMN message: drives the one-tap Undo. */
-      applied?: { tableKey: string; fieldKey: string };
+      /**
+       * Present on an applied ADD-COLUMN or HIDE-COLUMN message: drives the
+       * one-tap Undo. `direction` is the visibility the Undo SETS (`"hide"` for an
+       * add, `"show"` for a hide).
+       */
+      applied?: {
+        tableKey: string;
+        fieldKey: string;
+        direction: "hide" | "show";
+      };
+      /** True on an `applied` HIDE-COLUMN message (a shield-glyph reassurance bubble). */
+      isHide?: boolean;
       /** True on an `applied` ADD-VIEW message (no Undo; a filter-glyph bubble). */
       isView?: boolean;
-      /** Local flag once Undo has hidden this column. */
+      /** Local flag once Undo has flipped this column's visibility back. */
       undone?: boolean;
     };
 
@@ -119,9 +134,17 @@ export function ChatPanel({
         kind: result.kind,
         text: result.assistantText,
         applied:
-          result.kind === "applied" && result.tableKey && result.fieldKey
-            ? { tableKey: result.tableKey, fieldKey: result.fieldKey }
+          result.kind === "applied" &&
+          result.tableKey &&
+          result.fieldKey &&
+          result.undo
+            ? {
+                tableKey: result.tableKey,
+                fieldKey: result.fieldKey,
+                direction: result.undo,
+              }
             : undefined,
+        isHide: result.kind === "applied" && result.undo === "show",
         isView: result.kind === "applied" && Boolean(result.viewKey),
       };
       setMessages((prev) => [...prev, assistantMessage]);
@@ -154,17 +177,25 @@ export function ChatPanel({
     ) {
       return;
     }
+    const direction = message.applied.direction;
     setUndoingId(messageId);
     try {
-      await postUndoHideColumn(
+      // Flip the column's append-only visibility. Undo of an ADD hides it
+      // (direction "hide"); Undo of a HIDE shows it again (direction "show").
+      await postSetColumnVisibility(
         slug,
         message.applied.tableKey,
         message.applied.fieldKey,
+        direction === "hide",
       );
       setMessages((prev) =>
         prev.map((m) =>
           m.id === messageId && m.role === "assistant"
-            ? { ...m, undone: true, text: t("undone") }
+            ? {
+                ...m,
+                undone: true,
+                text: direction === "hide" ? t("undone") : t("restored"),
+              }
             : m,
         ),
       );
@@ -231,14 +262,17 @@ export function ChatPanel({
                   key={message.id}
                   variant={
                     message.kind === "applied" && !message.undone
-                      ? // An add-column success carries an Undo payload; an add-table
-                        // or add-view success does not (visibility is a later story)
-                        // and gets a glyph-only bubble pointing to the switcher.
-                        message.applied
-                        ? "applied"
-                        : message.isView
-                          ? "appliedView"
-                          : "appliedTable"
+                      ? // An applied result with an Undo payload is either an
+                        // add-column (check glyph) or a hide-column (eye-off glyph,
+                        // Story 5.5). An add-table / add-view success carries no
+                        // Undo and gets a glyph-only bubble pointing to the switcher.
+                        message.isHide
+                        ? "hidden"
+                        : message.applied
+                          ? "applied"
+                          : message.isView
+                            ? "appliedView"
+                            : "appliedTable"
                       : message.kind === "declined"
                         ? "declined"
                         : message.kind === "degraded"

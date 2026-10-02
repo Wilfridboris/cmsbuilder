@@ -48,25 +48,31 @@ import { normalizeTableName } from "@/lib/utils";
  * schema.)
  */
 
-// --- Conversational editor operation allowlist (Story 5.4) ------------------
+// --- Conversational editor operation allowlist (Story 5.4, extended 5.5) ----
 //
 // The GENERATION path enforces append-only by SHAPE (its contract can only
 // express tables/fields), but the conversational EDITOR path dispatches on an
 // LLM-chosen `kind`, so it gets an EXPLICIT, auditable allowlist seam here — the
 // clean fence the epic names as the template for a future real-world action
-// allowlist. Anything outside these three ops is rejected + logged before any
-// metadata write. The two conversational kinds (`needs_clarification`,
+// allowlist. Anything outside this permitted set is rejected + logged before any
+// metadata write. The permitted set is the three additive ops (`add_field`,
+// `add_table`, `add_view`) plus `hide_field` (Story 5.5): a "delete/remove a
+// column" request is satisfied NON-destructively by hiding that one column via
+// the append-only visibility flag — it rides the SAME fence rather than being
+// exempted, so one uniform allowlist + raw-SQL discard covers every operation the
+// model can drive. The two conversational kinds (`needs_clarification`,
 // `out_of_scope`) are NOT operations — they are handled upstream and must never
 // reach this guard.
 export const PERMITTED_OPERATIONS = [
   "add_field",
   "add_table",
   "add_view",
+  "hide_field",
 ] as const;
 
 export type PermittedOperation = (typeof PERMITTED_OPERATIONS)[number];
 
-/** Whether `kind` is one of the three permitted editor operations. */
+/** Whether `kind` is one of the permitted editor operations. */
 export function isPermittedOperation(kind: unknown): kind is PermittedOperation {
   return (
     typeof kind === "string" &&

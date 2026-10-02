@@ -486,6 +486,8 @@
     "successApplied": "C'est fait. J'ai ajouté {field} à {table}.",
     "successTableAdded": "C'est fait. J'ai créé {table}. Vous la trouverez dans le sélecteur de tables en haut du tableau de bord.",
     "successViewAdded": "C'est fait. J'ai créé la vue {view}. Vous la trouverez dans le sélecteur de tables en haut du tableau de bord.",
+    "columnHidden": "Pour garder vos données en sécurité, je ne supprime pas de colonnes. J'ai plutôt masqué {field} de {table}, elle n'apparaît donc plus. Vos informations sont toujours enregistrées et vous pouvez les réafficher à tout moment.",
+    "restored": "C'est fait. Cette colonne est de nouveau visible, et vos données n'ont jamais été modifiées.",
     "undo": "Annuler",
     "undone": "Annulé. Cette colonne est de nouveau masquée, et vos données sont intactes.",
     "undoFailed": "Je n'ai pas pu annuler pour le moment. Veuillez réessayer dans un instant.",
