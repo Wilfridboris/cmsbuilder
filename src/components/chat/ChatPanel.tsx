@@ -10,7 +10,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import {
   postEditorChat,
+  postHideTable,
   postRemoveView,
+  postRestoreTable,
   postSetColumnVisibility,
   SchemaChatError,
 } from "@/lib/data/schema-chat-client";
@@ -42,8 +44,12 @@ import { MessageBubble, ThinkingBubble } from "@/components/chat/MessageBubble";
  * An applied ADD-VIEW (Story 5.3/5.6) result carries `undo: "remove"` + a `viewKey`,
  * so its bubble offers a one-tap Undo that removes the just-added view via the direct
  * `/api/schema/views` path (a view holds no rows, so removal is non-destructive). An
- * applied ADD-TABLE (Story 5.2) result has no `undo`, so it shows a glyph-only success
- * bubble pointing to the switcher.
+ * applied ADD-TABLE (Story 5.2/5.7) result carries `undo: "hide-table"` + a `tableKey`,
+ * so its bubble offers a one-tap Undo that HIDES the just-added table via the direct
+ * `/api/schema/tables` path (non-destructive — every record is retained). A `confirm`
+ * HIDE-TABLE offer (Story 5.7 — the safe answer to "delete the Jobs table") renders an
+ * inline "Hide the table" / "Keep it" pair; confirming drives the same direct hide and
+ * swaps the bubble to a reassurance state with a show-again Undo.
  * Any applied result calls `onSchemaChanged` so the dashboard re-reads the schema
  * and the column/table/view appears (or disappears). Never renders raw JSON, SQL,
  * or errors.
@@ -74,6 +80,33 @@ type ChatMessage =
        */
       appliedView?: {
         viewKey: string;
+        label: string;
+      };
+      /**
+       * Present on a hide-table OFFER message (Story 5.7, `kind:"confirm"`): the
+       * table proposed for hiding + its label. Drives the inline "Hide the table" /
+       * "Keep it" confirm buttons. No mutation has run server-side — confirming
+       * calls the direct `/api/schema/tables` path.
+       */
+      offerTable?: {
+        tableKey: string;
+        label: string;
+      };
+      /**
+       * Present on an applied ADD-TABLE message (Story 5.7): drives the one-tap
+       * table Undo, which HIDES the just-added table via the direct
+       * `/api/schema/tables` path (non-destructive). Carries the table key + label.
+       */
+      appliedTableUndo?: {
+        tableKey: string;
+        label: string;
+      };
+      /**
+       * Present on a just-hidden table message (Story 5.7, after a confirm or an
+       * add-table Undo): drives the one-tap "show again" Undo via the restore path.
+       */
+      hiddenTable?: {
+        tableKey: string;
         label: string;
       };
       /** True on an `applied` HIDE-COLUMN message (a shield-glyph reassurance bubble). */
@@ -114,6 +147,7 @@ export function ChatPanel({
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState(false);
   const [undoingId, setUndoingId] = useState<string | null>(null);
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const listEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLInputElement>(null);
@@ -171,6 +205,22 @@ export function ChatPanel({
           result.viewKey
             ? { viewKey: result.viewKey, label: result.label ?? result.viewKey }
             : undefined,
+        // A hide-table OFFER (Story 5.7): the model's hide_table resolves to an
+        // offer, not a mutation. The bubble renders confirm/keep buttons.
+        offerTable:
+          result.kind === "confirm" &&
+          result.confirm === "hide-table" &&
+          result.tableKey
+            ? { tableKey: result.tableKey, label: result.label ?? result.tableKey }
+            : undefined,
+        // An applied ADD-TABLE (Story 5.7): carries `undo:"hide-table"` + tableKey
+        // so the bubble offers an Undo that hides the just-added table.
+        appliedTableUndo:
+          result.kind === "applied" &&
+          result.undo === "hide-table" &&
+          result.tableKey
+            ? { tableKey: result.tableKey, label: result.label ?? result.tableKey }
+            : undefined,
         isHide: result.kind === "applied" && result.undo === "show",
         isView:
           result.kind === "applied" &&
@@ -208,7 +258,10 @@ export function ChatPanel({
     if (
       !message ||
       message.role !== "assistant" ||
-      (!message.applied && !message.appliedView) ||
+      (!message.applied &&
+        !message.appliedView &&
+        !message.appliedTableUndo &&
+        !message.hiddenTable) ||
       undoingId
     ) {
       return;
@@ -216,7 +269,35 @@ export function ChatPanel({
     setUndoingId(messageId);
     try {
       let undoneText: string;
-      if (message.appliedView) {
+      // The Undo flips to this local message state so the bubble re-renders with the
+      // correct glyph and (where reversible) a follow-up Undo.
+      let patch: Partial<Extract<ChatMessage, { role: "assistant" }>> = {
+        undone: true,
+      };
+      if (message.hiddenTable) {
+        // Show-again Undo of a just-hidden table (Story 5.7): restore it via the
+        // direct tables path. Every record is retained, so the table returns intact.
+        // Clear the hidden-table state so the bubble reads as a neutral confirmation
+        // (no amber eye-off, no further Undo — the table is back).
+        await postRestoreTable(slug, message.hiddenTable.tableKey);
+        undoneText = t("tableRestored", { table: message.hiddenTable.label });
+        patch = { undone: true, hiddenTable: undefined, kind: "declined" };
+      } else if (message.appliedTableUndo) {
+        // Undo of an ADD-TABLE (Story 5.7) hides the just-added table via the direct
+        // tables path (an explicit Undo click is itself the confirmation — no offer
+        // step). Swap the bubble to the hidden-table state so it offers a show-again
+        // Undo of its own.
+        await postHideTable(slug, message.appliedTableUndo.tableKey);
+        undoneText = t("tableUndone", { table: message.appliedTableUndo.label });
+        patch = {
+          undone: false,
+          appliedTableUndo: undefined,
+          hiddenTable: {
+            tableKey: message.appliedTableUndo.tableKey,
+            label: message.appliedTableUndo.label,
+          },
+        };
+      } else if (message.appliedView) {
         // Undo of an ADD-VIEW removes the just-added view via the remove_view path
         // (Story 5.6). A view holds no rows, so this is non-destructive.
         await postRemoveView(slug, message.appliedView.viewKey);
@@ -236,7 +317,7 @@ export function ChatPanel({
       setMessages((prev) =>
         prev.map((m) =>
           m.id === messageId && m.role === "assistant"
-            ? { ...m, undone: true, text: undoneText }
+            ? { ...m, ...patch, text: undoneText }
             : m,
         ),
       );
@@ -249,6 +330,78 @@ export function ChatPanel({
     } finally {
       setUndoingId(null);
     }
+  };
+
+  // Confirm a hide-table OFFER (Story 5.7): the explicit button click IS the
+  // confirmation, so it drives the direct hide and swaps the bubble to a just-hidden
+  // table state that carries its own show-again Undo.
+  const confirmHideTable = async (messageId: string) => {
+    const message = messages.find((m) => m.id === messageId);
+    if (
+      !message ||
+      message.role !== "assistant" ||
+      !message.offerTable ||
+      confirmingId
+    ) {
+      return;
+    }
+    const target = message.offerTable;
+    setConfirmingId(messageId);
+    try {
+      await postHideTable(slug, target.tableKey);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId && m.role === "assistant"
+            ? {
+                ...m,
+                kind: "applied",
+                offerTable: undefined,
+                hiddenTable: { tableKey: target.tableKey, label: target.label },
+                text: t("tableHidden", { table: target.label }),
+              }
+            : m,
+        ),
+      );
+      onSchemaChanged();
+    } catch (err) {
+      // The offer stays (the tab is untouched) so the owner can retry; show an
+      // inline failure line without clearing the buttons. A concurrency race can
+      // make the target the LAST visible table between offer and confirm (the
+      // mutator re-check throws `tableHideLast`); surface that specific, actionable
+      // copy instead of the generic "try again" line, which retrying cannot fix.
+      const code = err instanceof SchemaChatError ? err.code : null;
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: nextId(),
+          role: "assistant",
+          kind: "degraded",
+          text:
+            code === "tableHideLast"
+              ? t("tableHideLast")
+              : t("tableHideFailed"),
+        },
+      ]);
+    } finally {
+      setConfirmingId(null);
+    }
+  };
+
+  // Dismiss a hide-table OFFER (Story 5.7): nothing is written; the bubble swaps to
+  // a neutral "kept it" line and the buttons clear.
+  const keepTable = (messageId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId && m.role === "assistant" && m.offerTable
+          ? {
+              ...m,
+              kind: "declined",
+              offerTable: undefined,
+              text: t("tableKept", { table: m.offerTable.label }),
+            }
+          : m,
+      ),
+    );
   };
 
   return (
@@ -302,30 +455,77 @@ export function ChatPanel({
                 <MessageBubble
                   key={message.id}
                   variant={
-                    message.kind === "applied" && !message.undone
-                      ? // An applied result is an add-column (check glyph), a
-                        // hide-column (eye-off glyph, Story 5.5), an add-view (filter
-                        // glyph + Undo, Story 5.6), or an add-table (table glyph, no
-                        // Undo). Each gets its own glyph; the ones with an Undo render
-                        // it as children below.
-                        message.isHide
-                        ? "hidden"
-                        : message.applied
-                          ? "applied"
-                          : message.isView
-                            ? "appliedView"
-                            : message.isViewRemoved
-                              ? "removedView"
-                              : "appliedTable"
-                      : message.kind === "declined"
-                        ? "declined"
-                        : message.kind === "degraded"
-                          ? "degraded"
-                          : "assistant"
+                    // A hide-table OFFER (Story 5.7) renders the confirm/keep buttons
+                    // regardless of kind, so it is matched first.
+                    message.offerTable
+                      ? "offerHideTable"
+                      : // A just-hidden table (post-confirm or post-add-undo) uses the
+                        // amber eye-off reassurance and carries a show-again Undo.
+                        message.hiddenTable
+                        ? "tableHidden"
+                        : message.kind === "applied" && !message.undone
+                          ? // An applied result is an add-column (check glyph), a
+                            // hide-column (eye-off glyph, Story 5.5), an add-view
+                            // (filter glyph + Undo, Story 5.6), or an add-table
+                            // (table glyph + Undo, Story 5.7). Each gets its own
+                            // glyph; the ones with an Undo render it as children.
+                            message.isHide
+                            ? "hidden"
+                            : message.applied
+                              ? "applied"
+                              : message.isView
+                                ? "appliedView"
+                                : message.isViewRemoved
+                                  ? "removedView"
+                                  : "appliedTable"
+                          : message.kind === "declined"
+                            ? "declined"
+                            : message.kind === "degraded"
+                              ? "degraded"
+                              : "assistant"
                   }
                   text={message.text}
                 >
-                  {(message.applied || message.appliedView) && !message.undone ? (
+                  {message.offerTable ? (
+                    // The hide-table OFFER (Story 5.7): an explicit confirm/keep pair.
+                    // A confirm click IS the confirmation and drives the direct hide.
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="min-h-11"
+                        aria-label={t("tableHideConfirmAria", {
+                          table: message.offerTable.label,
+                        })}
+                        disabled={confirmingId !== null}
+                        onClick={() => confirmHideTable(message.id)}
+                      >
+                        {confirmingId === message.id ? (
+                          <Loader2
+                            aria-hidden="true"
+                            className="size-4 animate-spin"
+                          />
+                        ) : null}
+                        {t("tableHideConfirm")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="min-h-11"
+                        aria-label={t("tableKeepButtonAria", {
+                          table: message.offerTable.label,
+                        })}
+                        disabled={confirmingId !== null}
+                        onClick={() => keepTable(message.id)}
+                      >
+                        {t("tableKeepButton")}
+                      </Button>
+                    </div>
+                  ) : (message.applied ||
+                      message.appliedView ||
+                      message.appliedTableUndo ||
+                      message.hiddenTable) && !message.undone ? (
                     <Button
                       type="button"
                       variant="outline"

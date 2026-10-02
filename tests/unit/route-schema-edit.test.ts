@@ -200,7 +200,7 @@ describe("POST /api/schema/edit", () => {
     expect(call[2]).toEqual({ label: "Warranty date", type: "date" });
   });
 
-  it("applied: valid Admin add_table → 200 applied (tableKey, no fieldKey), table write ran", async () => {
+  it("applied: valid Admin add_table → 200 applied (tableKey, undo:hide-table, no fieldKey), table write ran", async () => {
     const { POST } = await import("@/app/api/schema/edit/route");
     callGeminiWithTimeout.mockResolvedValue({
       kind: "add_table",
@@ -220,9 +220,10 @@ describe("POST /api/schema/edit", () => {
     expect(body.error).toBeNull();
     expect(body.data.kind).toBe("applied");
     expect(body.data.tableKey).toBe("employee_timesheets");
-    // No fieldKey / no undo on a table add → the client shows no Undo.
+    // Story 5.7: the add-table result carries undo:"hide-table" + the new tableKey
+    // so the chat bubble offers an Undo that hides the just-added table. No fieldKey.
     expect(body.data.fieldKey).toBeUndefined();
-    expect(body.data.undo).toBeUndefined();
+    expect(body.data.undo).toBe("hide-table");
     expect(addTable).toHaveBeenCalledTimes(1);
     expect(addField).not.toHaveBeenCalled();
     const call = addTable.mock.calls[0];
@@ -734,6 +735,132 @@ describe("POST /api/schema/edit", () => {
     expect(body.data.assistantText).toBe("rejection");
     expect(body.data.assistantText).not.toContain("DROP");
     expect(removeView).not.toHaveBeenCalled();
+    expect(reportRejection).toHaveBeenCalled();
+  });
+
+  // --- Story 5.7: hide_table (the safe answer to "delete the Jobs table") -----
+  // A two-visible-table schema so canHideTable is true (hiding does not empty the
+  // dashboard). Only the schema read differs from the default single-table one.
+  function twoTableSchemaRead() {
+    return {
+      data: {
+        tables: [
+          {
+            key: "jobs",
+            label: "Jobs",
+            fields: [{ key: "status", label: "Status", type: "text" }],
+          },
+          {
+            key: "clients",
+            label: "Clients",
+            fields: [{ key: "name", label: "Name", type: "text" }],
+          },
+        ],
+        views: [],
+      },
+      error: null,
+    };
+  }
+
+  it("confirm: hide_table for an in-summary table (>1 visible) → 200 confirm offer, NO mutation", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    getSchema.mockResolvedValue(twoTableSchemaRead());
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "hide_table",
+      tableKey: "jobs",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete the Jobs table" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data.kind).toBe("confirm");
+    expect(body.data.confirm).toBe("hide-table");
+    expect(body.data.tableKey).toBe("jobs");
+    expect(body.data.label).toBe("Jobs");
+    expect(body.data.assistantText).toBe("tableHideOffer");
+    // The route NEVER mutates on hide_table — the write runs only on the button
+    // click via the direct /api/schema/tables path.
+    expect(addTable).not.toHaveBeenCalled();
+    expect(setFieldVisibility).not.toHaveBeenCalled();
+    expect(removeView).not.toHaveBeenCalled();
+  });
+
+  it("declined: hide_table for an out-of-summary (stale/hallucinated) table → 200 declined, NO mutation", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    getSchema.mockResolvedValue(twoTableSchemaRead());
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "hide_table",
+      tableKey: "ghost_table",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete the Suppliers table" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("declined");
+    expect(body.data.assistantText).toBe("declineFallback");
+    expect(body.data.assistantText).not.toContain("ghost_table");
+  });
+
+  it("declined: hide_table of the LAST visible table → 200 declined (tableHideLast), NO mutation", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    // Default schema has exactly one visible table (jobs) → canHideTable is false.
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "hide_table",
+      tableKey: "jobs",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete the Jobs table" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("declined");
+    expect(body.data.assistantText).toBe("tableHideLast");
+  });
+
+  it("rejected: a shapeless hide_table (missing tableKey) → 200 rejected, NO mutation", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    getSchema.mockResolvedValue(twoTableSchemaRead());
+    callGeminiWithTimeout.mockResolvedValue({ kind: "hide_table" });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete a table" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+  });
+
+  it("rejected: raw SQL in a hide_table output → 200 rejected, NO mutation, reportRejection logged", async () => {
+    const { reportRejection } = await import("@/lib/observability/report");
+    vi.mocked(reportRejection).mockClear();
+    const { POST } = await import("@/app/api/schema/edit/route");
+    getSchema.mockResolvedValue(twoTableSchemaRead());
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "hide_table",
+      tableKey: "jobs",
+      smuggled: "DROP TABLE records;",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete the Jobs table" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+    expect(body.data.assistantText).not.toContain("DROP");
     expect(reportRejection).toHaveBeenCalled();
   });
 

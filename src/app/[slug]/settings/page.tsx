@@ -8,11 +8,13 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import type { SubscriptionStatus, SubscriptionTier } from "@/types/db";
 import { resolveTierView } from "@/lib/billing/tier-view";
+import { getSchema } from "@/lib/data/records";
 import { InviteForm } from "@/components/settings/InviteForm";
 import { BusinessProfileForm } from "@/components/settings/BusinessProfileForm";
 import { BillingStart } from "@/components/settings/BillingStart";
 import { BillingManage } from "@/components/settings/BillingManage";
 import { TierView } from "@/components/settings/TierView";
+import { HiddenTablesRestoreSection } from "@/components/settings/HiddenTablesRestoreSection";
 
 /**
  * Admin-only Settings surface at `/{slug}/settings` (Story 2.3).
@@ -125,6 +127,16 @@ export default async function SettingsPage({
       ? "endedSubtitle"
       : "subtitle";
 
+  // Story 5.7: load the org's schema to list any tables hidden via chat so the
+  // Admin can restore them. The caller is a proven Admin of this org, so reading
+  // through the in-scope service-role admin client is safe. A read error degrades
+  // to an empty list rather than failing the page (the restore surface is
+  // non-critical; hiding/restoring stays available from chat).
+  const schemaResult = await getSchema(adminClient, membership.orgId);
+  const hiddenTables = (schemaResult.data?.tables ?? [])
+    .filter((table) => table.hidden)
+    .map((table) => ({ key: table.key, label: table.label }));
+
   return (
     <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-12 px-6 py-16">
       <section className="flex flex-col gap-8">
@@ -171,6 +183,10 @@ export default async function SettingsPage({
       <hr className="border-border" />
 
       <BusinessProfileForm slug={slug} />
+
+      <hr className="border-border" />
+
+      <HiddenTablesRestoreSection slug={slug} hiddenTables={hiddenTables} />
     </main>
   );
 }

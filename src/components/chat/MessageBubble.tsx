@@ -1,6 +1,13 @@
 "use client";
 
-import { Check, EyeOff, FilterX, ListFilter, Table2 } from "lucide-react";
+import {
+  Check,
+  EyeOff,
+  FilterX,
+  ListFilter,
+  ShieldAlert,
+  Table2,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -21,6 +28,14 @@ import { cn } from "@/lib/utils";
  * "delete this column") bubble swaps in a reassuring amber eye-off glyph and DOES
  * carry a one-tap "show again" Undo as `children` (the data is never deleted).
  *
+ * Story 5.7 adds two table-grain variants. An `offerHideTable` bubble is the OFFER
+ * shown when the owner asks to delete a whole table: a caution-toned amber shield
+ * glyph with the reassuring "I'll hide it instead" copy, and it renders its
+ * "Hide the table" / "Keep it" confirm buttons as `children` (no mutation has run
+ * yet). A `tableHidden` bubble is the post-confirm (or post-undo-of-add) state: the
+ * same amber eye-off reassurance as `hidden`, at the table grain, carrying a one-tap
+ * "show again" Undo as `children` (every record is retained, so it is reversible).
+ *
  * Never renders raw JSON, SQL, or errors — the `text` it receives is always a
  * translated, human string produced server-side. All microstates are CSS
  * (`transition-*`); no Framer Motion here (that is reserved for the panel
@@ -35,6 +50,8 @@ export type BubbleVariant =
   | "appliedView"
   | "removedView"
   | "hidden"
+  | "offerHideTable"
+  | "tableHidden"
   | "declined"
   | "degraded";
 
@@ -53,6 +70,8 @@ export function MessageBubble({
   const isAppliedView = variant === "appliedView";
   const isRemovedView = variant === "removedView";
   const isHidden = variant === "hidden";
+  const isOfferHideTable = variant === "offerHideTable";
+  const isTableHidden = variant === "tableHidden";
 
   return (
     <div
@@ -97,10 +116,20 @@ export function MessageBubble({
               className="mt-0.5 size-4 shrink-0 text-zinc-500 dark:text-zinc-400"
             />
           ) : null}
-          {isHidden ? (
+          {isHidden || isTableHidden ? (
             // A hide is reassurance, not a creation — an amber eye-off glyph marks
             // "safely tucked away" distinctly from the emerald "created" states.
+            // Reused at the table grain (Story 5.7) for a hidden whole table.
             <EyeOff
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"
+            />
+          ) : null}
+          {isOfferHideTable ? (
+            // A hide-table OFFER (Story 5.7): a caution-toned amber shield marks a
+            // consequential, confirm-gated action (removing a whole dashboard tab),
+            // distinct from the immediate emerald "created" and the done amber hide.
+            <ShieldAlert
               aria-hidden="true"
               className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400"
             />

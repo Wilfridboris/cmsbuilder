@@ -9,7 +9,7 @@ import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { getSchema } from "@/lib/data/records";
-import { visibleTables, visibleViews } from "@/lib/schema/overrides";
+import { canHideTable, visibleTables, visibleViews } from "@/lib/schema/overrides";
 import {
   addField,
   addTable,
@@ -96,23 +96,33 @@ export const dynamic = "force-dynamic";
 
 /** The server result contract (model -> route -> client). `assistantText` is always a translated human string. */
 export type EditorChatResult = {
-  kind: "applied" | "clarify" | "declined" | "rejected" | "degraded";
-  /** Present on `applied`: the table the change targets (an add-field target, a hidden column's table, or the new table). */
+  kind: "applied" | "clarify" | "confirm" | "declined" | "rejected" | "degraded";
+  /** Present on `applied`: the table the change targets (an add-field target, a hidden column's table, or the new table). Present on a `confirm` hide-table OFFER: the table proposed for hiding. */
   tableKey?: string;
   /** Present on an `applied` ADD-FIELD or HIDE-FIELD: the field key (drives Undo). Absent for an add-table/add-view. */
   fieldKey?: string;
   /** Present on an `applied` ADD-VIEW or REMOVE-VIEW: the created / removed view key. Absent for an add-field/add-table/hide-field. */
   viewKey?: string;
   /**
-   * Present on an `applied` column change OR add-view: which way the inline Undo
-   * reverses the change. `"hide"` means the change SHOWED a column (an add-field;
-   * Undo hides it), `"show"` means the change HID a column (a hide-field; Undo
-   * shows it again), `"remove"` means the change ADDED a view (an add-view; Undo
-   * removes that just-added view via the `remove_view` path, keyed by `viewKey`).
-   * The client drives the matching Undo from this direction. Absent → no Undo.
+   * Present on an `applied` column change, add-view, OR add-table: which way the
+   * inline Undo reverses the change. `"hide"` means the change SHOWED a column (an
+   * add-field; Undo hides it), `"show"` means the change HID a column (a
+   * hide-field; Undo shows it again), `"remove"` means the change ADDED a view (an
+   * add-view; Undo removes that just-added view via the `remove_view` path, keyed
+   * by `viewKey`), `"hide-table"` means the change ADDED a table (an add-table;
+   * Undo hides that just-added table via the direct `/api/schema/tables` path,
+   * keyed by `tableKey`). The client drives the matching Undo from this direction.
+   * Absent → no Undo.
    */
-  undo?: "hide" | "show" | "remove";
-  /** Present on `applied`: the added column's / hidden column's / new table's / new view's label, for the success message. */
+  undo?: "hide" | "show" | "remove" | "hide-table";
+  /**
+   * Present on a `confirm` hide-table OFFER: which direct confirm action the inline
+   * button drives. `"hide-table"` means clicking "Hide the table" calls the direct
+   * `/api/schema/tables` `{action:"hide"}` path for the `tableKey`. No mutation ran
+   * server-side — the model's `hide_table` only yields this offer.
+   */
+  confirm?: "hide-table";
+  /** Present on `applied`: the added column's / hidden column's / new table's / new view's label, for the success message. Present on a `confirm` hide-table OFFER: the proposed table's label. */
   label?: string;
   /** Always a translated, human-readable sentence. Never raw JSON/SQL/errors. */
   assistantText: string;
@@ -126,6 +136,7 @@ type GeminiEditorOutput = {
     | "add_view"
     | "hide_field"
     | "remove_view"
+    | "hide_table"
     | "needs_clarification"
     | "out_of_scope";
   tableKey?: unknown;
@@ -252,7 +263,7 @@ export async function POST(
     // 8b. The explicit operation allowlist + raw-SQL discard fence (Story 5.4).
     //     `out_of_scope` is a conversational kind, not an operation — it falls
     //     through to the friendly `declined` path below and is NOT a rejection.
-    //     Everything else must be one of the three permitted ops with no raw SQL
+    //     Everything else must be one of the permitted ops with no raw SQL
     //     in its output; anything else is rejected before any write and logged
     //     via `reportRejection` with the org id + raw output (the fixed copy is
     //     all the user ever sees).
@@ -369,14 +380,18 @@ export async function POST(
         }
 
         // Surface-only navigation: the success copy points the Admin to the new
-        // table in the switcher (the client's router.refresh makes it appear). No
-        // fieldKey/undo is set → the client shows no Undo. Story 5.5 added only
-        // COLUMN hide; whole-table hide (and an add-table Undo) are deferred.
+        // table in the switcher (the client's router.refresh makes it appear). The
+        // result now carries `undo: "hide-table"` + the created `tableKey` so the
+        // chat bubble offers a one-tap Undo that HIDES the just-added table via the
+        // direct `/api/schema/tables` path (Story 5.7). An Undo click is itself the
+        // confirmation (no offer step), and a hide is non-destructive — the table
+        // and every row stay intact and can be restored from Settings.
         return json(
           {
             data: {
               kind: "applied",
               tableKey: result.data.tableKey,
+              undo: "hide-table",
               label: output.label.trim(),
               assistantText: t("successTableAdded", {
                 table: output.label.trim(),
@@ -652,6 +667,70 @@ export async function POST(
           200,
         );
       }
+    }
+
+    if (output.kind === "hide_table") {
+      // The SAFE answer to "delete/remove a whole TABLE" (Story 5.7). Unlike
+      // hide_field (which applies immediately), a table hide is consequential — it
+      // removes a dashboard tab — so this branch performs NO mutation: it resolves
+      // + validates the target and returns an OFFER (`confirm`). A button click
+      // then drives the real write through the direct, non-LLM `/api/schema/tables`
+      // path. A shapeless hide_table (missing an exact tableKey) is treated as a
+      // rejection — the model must name an exact, existing table.
+      if (!isNonEmptyString(output.tableKey)) {
+        return json(
+          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+          200,
+        );
+      }
+
+      const tableKey = output.tableKey.trim();
+
+      // Resolve-before-write guard (mirrors the hide_field / remove_view guards):
+      // enforce the tableKey against the VISIBLE tables summary the model was
+      // actually shown (`tables`), not just the model's obedience. A key outside it
+      // (a hallucinated or stale key, or an already-hidden table) is NOT a hideable
+      // target: reassure and offer nothing. This also guarantees the label below
+      // resolves (the message never shows a raw key).
+      const targetTable = tables.find((table) => table.key === tableKey);
+      if (!targetTable) {
+        return json(
+          {
+            data: { kind: "declined", assistantText: t("declineFallback") },
+            error: null,
+          },
+          200,
+        );
+      }
+
+      // Never offer to hide the LAST visible table (it would empty the dashboard).
+      // The mutator re-checks this as the real backstop, but checking here lets us
+      // decline with a good, specific message instead of making a dead-end offer.
+      if (!canHideTable(schemaResult.data)) {
+        return json(
+          {
+            data: { kind: "declined", assistantText: t("tableHideLast") },
+            error: null,
+          },
+          200,
+        );
+      }
+
+      // Return the OFFER. No mutation ran — the client renders a reassuring prompt
+      // with a "Hide the table" confirm button that calls `/api/schema/tables`.
+      return json(
+        {
+          data: {
+            kind: "confirm",
+            tableKey,
+            confirm: "hide-table",
+            label: targetTable.label,
+            assistantText: t("tableHideOffer", { table: targetTable.label }),
+          },
+          error: null,
+        },
+        200,
+      );
     }
 
     // out_of_scope → friendly, non-technical decline. (The 8b fence above already

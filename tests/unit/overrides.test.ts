@@ -9,6 +9,7 @@ import {
   renameField,
   renameTable,
   showField,
+  showTable,
   visibleTables,
 } from "@/lib/schema/overrides";
 import type {
@@ -154,6 +155,45 @@ describe("hideTable", () => {
     const schema = makeSchema();
     const before = snapshot(schema);
     hideTable(schema, "clients");
+    expect(snapshot(schema)).toBe(before);
+  });
+});
+
+describe("showTable (Story 5.7)", () => {
+  it("sets hidden: false on the target table", () => {
+    const hidden = hideTable(makeSchema(), "clients");
+    const next = showTable(hidden, "clients");
+    expect(next.tables.find((t) => t.key === "clients")?.hidden).toBe(false);
+    expect(visibleTables(next).map((t) => t.key)).toEqual(["clients", "jobs"]);
+  });
+
+  it("round-trips: hide then show restores the table (and its fields) exactly", () => {
+    const base = makeSchema();
+    const roundTripped = showTable(hideTable(base, "clients"), "clients");
+    const table = roundTripped.tables.find((t) => t.key === "clients");
+    expect(table?.hidden).toBe(false);
+    // Every field (so every row's data shape) is retained unchanged.
+    expect(table?.fields.map((f) => f.key)).toEqual(["name", "email"]);
+  });
+
+  it("has no canHideTable gate — showing never empties, so it applies even to the only table", () => {
+    const schema = makeSchema();
+    schema.tables[1].hidden = true; // only "clients" visible
+    // jobs is hidden; show it back. (showTable has no last-table guard.)
+    const next = showTable(schema, "jobs");
+    expect(next.tables.find((t) => t.key === "jobs")?.hidden).toBe(false);
+  });
+
+  it("is a no-op for an unknown table", () => {
+    const schema = makeSchema();
+    const next = showTable(schema, "nope");
+    expect(snapshot(next)).toBe(snapshot(schema));
+  });
+
+  it("does not mutate the input", () => {
+    const schema = hideTable(makeSchema(), "clients");
+    const before = snapshot(schema);
+    showTable(schema, "clients");
     expect(snapshot(schema)).toBe(before);
   });
 });

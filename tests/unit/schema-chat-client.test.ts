@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   postEditorChat,
+  postHideTable,
   postRemoveView,
+  postRestoreTable,
   postRestoreView,
   postSetColumnVisibility,
   SchemaChatError,
@@ -259,6 +261,70 @@ describe("postRemoveView / postRestoreView (Story 5.6)", () => {
     fetchMock.mockRejectedValue(new Error("network down"));
 
     await expect(postRestoreView("acme", view)).rejects.toMatchObject({
+      name: "SchemaChatError",
+      code: "genericError",
+    });
+  });
+});
+
+describe("postHideTable / postRestoreTable (Story 5.7)", () => {
+  it("postHideTable POSTs action:hide + tableKey to the tables path", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        data: { action: "hide", tableKey: "jobs", hidden: true },
+        error: null,
+      }),
+    );
+
+    await expect(postHideTable("acme", "jobs")).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/schema/tables");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      slug: "acme",
+      action: "hide",
+      tableKey: "jobs",
+    });
+  });
+
+  it("postRestoreTable POSTs action:restore + tableKey to the tables path", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        data: { action: "restore", tableKey: "jobs", hidden: false },
+        error: null,
+      }),
+    );
+
+    await expect(postRestoreTable("acme", "jobs")).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/schema/tables");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      slug: "acme",
+      action: "restore",
+      tableKey: "jobs",
+    });
+  });
+
+  it("postHideTable throws SchemaChatError with the server code on a forbidden write", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ data: null, error: "forbidden" }, false, 403),
+    );
+
+    await expect(postHideTable("acme", "jobs")).rejects.toMatchObject({
+      name: "SchemaChatError",
+      code: "forbidden",
+    });
+  });
+
+  it("postRestoreTable throws SchemaChatError('genericError') on a network failure", async () => {
+    fetchMock.mockRejectedValue(new Error("network down"));
+
+    await expect(postRestoreTable("acme", "jobs")).rejects.toMatchObject({
       name: "SchemaChatError",
       code: "genericError",
     });

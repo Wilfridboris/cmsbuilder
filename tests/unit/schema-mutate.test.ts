@@ -22,6 +22,7 @@ vi.mock("@/lib/data/records", () => ({ getSchema }));
 // Imported AFTER the mock so the layer picks up the stubbed getSchema.
 const {
   setFieldVisibility,
+  setTableVisibility,
   addRelationField,
   addField,
   addTable,
@@ -210,6 +211,93 @@ describe("setFieldVisibility", () => {
       "email",
       true,
     ).catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
+    expect((err as { userMessage: string }).userMessage).not.toContain("boom");
+  });
+});
+
+describe("setTableVisibility (Story 5.7)", () => {
+  it("hides a table: writes the re-derived definition with only the target table's hidden flag set, scoped to the org", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+
+    const res = await setTableVisibility(identity(), "jobs", true);
+
+    expect(res.error).toBeNull();
+    expect(res.data).toEqual({ tableKey: "jobs", hidden: true });
+
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    expect(eqArgs).toEqual(["organization_id", "org-1"]);
+
+    const def = updatePayload?.definition as SchemaDefinition;
+    // Only the target table flipped; the sibling table is untouched, and every
+    // field (so every row's data) is retained.
+    expect(def.tables.find((t) => t.key === "jobs")?.hidden).toBe(true);
+    expect(def.tables.find((t) => t.key === "clients")?.hidden).toBeUndefined();
+    expect(def.tables.find((t) => t.key === "jobs")?.fields).toHaveLength(1);
+    expect(updatePayload).toHaveProperty("updated_at");
+  });
+
+  it("restores a table: sets hidden false on the target (no canHideTable gate)", async () => {
+    const hidden = twoTableSchema();
+    hidden.tables[1].hidden = true; // jobs hidden
+    getSchema.mockResolvedValue({ data: hidden, error: null });
+
+    const res = await setTableVisibility(identity(), "jobs", false);
+
+    expect(res.data).toEqual({ tableKey: "jobs", hidden: false });
+    const def = updatePayload?.definition as SchemaDefinition;
+    expect(def.tables.find((t) => t.key === "jobs")?.hidden).toBe(false);
+  });
+
+  it("400 genericError with NO write when the table is unknown", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+
+    await expect(
+      setTableVisibility(identity(), "ghost", true),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "genericError" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("400 tableHideLast with NO write when hiding would empty the dashboard (last visible table)", async () => {
+    // baseSchema has exactly one visible table.
+    getSchema.mockResolvedValue({ data: baseSchema(), error: null });
+
+    await expect(
+      setTableVisibility(identity(), "clients", true),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "tableHideLast" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("restore is allowed even when only one table is visible (showing never empties)", async () => {
+    // One visible table (clients) + one already-hidden table (jobs). Restoring
+    // jobs must not be blocked by the last-table guard.
+    const schema = twoTableSchema();
+    schema.tables[1].hidden = true;
+    getSchema.mockResolvedValue({ data: schema, error: null });
+
+    const res = await setTableVisibility(identity(), "jobs", false);
+
+    expect(res.data).toEqual({ tableKey: "jobs", hidden: false });
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("500 writeFailed with NO write when the schema read fails", async () => {
+    getSchema.mockResolvedValue({ data: null, error: "read boom" });
+
+    await expect(
+      setTableVisibility(identity(), "jobs", true),
+    ).rejects.toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("500 writeFailed when the UPDATE errors, never leaking the raw message", async () => {
+    getSchema.mockResolvedValue({ data: twoTableSchema(), error: null });
+    dbError = { message: "duplicate key value boom" };
+
+    const err = await setTableVisibility(identity(), "jobs", true).catch(
+      (e: unknown) => e,
+    );
 
     expect(err).toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
     expect((err as { userMessage: string }).userMessage).not.toContain("boom");

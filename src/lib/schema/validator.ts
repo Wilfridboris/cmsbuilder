@@ -74,6 +74,16 @@ export const PERMITTED_OPERATIONS = [
   // allowlist + raw-SQL fence rather than being exempted. Its op name contains no
   // BLOCKED_KEYWORDS substring, so the blocklist is unchanged.
   "remove_view",
+  // Story 5.7: the SAFE answer to "delete/remove a whole TABLE". Like
+  // `hide_field`, it sets an append-only table-level `hidden` flag — no table or
+  // row is ever dropped, and the hide is fully reversible from Settings or an
+  // Undo. Unlike the other ops, its route handler OFFERS rather than applies (a
+  // table hide is consequential enough to gate behind an explicit confirm button
+  // that drives the write through the direct `/api/schema/tables` path), but it
+  // still joins THIS allowlist so one uniform allowlist + raw-SQL fence covers
+  // every model-driven operation. Its op name contains no BLOCKED_KEYWORDS
+  // substring, so the blocklist is unchanged.
+  "hide_table",
 ] as const;
 
 export type PermittedOperation = (typeof PERMITTED_OPERATIONS)[number];

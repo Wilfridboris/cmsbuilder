@@ -103,6 +103,27 @@ export function hideTable(
   };
 }
 
+/**
+ * Unhide a table (flips the append-only flag back to `hidden: false`). The inverse
+ * of `hideTable` and the restore half of Story 5.7's table hide/restore: unhiding
+ * is fully reversible — the table definition and every stored `records` row are
+ * preserved, so the table simply reappears through the existing `!hidden` render
+ * filters. There is NO `canHideTable` gate here: showing a table can never empty
+ * the dashboard. No-op for an unknown table key. Pure and immutable (the input
+ * schema is never mutated), mirroring `showField`.
+ */
+export function showTable(
+  schema: SchemaDefinition,
+  tableKey: string,
+): SchemaDefinition {
+  return {
+    ...schema,
+    tables: schema.tables.map((table) =>
+      table.key === tableKey ? { ...table, hidden: false } : table,
+    ),
+  };
+}
+
 /** Hide a field within a table (append-only `hidden: true`). */
 export function hideField(
   schema: SchemaDefinition,

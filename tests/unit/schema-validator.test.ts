@@ -485,13 +485,14 @@ describe("filterSeedRows — malformed rows are skipped, not fatal", () => {
  * collisions still reject.
  */
 describe("Story 5.4 — PERMITTED_OPERATIONS allowlist", () => {
-  it("names exactly the permitted editor ops (three additive + hide_field + remove_view)", () => {
+  it("names exactly the permitted editor ops (three additive + hide_field + remove_view + hide_table)", () => {
     expect([...PERMITTED_OPERATIONS]).toEqual([
       "add_field",
       "add_table",
       "add_view",
       "hide_field",
       "remove_view",
+      "hide_table",
     ]);
   });
 
@@ -556,6 +557,23 @@ describe("Story 5.4 — PERMITTED_OPERATIONS allowlist", () => {
         viewKey: "unpaid_invoices",
       }),
     ).toEqual({ allowed: true, kind: "remove_view" });
+    // Story 5.7 — hide_table rides the SAME allowlist + raw-SQL fence (even though
+    // its route handler OFFERS rather than applies).
+    expect(
+      assertEditorOperationAllowed({
+        kind: "hide_table",
+        tableKey: "jobs",
+      }),
+    ).toEqual({ allowed: true, kind: "hide_table" });
+  });
+
+  it("discards a hide_table whose raw output carries SQL (same fence as the add ops)", () => {
+    const result = assertEditorOperationAllowed({
+      kind: "hide_table",
+      tableKey: "jobs",
+      smuggled: "DROP TABLE records;",
+    });
+    expect(result).toEqual({ allowed: false, reason: "rawSqlRejected" });
   });
 
   it("discards a remove_view whose raw output carries SQL (same fence as the add ops)", () => {

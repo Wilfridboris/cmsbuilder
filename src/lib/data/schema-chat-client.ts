@@ -109,6 +109,78 @@ export async function postSetColumnVisibility(
 }
 
 /**
+ * Hide a whole table by its key (Story 5.7) through the direct, non-LLM
+ * `POST /api/schema/tables` (`action: "hide"`). Used by the chat hide-table confirm
+ * button and the add-table chat-bubble Undo (hiding the just-added table). Only the
+ * table-level append-only `hidden` flag is set — every row is retained, so the hide
+ * is fully reversible from Settings or the chat show-again Undo. Throws
+ * `SchemaChatError` on a true transport/auth failure so the caller can show a
+ * translated retry message — a raw error, stack, or SQL never reaches the UI.
+ */
+export async function postHideTable(
+  slug: string,
+  tableKey: string,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch("/api/schema/tables", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, action: "hide", tableKey }),
+    });
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  let body: { error: string | null } | null = null;
+  try {
+    body = (await res.json()) as { error: string | null };
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  if (!res.ok || body?.error) {
+    throw new SchemaChatError(body?.error ?? "genericError");
+  }
+}
+
+/**
+ * Restore a previously-hidden table by its key (Story 5.7) through the direct,
+ * non-LLM `POST /api/schema/tables` (`action: "restore"`). Used by the chat
+ * show-again Undo and the Settings "Hidden tables" Restore control. Flips the
+ * table-level `hidden` flag back to false — the table and every record reappear
+ * unchanged. Throws `SchemaChatError` on a true transport/auth failure so the
+ * caller can show a translated retry message — a raw error, stack, or SQL never
+ * reaches the UI.
+ */
+export async function postRestoreTable(
+  slug: string,
+  tableKey: string,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch("/api/schema/tables", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug, action: "restore", tableKey }),
+    });
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  let body: { error: string | null } | null = null;
+  try {
+    body = (await res.json()) as { error: string | null };
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  if (!res.ok || body?.error) {
+    throw new SchemaChatError(body?.error ?? "genericError");
+  }
+}
+
+/**
  * Remove a saved view by its key (Story 5.6) through the direct, non-LLM
  * `POST /api/schema/views` (`action: "remove"`). Used by the view-tab "Remove
  * view" control and the add-view chat-bubble Undo (removing the just-added view).

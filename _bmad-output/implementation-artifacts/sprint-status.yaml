@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: '10-02-2026 (5-6 remove-a-view-via-chat review)'
+last_updated: '10-02-2026 (5-7 hide-a-table-via-chat review)'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -108,7 +108,7 @@ development_status:
   5-4-schema-validator-guardrails-rejection-handling: done
   5-5-safe-handling-of-unsupported-operations: review
   5-6-remove-a-view-via-chat: review
-  5-7-hide-a-table-via-chat: backlog
+  5-7-hide-a-table-via-chat: review
   epic-5-retrospective: optional
 
   epic-6: backlog

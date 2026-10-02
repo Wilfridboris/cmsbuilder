@@ -10,8 +10,11 @@ import {
   addTable as addTableTransform,
   addView as addViewTransform,
   removeView as removeViewTransform,
+  canHideTable,
   hideField,
+  hideTable,
   showField,
+  showTable,
 } from "@/lib/schema/overrides";
 import {
   validateAddField,
@@ -450,6 +453,82 @@ export async function removeView(
     }
 
     return { data: { view: removed }, error: null };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/**
+ * Set a whole table's visibility for the org (append-only table-level `hidden`
+ * flag) — the persisted mutator behind Story 5.7's "hide a table" (in place of
+ * delete) and its restore. Mirrors `setFieldVisibility`'s guarded read-verify-
+ * transform-write contract exactly, at the table grain:
+ *   - read the org's CURRENT authoritative definition under the RLS client;
+ *   - verify the `tableKey` actually exists → `AppError(400)` with NO write (the
+ *     server never trusts a client-supplied identifier);
+ *   - when HIDING, re-check `canHideTable` (the real guard, not only the offer-time
+ *     check): hiding the LAST visible table would empty the dashboard, so it is
+ *     `AppError(400, "tableHideLast")` with NO write;
+ *   - apply the pure `hideTable`/`showTable` transform (append-only flag);
+ *   - write the full definition back under the RLS client (tenant-isolation policy
+ *     scopes the UPDATE to the caller's own org).
+ *
+ * A client can never post an arbitrary schema — the definition is always re-derived
+ * from the stored one. The change is non-destructive and fully reversible: the table
+ * definition and every `records.data` row are preserved and simply drop out of /
+ * reappear in the existing `!hidden` render filters. Returns `{ tableKey, hidden }`;
+ * raw SQL is never leaked.
+ */
+export async function setTableVisibility(
+  identity: SchemaMutateIdentity,
+  tableKey: string,
+  hidden: boolean,
+): Promise<ApiResponse<{ tableKey: string; hidden: boolean }>> {
+  try {
+    const { client, orgId } = identity;
+
+    // 1. Read the org's CURRENT authoritative definition under the RLS client.
+    const current = await getSchema(client, orgId);
+    if (current.error || !current.data) {
+      throw new AppError(500, "writeFailed");
+    }
+    const schema = current.data;
+
+    // 2. Verify the targeted table actually exists. A body referencing a missing
+    //    table is a 400 with no write — the server never trusts a client key.
+    const table = schema.tables.find((t) => t.key === tableKey);
+    if (!table) {
+      throw new AppError(400, "genericError");
+    }
+
+    // 2b. When hiding, re-check the "never empty the dashboard" guard HERE (the
+    //     real backstop, not only the offer-time check): hiding the last visible
+    //     table is refused with a reassuring, translatable code and NO write.
+    if (hidden && !canHideTable(schema)) {
+      throw new AppError(400, "tableHideLast");
+    }
+
+    // 3. Apply the pure, immutable transform (only the `hidden` flag changes;
+    //    every `records` row is retained).
+    const next = hidden
+      ? hideTable(schema, tableKey)
+      : showTable(schema, tableKey);
+
+    // 4. Persist the full definition back under the RLS client. RLS + the
+    //    tenant-isolation policy scope the UPDATE to the caller's own org.
+    const { error } = await client
+      .from("org_schemas")
+      .update({ definition: next, updated_at: new Date().toISOString() })
+      .eq("organization_id", orgId);
+
+    if (error) {
+      throw new AppError(500, "writeFailed", error.message);
+    }
+
+    return { data: { tableKey, hidden }, error: null };
   } catch (err) {
     if (err instanceof AppError) {
       throw err;
