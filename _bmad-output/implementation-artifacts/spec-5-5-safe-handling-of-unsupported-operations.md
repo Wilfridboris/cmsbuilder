@@ -124,3 +124,9 @@ Reframing "delete column" as `hide_field` keeps the highest-risk surface additiv
 
 **Manual checks:**
 - As an Admin on `/session-1f4fa453` against the dev app (`localhost:3000`, live Gemini): "delete the Notes column from Quotes & Jobs" hides the column (gone from table + add-record form, data intact) with reassuring copy and a working show-again Undo; "delete the Jobs table" and "rename Notes to Comments" return a reassuring decline with no change; no raw JSON/SQL/stack anywhere.
+
+**Manual review (Playwright, post-commit) — verified.** On the authed Admin fixture `/session-1f4fa453` against the running dev app on `localhost:3000` with a live Gemini key:
+- **Hide a column with real data (rich path):** "delete the Phone Number column from Customers" returned exactly `columnHidden` ("To keep your data safe, I don't delete columns. I've hidden Phone Number from Customers instead, so it no longer shows up. Your information is still saved and you can bring it back anytime.") with an **Undo** button. The **Phone Number** column disappeared live (router.refresh) from both the records table and the add-record form.
+- **Show-again Undo + data intact:** clicking Undo returned `restored` ("Done. That column is visible again, and your data was never touched.") and the Phone Number column reappeared with its original values (613-555-0142, 613-555-0100, 819-555-0142, 613-555-0199) — proving the hide never deleted data.
+- **Unsupported ops decline (no mutation):** "delete the Customers table" and "rename the Customer Type column to Segment" each returned a reassuring, non-technical decline with no Undo and no change to the schema.
+- **No raw internals** (no JSON/SQL/schema/stack) in any bubble, and **zero console errors or warnings** across the session.
