@@ -4,13 +4,11 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
-import { getCurrentUser } from "@/lib/auth/session";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin } from "@/lib/auth/rbac";
 import { addRelationField } from "@/lib/data/schema-mutate";
 import {
   json,
-  resolveWritableOrgIdentity,
+  requireUser,
+  resolveWritableAdminIdentity,
   handleError,
 } from "@/lib/api/route-helpers";
 import { addRelationFieldSchema } from "./schemas";
@@ -22,15 +20,14 @@ import { addRelationFieldSchema } from "./schemas";
  *
  * Mirrors `POST /api/schema/columns` exactly (the real Admin schema-write
  * boundary):
- *   1. `getCurrentUser()` (JWT-validated) → 401 if no session;
+ *   1. `requireUser()` (JWT-validated) → 401 if no session;
  *   2. Zod-validate `{ slug, tableKey, label, targetTable }`;
- *   3. `requireAdmin(user, createAdminClient())` → 403 for a Member — the
- *      service-role admin client reads `org_members` ONLY inside the guard,
- *      NEVER on the write path (mirrors `/api/schema/columns`);
- *   4. `membership.slug === slug` so an Admin of a DIFFERENT org can't edit this
- *      org's schema (org_schemas RLS only checks membership, not admin);
- *   5. `resolveIdentity(slug)` builds the caller's RLS-scoped client + org id;
- *   6. `addRelationField` reads-validates-writes `org_schemas` under that RLS
+ *   3. `resolveWritableAdminIdentity(slug, user)` (retro [A1]) — one helper for the
+ *      admin gate (403 for a Member), the `membership.slug === slug` cross-org
+ *      check (403, so an Admin of a different org can't edit this org's schema),
+ *      the RLS-scoped client + org id, and the read_only / expired-trial writable
+ *      assertion, all before any write;
+ *   4. `addRelationField` reads-validates-writes `org_schemas` under that RLS
  *      client (focused validator; whole-schema generation validator is NOT used).
  *
  * Every failure resolves to a translated error CODE via the `{ data, error }`
@@ -50,10 +47,7 @@ export async function POST(
 ): Promise<NextResponse<ApiResponse<AddRelationFieldResponse>>> {
   try {
     // 1. Identify the caller. No session → 401.
-    const user = await getCurrentUser();
-    if (!user) {
-      throw new AppError(401, "unauthorized");
-    }
+    const user = await requireUser();
 
     // 2. Validate the add-field request.
     let raw: unknown;
@@ -68,19 +62,12 @@ export async function POST(
     }
     const { slug, tableKey, label, targetTable } = parsed.data;
 
-    // 3. Admin gate — server-side, the real security boundary. The admin client
-    //    reads `org_members` ONLY here, never on the write path below.
-    const membership = await requireAdmin(user, createAdminClient());
-
-    // 3b. Assert the resolved membership is the org named by `slug` — an Admin of
-    //     a different org cannot edit THIS org's schema.
-    if (membership.slug !== slug) {
-      throw new AppError(403, "forbidden");
-    }
-
-    // 4. Build the caller's RLS-scoped identity for the org. The writable variant
-    //    also rejects a read_only / expired-trial org (Story 7.4) before the write.
-    const identity = await resolveWritableOrgIdentity(slug, user.id);
+    // 3. Admin gate + cross-org + writable in one helper (retro [A1]): resolve the
+    //    org under the caller's RLS client, require the caller be an admin of the
+    //    SAME org (a Member → 403; an admin of a different org → 403), and reject a
+    //    read_only / expired-trial org before the write. The admin client reads
+    //    `org_members` ONLY inside the guard, never on the write path below.
+    const identity = await resolveWritableAdminIdentity(slug, user);
 
     // 5. Guarded read-validate-write on `org_schemas` under the RLS client.
     const result = await addRelationField(identity, tableKey, {

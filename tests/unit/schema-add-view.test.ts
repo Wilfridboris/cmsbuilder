@@ -417,24 +417,24 @@ describe("addView transform (Story 5.3)", () => {
 });
 
 describe("visibleViews (Story 5.3)", () => {
-  it("returns all views when none are hidden", () => {
-    expect(visibleViews(schema()).map((v) => v.key)).toEqual(["unpaid_invoices"]);
-  });
-
-  it("drops hidden views", () => {
+  // A view is removed outright (removeView), never hidden — there is no view
+  // visibility flag. So visibleViews returns every view in the schema.
+  it("returns all views in the schema", () => {
     const s = schema();
     s.views = [
       ...(s.views ?? []),
       {
-        key: "hidden_view",
-        label: "Hidden",
+        key: "second_view",
+        label: "Second",
         sourceTableKey: "invoices",
         filters: [{ field: "status", operator: "equals", value: "x" }],
         sort: null,
-        hidden: true,
       },
     ];
-    expect(visibleViews(s).map((v) => v.key)).toEqual(["unpaid_invoices"]);
+    expect(visibleViews(s).map((v) => v.key)).toEqual([
+      "unpaid_invoices",
+      "second_view",
+    ]);
   });
 
   it("returns an empty array when the schema has no views", () => {

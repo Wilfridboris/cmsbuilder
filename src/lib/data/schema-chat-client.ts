@@ -1,4 +1,3 @@
-import type { ApiResponse } from "@/types/api";
 import type { EditorChatResult } from "@/app/api/schema/edit/route";
 import type { ChatTurn } from "@/lib/gemini/prompts";
 import type { ViewDefinition } from "@/types/db";
@@ -27,6 +26,44 @@ export class SchemaChatError extends Error {
   }
 }
 
+/**
+ * The one POST path every schema-chat action shares (retro [A5]): fetch the
+ * endpoint, parse the `{ data, error }` envelope, and throw a `SchemaChatError`
+ * carrying the server error CODE (or `genericError`) on any true transport /
+ * parse / `!ok` / server-error failure — so a raw error, stack, or SQL never
+ * reaches the UI. Returns the envelope's `data` (which is `undefined` for the
+ * void-returning endpoints; data-returning callers null-check it themselves, as
+ * the previous inline blocks did). Behavior is identical across all callers:
+ * same URL, same body, same thrown code, same return value.
+ */
+async function postSchemaAction<T = void>(
+  url: string,
+  body: unknown,
+): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  let parsed: { data?: T | null; error: string | null } | null = null;
+  try {
+    parsed = (await res.json()) as { data?: T | null; error: string | null };
+  } catch {
+    throw new SchemaChatError("genericError");
+  }
+
+  if (!res.ok || parsed?.error) {
+    throw new SchemaChatError(parsed?.error ?? "genericError");
+  }
+  return parsed?.data as T;
+}
+
 export type EditorChatRequest = {
   slug: string;
   message: string;
@@ -37,33 +74,19 @@ export type EditorChatRequest = {
 export async function postEditorChat(
   request: EditorChatRequest,
 ): Promise<EditorChatResult> {
-  let res: Response;
-  try {
-    res = await fetch("/api/schema/edit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        slug: request.slug,
-        message: request.message,
-        currentTableKey: request.currentTableKey ?? undefined,
-        conversation: request.conversation,
-      }),
-    });
-  } catch {
+  const data = await postSchemaAction<EditorChatResult | null>(
+    "/api/schema/edit",
+    {
+      slug: request.slug,
+      message: request.message,
+      currentTableKey: request.currentTableKey ?? undefined,
+      conversation: request.conversation,
+    },
+  );
+  if (data == null) {
     throw new SchemaChatError("genericError");
   }
-
-  let body: ApiResponse<EditorChatResult>;
-  try {
-    body = (await res.json()) as ApiResponse<EditorChatResult>;
-  } catch {
-    throw new SchemaChatError("genericError");
-  }
-
-  if (!res.ok || body.error !== null || body.data === null) {
-    throw new SchemaChatError(body.error ?? "genericError");
-  }
-  return body.data;
+  return data;
 }
 
 /**
@@ -85,27 +108,12 @@ export async function postSetColumnVisibility(
   fieldKey: string,
   hidden: boolean,
 ): Promise<void> {
-  let res: Response;
-  try {
-    res = await fetch("/api/schema/columns", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, tableKey, fieldKey, hidden }),
-    });
-  } catch {
-    throw new SchemaChatError("genericError");
-  }
-
-  let body: { error: string | null } | null = null;
-  try {
-    body = (await res.json()) as { error: string | null };
-  } catch {
-    throw new SchemaChatError("genericError");
-  }
-
-  if (!res.ok || body?.error) {
-    throw new SchemaChatError(body?.error ?? "genericError");
-  }
+  await postSchemaAction("/api/schema/columns", {
+    slug,
+    tableKey,
+    fieldKey,
+    hidden,
+  });
 }
 
 /**
@@ -121,27 +129,11 @@ export async function postHideTable(
   slug: string,
   tableKey: string,
 ): Promise<void> {
-  let res: Response;
-  try {
-    res = await fetch("/api/schema/tables", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, action: "hide", tableKey }),
-    });
-  } catch {
-    throw new SchemaChatError("genericError");
-  }
-
-  let body: { error: string | null } | null = null;
-  try {
-    body = (await res.json()) as { error: string | null };
-  } catch {
-    throw new SchemaChatError("genericError");
-  }
-
-  if (!res.ok || body?.error) {
-    throw new SchemaChatError(body?.error ?? "genericError");
-  }
+  await postSchemaAction("/api/schema/tables", {
+    slug,
+    action: "hide",
+    tableKey,
+  });
 }
 
 /**
@@ -157,27 +149,11 @@ export async function postRestoreTable(
   slug: string,
   tableKey: string,
 ): Promise<void> {
-  let res: Response;
-  try {
-    res = await fetch("/api/schema/tables", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, action: "restore", tableKey }),
-    });
-  } catch {
-    throw new SchemaChatError("genericError");
-  }
-
-  let body: { error: string | null } | null = null;
-  try {
-    body = (await res.json()) as { error: string | null };
-  } catch {
-    throw new SchemaChatError("genericError");
-  }
-
-  if (!res.ok || body?.error) {
-    throw new SchemaChatError(body?.error ?? "genericError");
-  }
+  await postSchemaAction("/api/schema/tables", {
+    slug,
+    action: "restore",
+    tableKey,
+  });
 }
 
 /**
@@ -193,31 +169,14 @@ export async function postRemoveView(
   slug: string,
   viewKey: string,
 ): Promise<ViewDefinition> {
-  let res: Response;
-  try {
-    res = await fetch("/api/schema/views", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ slug, action: "remove", viewKey }),
-    });
-  } catch {
+  const data = await postSchemaAction<{
+    action: "remove";
+    view: ViewDefinition;
+  } | null>("/api/schema/views", { slug, action: "remove", viewKey });
+  if (data == null) {
     throw new SchemaChatError("genericError");
   }
-
-  let body: ApiResponse<{ action: "remove"; view: ViewDefinition }> | null = null;
-  try {
-    body = (await res.json()) as ApiResponse<{
-      action: "remove";
-      view: ViewDefinition;
-    }>;
-  } catch {
-    throw new SchemaChatError("genericError");
-  }
-
-  if (!res.ok || body.error !== null || body.data === null) {
-    throw new SchemaChatError(body?.error ?? "genericError");
-  }
-  return body.data.view;
+  return data.view;
 }
 
 /**
@@ -232,34 +191,14 @@ export async function postRestoreView(
   slug: string,
   view: ViewDefinition,
 ): Promise<void> {
-  let res: Response;
-  try {
-    res = await fetch("/api/schema/views", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        slug,
-        action: "restore",
-        view: {
-          label: view.label,
-          sourceTableKey: view.sourceTableKey,
-          filters: view.filters,
-          sort: view.sort,
-        },
-      }),
-    });
-  } catch {
-    throw new SchemaChatError("genericError");
-  }
-
-  let body: { error: string | null } | null = null;
-  try {
-    body = (await res.json()) as { error: string | null };
-  } catch {
-    throw new SchemaChatError("genericError");
-  }
-
-  if (!res.ok || body?.error) {
-    throw new SchemaChatError(body?.error ?? "genericError");
-  }
+  await postSchemaAction("/api/schema/views", {
+    slug,
+    action: "restore",
+    view: {
+      label: view.label,
+      sourceTableKey: view.sourceTableKey,
+      filters: view.filters,
+      sort: view.sort,
+    },
+  });
 }

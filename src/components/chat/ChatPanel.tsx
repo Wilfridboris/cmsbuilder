@@ -16,9 +16,16 @@ import {
   postSetColumnVisibility,
   SchemaChatError,
 } from "@/lib/data/schema-chat-client";
-import type { EditorChatResult } from "@/app/api/schema/edit/route";
 import type { ChatTurn } from "@/lib/gemini/prompts";
 import { MessageBubble, ThinkingBubble } from "@/components/chat/MessageBubble";
+import {
+  buildAssistantMessage,
+  bubbleVariantFor,
+  hasUndo,
+  resolveUndoAction,
+  type AssistantMessage,
+  type ChatMessage,
+} from "@/components/chat/chat-message";
 
 /**
  * ChatPanel (Story 5.1, 5.2) — the expanded iMessage-style body of the floating
@@ -54,75 +61,6 @@ import { MessageBubble, ThinkingBubble } from "@/components/chat/MessageBubble";
  * and the column/table/view appears (or disappears). Never renders raw JSON, SQL,
  * or errors.
  */
-
-type ChatMessage =
-  | { id: string; role: "user"; text: string }
-  | {
-      id: string;
-      role: "assistant";
-      kind: EditorChatResult["kind"];
-      text: string;
-      /**
-       * Present on an applied ADD-COLUMN or HIDE-COLUMN message: drives the
-       * one-tap column Undo. `direction` is the visibility the Undo SETS (`"hide"`
-       * for an add, `"show"` for a hide).
-       */
-      applied?: {
-        tableKey: string;
-        fieldKey: string;
-        direction: "hide" | "show";
-      };
-      /**
-       * Present on an applied ADD-VIEW message: drives the one-tap view Undo, which
-       * removes the just-added view via the `remove_view` path (Story 5.6). A view
-       * holds no rows, so this is non-destructive. Carries the view key + its label
-       * (for the undone copy).
-       */
-      appliedView?: {
-        viewKey: string;
-        label: string;
-      };
-      /**
-       * Present on a hide-table OFFER message (Story 5.7, `kind:"confirm"`): the
-       * table proposed for hiding + its label. Drives the inline "Hide the table" /
-       * "Keep it" confirm buttons. No mutation has run server-side — confirming
-       * calls the direct `/api/schema/tables` path.
-       */
-      offerTable?: {
-        tableKey: string;
-        label: string;
-      };
-      /**
-       * Present on an applied ADD-TABLE message (Story 5.7): drives the one-tap
-       * table Undo, which HIDES the just-added table via the direct
-       * `/api/schema/tables` path (non-destructive). Carries the table key + label.
-       */
-      appliedTableUndo?: {
-        tableKey: string;
-        label: string;
-      };
-      /**
-       * Present on a just-hidden table message (Story 5.7, after a confirm or an
-       * add-table Undo): drives the one-tap "show again" Undo via the restore path.
-       */
-      hiddenTable?: {
-        tableKey: string;
-        label: string;
-      };
-      /** True on an `applied` HIDE-COLUMN message (a shield-glyph reassurance bubble). */
-      isHide?: boolean;
-      /** True on an `applied` ADD-VIEW message (a filter-glyph bubble; carries an Undo). */
-      isView?: boolean;
-      /**
-       * True on an `applied` chat-driven REMOVE-VIEW message (Story 5.6): carries a
-       * `viewKey` but no `undo` (the removal is the action; there is no Undo on a
-       * chat removal). Gets its own removal glyph, distinct from the add-table and
-       * add-view "created" glyphs.
-       */
-      isViewRemoved?: boolean;
-      /** Local flag once Undo has reversed this change (column visibility or view removal). */
-      undone?: boolean;
-    };
 
 let messageCounter = 0;
 function nextId(): string {
@@ -183,56 +121,9 @@ export function ChatPanel({
         currentTableKey: activeTableKey,
         conversation,
       });
-      const assistantMessage: ChatMessage = {
-        id: nextId(),
-        role: "assistant",
-        kind: result.kind,
-        text: result.assistantText,
-        applied:
-          result.kind === "applied" &&
-          result.tableKey &&
-          result.fieldKey &&
-          (result.undo === "hide" || result.undo === "show")
-            ? {
-                tableKey: result.tableKey,
-                fieldKey: result.fieldKey,
-                direction: result.undo,
-              }
-            : undefined,
-        appliedView:
-          result.kind === "applied" &&
-          result.undo === "remove" &&
-          result.viewKey
-            ? { viewKey: result.viewKey, label: result.label ?? result.viewKey }
-            : undefined,
-        // A hide-table OFFER (Story 5.7): the model's hide_table resolves to an
-        // offer, not a mutation. The bubble renders confirm/keep buttons.
-        offerTable:
-          result.kind === "confirm" &&
-          result.confirm === "hide-table" &&
-          result.tableKey
-            ? { tableKey: result.tableKey, label: result.label ?? result.tableKey }
-            : undefined,
-        // An applied ADD-TABLE (Story 5.7): carries `undo:"hide-table"` + tableKey
-        // so the bubble offers an Undo that hides the just-added table.
-        appliedTableUndo:
-          result.kind === "applied" &&
-          result.undo === "hide-table" &&
-          result.tableKey
-            ? { tableKey: result.tableKey, label: result.label ?? result.tableKey }
-            : undefined,
-        isHide: result.kind === "applied" && result.undo === "show",
-        isView:
-          result.kind === "applied" &&
-          Boolean(result.viewKey) &&
-          result.undo === "remove",
-        // A chat-driven removal: applied + a viewKey, but no "remove" undo (that
-        // marks an add-view). Distinct glyph, no Undo.
-        isViewRemoved:
-          result.kind === "applied" &&
-          Boolean(result.viewKey) &&
-          result.undo !== "remove",
-      };
+      // The result -> message dispatch (which bubble, which Undo) is the pure,
+      // unit-tested `buildAssistantMessage` (retro [A6]).
+      const assistantMessage = buildAssistantMessage(result, nextId());
       setMessages((prev) => [...prev, assistantMessage]);
       if (result.kind === "applied") {
         onSchemaChanged();
@@ -246,7 +137,7 @@ export function ChatPanel({
           : t("degraded");
       setMessages((prev) => [
         ...prev,
-        { id: nextId(), role: "assistant", kind: "degraded", text },
+        { id: nextId(), role: "assistant", uiKind: "degraded", text },
       ]);
     } finally {
       setPending(false);
@@ -255,64 +146,61 @@ export function ChatPanel({
 
   const undo = async (messageId: string) => {
     const message = messages.find((m) => m.id === messageId);
-    if (
-      !message ||
-      message.role !== "assistant" ||
-      (!message.applied &&
-        !message.appliedView &&
-        !message.appliedTableUndo &&
-        !message.hiddenTable) ||
-      undoingId
-    ) {
-      return;
-    }
+    if (message?.role !== "assistant" || undoingId) return;
+    // `resolveUndoAction` is the pure, unit-tested map from a message to the
+    // inverse-op client call it makes (retro [A6]); null means nothing to undo.
+    const action = resolveUndoAction(message);
+    if (!action) return;
     setUndoingId(messageId);
     try {
       let undoneText: string;
       // The Undo flips to this local message state so the bubble re-renders with the
       // correct glyph and (where reversible) a follow-up Undo.
-      let patch: Partial<Extract<ChatMessage, { role: "assistant" }>> = {
-        undone: true,
-      };
-      if (message.hiddenTable) {
-        // Show-again Undo of a just-hidden table (Story 5.7): restore it via the
-        // direct tables path. Every record is retained, so the table returns intact.
-        // Clear the hidden-table state so the bubble reads as a neutral confirmation
-        // (no amber eye-off, no further Undo — the table is back).
-        await postRestoreTable(slug, message.hiddenTable.tableKey);
-        undoneText = t("tableRestored", { table: message.hiddenTable.label });
-        patch = { undone: true, hiddenTable: undefined, kind: "declined" };
-      } else if (message.appliedTableUndo) {
-        // Undo of an ADD-TABLE (Story 5.7) hides the just-added table via the direct
-        // tables path (an explicit Undo click is itself the confirmation — no offer
-        // step). Swap the bubble to the hidden-table state so it offers a show-again
-        // Undo of its own.
-        await postHideTable(slug, message.appliedTableUndo.tableKey);
-        undoneText = t("tableUndone", { table: message.appliedTableUndo.label });
-        patch = {
-          undone: false,
-          appliedTableUndo: undefined,
-          hiddenTable: {
-            tableKey: message.appliedTableUndo.tableKey,
-            label: message.appliedTableUndo.label,
-          },
-        };
-      } else if (message.appliedView) {
-        // Undo of an ADD-VIEW removes the just-added view via the remove_view path
-        // (Story 5.6). A view holds no rows, so this is non-destructive.
-        await postRemoveView(slug, message.appliedView.viewKey);
-        undoneText = t("viewUndone", { view: message.appliedView.label });
-      } else {
-        // Flip the column's append-only visibility. Undo of an ADD hides it
-        // (direction "hide"); Undo of a HIDE shows it again (direction "show").
-        const direction = message.applied!.direction;
-        await postSetColumnVisibility(
-          slug,
-          message.applied!.tableKey,
-          message.applied!.fieldKey,
-          direction === "hide",
-        );
-        undoneText = direction === "hide" ? t("undone") : t("restored");
+      let patch: Partial<AssistantMessage> = { undone: true };
+      switch (action.kind) {
+        case "restore-table":
+          // Show-again Undo of a just-hidden table (Story 5.7): restore it via the
+          // direct tables path. Every record is retained, so the table returns
+          // intact. Reads as a neutral confirmation (no amber eye-off, no Undo).
+          await postRestoreTable(slug, action.tableKey);
+          undoneText = t("tableRestored", { table: message.hiddenTable!.label });
+          patch = { undone: true, hiddenTable: undefined, uiKind: "declined" };
+          break;
+        case "hide-table":
+          // Undo of an ADD-TABLE (Story 5.7) hides the just-added table via the
+          // direct tables path (an explicit Undo click is itself the confirmation).
+          // Swap the bubble to the hidden-table state so it offers a show-again Undo.
+          await postHideTable(slug, action.tableKey);
+          undoneText = t("tableUndone", {
+            table: message.appliedTableUndo!.label,
+          });
+          patch = {
+            undone: false,
+            appliedTableUndo: undefined,
+            uiKind: "hidden-table",
+            hiddenTable: {
+              tableKey: message.appliedTableUndo!.tableKey,
+              label: message.appliedTableUndo!.label,
+            },
+          };
+          break;
+        case "remove-view":
+          // Undo of an ADD-VIEW removes the just-added view via the remove_view path
+          // (Story 5.6). A view holds no rows, so this is non-destructive.
+          await postRemoveView(slug, action.viewKey);
+          undoneText = t("viewUndone", { view: message.appliedView!.label });
+          break;
+        case "set-column-visibility":
+          // Flip the column's append-only visibility. Undo of an ADD hides it
+          // (direction "hide"); Undo of a HIDE shows it again (direction "show").
+          await postSetColumnVisibility(
+            slug,
+            action.tableKey,
+            action.fieldKey,
+            action.hidden,
+          );
+          undoneText = action.hidden ? t("undone") : t("restored");
+          break;
       }
       setMessages((prev) =>
         prev.map((m) =>
@@ -322,10 +210,20 @@ export function ChatPanel({
         ),
       );
       onSchemaChanged();
-    } catch {
+    } catch (err) {
+      // A concurrency race can make an add-table Undo's target the LAST visible
+      // table (the mutator re-check throws `tableHideLast`); surface that specific,
+      // actionable copy instead of the generic "try again" line retrying cannot fix
+      // (retro [D3], matching confirmHideTable).
+      const code = err instanceof SchemaChatError ? err.code : null;
       setMessages((prev) => [
         ...prev,
-        { id: nextId(), role: "assistant", kind: "degraded", text: t("undoFailed") },
+        {
+          id: nextId(),
+          role: "assistant",
+          uiKind: "degraded",
+          text: code === "tableHideLast" ? t("tableHideLast") : t("undoFailed"),
+        },
       ]);
     } finally {
       setUndoingId(null);
@@ -354,7 +252,7 @@ export function ChatPanel({
           m.id === messageId && m.role === "assistant"
             ? {
                 ...m,
-                kind: "applied",
+                uiKind: "hidden-table",
                 offerTable: undefined,
                 hiddenTable: { tableKey: target.tableKey, label: target.label },
                 text: t("tableHidden", { table: target.label }),
@@ -375,7 +273,7 @@ export function ChatPanel({
         {
           id: nextId(),
           role: "assistant",
-          kind: "degraded",
+          uiKind: "degraded",
           text:
             code === "tableHideLast"
               ? t("tableHideLast")
@@ -395,7 +293,7 @@ export function ChatPanel({
         m.id === messageId && m.role === "assistant" && m.offerTable
           ? {
               ...m,
-              kind: "declined",
+              uiKind: "declined",
               offerTable: undefined,
               text: t("tableKept", { table: m.offerTable.label }),
             }
@@ -454,36 +352,10 @@ export function ChatPanel({
               ) : (
                 <MessageBubble
                   key={message.id}
-                  variant={
-                    // A hide-table OFFER (Story 5.7) renders the confirm/keep buttons
-                    // regardless of kind, so it is matched first.
-                    message.offerTable
-                      ? "offerHideTable"
-                      : // A just-hidden table (post-confirm or post-add-undo) uses the
-                        // amber eye-off reassurance and carries a show-again Undo.
-                        message.hiddenTable
-                        ? "tableHidden"
-                        : message.kind === "applied" && !message.undone
-                          ? // An applied result is an add-column (check glyph), a
-                            // hide-column (eye-off glyph, Story 5.5), an add-view
-                            // (filter glyph + Undo, Story 5.6), or an add-table
-                            // (table glyph + Undo, Story 5.7). Each gets its own
-                            // glyph; the ones with an Undo render it as children.
-                            message.isHide
-                            ? "hidden"
-                            : message.applied
-                              ? "applied"
-                              : message.isView
-                                ? "appliedView"
-                                : message.isViewRemoved
-                                  ? "removedView"
-                                  : "appliedTable"
-                          : message.kind === "declined"
-                            ? "declined"
-                            : message.kind === "degraded"
-                              ? "degraded"
-                              : "assistant"
-                  }
+                  // The message -> bubble-variant map is the pure, unit-tested
+                  // `bubbleVariantFor` (retro [A6]); `uiKind` is the single source
+                  // of truth, so there is no nested boolean ternary here anymore.
+                  variant={bubbleVariantFor(message)}
                   text={message.text}
                 >
                   {message.offerTable ? (
@@ -522,10 +394,7 @@ export function ChatPanel({
                         {t("tableKeepButton")}
                       </Button>
                     </div>
-                  ) : (message.applied ||
-                      message.appliedView ||
-                      message.appliedTableUndo ||
-                      message.hiddenTable) && !message.undone ? (
+                  ) : hasUndo(message) ? (
                     <Button
                       type="button"
                       variant="outline"

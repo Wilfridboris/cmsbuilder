@@ -140,12 +140,6 @@ export type ViewDefinition = {
   filters: FilterState[];
   /** The saved single-field sort, or `null` for none. */
   sort: SortState;
-  /**
-   * Append-only hide flag — a display concern, never a delete. Mirrors
-   * `TableDefinition.hidden`: a hidden view drops out of `visibleViews`. Story 5.5
-   * owns view visibility; absent here.
-   */
-  hidden?: boolean;
 };
 
 /** The full authoritative logical schema stored in `org_schemas.definition`. */

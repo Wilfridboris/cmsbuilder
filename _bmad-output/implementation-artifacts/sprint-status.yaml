@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: '10-02-2026 (5-7 hide-a-table-via-chat review)'
+last_updated: '10-02-2026 19:15'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -101,15 +101,15 @@ development_status:
   4-4-confirm-import-non-destructive-replace: done
   epic-4-retrospective: done
 
-  epic-5: in-progress
+  epic-5: done
   5-1-add-a-column-via-chat: done
   5-2-add-a-table-via-chat: done
   5-3-create-a-view-via-chat: done
   5-4-schema-validator-guardrails-rejection-handling: done
-  5-5-safe-handling-of-unsupported-operations: review
-  5-6-remove-a-view-via-chat: review
-  5-7-hide-a-table-via-chat: review
-  epic-5-retrospective: optional
+  5-5-safe-handling-of-unsupported-operations: done
+  5-6-remove-a-view-via-chat: done
+  5-7-hide-a-table-via-chat: done
+  epic-5-retrospective: done
 
   epic-6: backlog
   6-1-auto-generated-public-intake-form: backlog
@@ -606,3 +606,118 @@ action_items:
     owner: "Dev+Boris"
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
+  - id: "epic-5-retro-item-58-a1-route-all-five-schema-routes-edit-vie"
+    epic: 5
+    action: "[A1] Route all five schema routes (edit, views, tables, fields, columns)
+      through resolveWritableAdminIdentity (keep GET siblings on the read resolver);
+      kill the 5th recurrence of route-auth duplication using the helper that already
+      ships."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-59-a2-add-import-server-only-as-line-1-of-s"
+    epic: 5
+    action: "[A2] Add import \"server-only\" as line 1 of src/lib/data/schema-mutate.ts
+      to match records.ts/validator.ts (RLS org_schemas writes must never enter a
+      client bundle)."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-60-d3-branch-on-err-code-tablehidelast-in-c"
+    epic: 5
+    action: "[D3] Branch on err.code === tableHideLast in ChatPanel.undo() so an add-table
+      Undo that would empty the dashboard shows the specific actionable copy (mirror
+      confirmHideTable)."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-61-d5-add-a-chatpanel-messagebubble-compone"
+    epic: 5
+    action: "[D5] Add a ChatPanel/MessageBubble component test covering each applied-kind
+      to correct Undo/confirm dispatch and the inverse-op call; close the untested
+      5.6/5.7 client seam."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-62-a3-extract-the-edit-route-ts-8-branch-po"
+    epic: 5
+    action: "[A3] Extract the edit/route.ts 8-branch POST dispatcher into a per-kind
+      handler map."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-63-a4-extract-a-withschemawrite-identity-tr"
+    epic: 5
+    action: "[A4] Extract a withSchemaWrite(identity, transform) higher-order helper
+      in schema-mutate.ts (owns read/write/catch; also the place to land open epic-3
+      item 21 schema-passthrough)."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-64-a5-extract-a-postschemaaction-t-url-body"
+    epic: 5
+    action: "[A5] Extract a postSchemaAction<T>(url, body) fetch wrapper in schema-chat-client.ts
+      (collapses 5 duplicated fetch/json/error blocks)."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-65-a6-replace-chatpanel-s-8-boolean-message"
+    epic: 5
+    action: "[A6] Replace ChatPanel's 8 boolean message discriminators with a single
+      kind field."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-66-d1-add-raw-sql-smuggle-route-tests-for-r"
+    epic: 5
+    action: "[D1] Add raw-SQL-smuggle route tests for remove_view and hide_table outputs
+      (only add_field is covered today)."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-67-d7-add-a-5xx-to-envelope-write-error-tes"
+    epic: 5
+    action: "[D7] Add a 5xx to envelope write-error test for the views and tables
+      routes (only 401/403/400 covered today)."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-68-d6-track-the-fake-client-rls-blind-spot"
+    epic: 5
+    action: "[D6] Track the fake-client RLS blind spot on the schema write path; consider
+      a real-Supabase integration test for setTableVisibility/removeView (shares the
+      gap epic-4 D3 opened for bulkInsertRecords)."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-69-s1-decide-the-view-hidden-infra-override"
+    epic: 5
+    action: "[S1] Decide the view-hidden infra (overrides.ts:37-39): remove the unused
+      ViewDefinition.hidden field + visibleViews filter, or record it as an accepted
+      deviation (it contradicts the no-view-visibility-flag invariant)."
+    owner: "Boris+Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-70-s2-record-the-raw-sql-fence-over-rejecti"
+    epic: 5
+    action: "[S2] Record the raw-SQL fence over-rejection (Option A, validator.ts:232-237)
+      as an accepted deviation so later retros stop re-flagging."
+    owner: "Boris"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-71-s3-refresh-the-stale-prompt-narration-do"
+    epic: 5
+    action: "[S3] Refresh the stale prompt narration/docstring (SIX things/eight outcomes,
+      (Story 5.2, extended 5.5), prompts.ts:232/247/300-307) to reflect 5.6/5.7."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-5-retro-item-72-process-lesson-land-a-convention-gate-li"
+    epic: 5
+    action: "[Process lesson] Land a convention gate (lint rule or code-review checklist)
+      requiring every new mutating API route to use resolveWritableAdminIdentity/resolveImportRequest;
+      the route-auth-duplication pattern has recurred in 5 consecutive epics (3,4,7,12,5).
+      Escalate epic-7-retro-item-57."
+    owner: "Boris"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"

@@ -229,6 +229,11 @@ export function containsRawSql(rawOutput: unknown): boolean {
       return true;
     }
   }
+  // ACCEPTED DEVIATION (Option A, per spec-5-4): this scans the WHOLE serialized
+  // output, including benign free-text filter values/labels, so a permitted op
+  // whose value contains `;`/`--`/`/*` or a whitespace-bounded blocked verb is
+  // rejected too. This is the deliberate, frozen posture — non-destructive and it
+  // invites the owner to rephrase. Not a bug; recorded so retros stop re-flagging.
   for (const token of RAW_SQL_PUNCTUATION) {
     if (text.includes(token)) {
       return true;

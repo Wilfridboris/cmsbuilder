@@ -31,11 +31,13 @@ export function visibleTables(schema: SchemaDefinition): TableDefinition[] {
 }
 
 /**
- * The views the dashboard should render as sibling tabs (Story 5.3) — hidden ones
- * dropped. A schema with no `views` yields an empty array (backward-compatible).
+ * The views the dashboard should render as sibling tabs (Story 5.3). A view is
+ * removed outright (true array removal in `removeView`), never hidden — there is
+ * no view visibility flag — so this returns every stored view. A schema with no
+ * `views` yields an empty array (backward-compatible).
  */
 export function visibleViews(schema: SchemaDefinition): ViewDefinition[] {
-  return (schema.views ?? []).filter((view) => !view.hidden);
+  return schema.views ?? [];
 }
 
 /**

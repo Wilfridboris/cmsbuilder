@@ -5,9 +5,6 @@ import { getTranslations } from "next-intl/server";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
-import { getCurrentUser } from "@/lib/auth/session";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin } from "@/lib/auth/rbac";
 import { getSchema } from "@/lib/data/records";
 import { canHideTable, visibleTables, visibleViews } from "@/lib/schema/overrides";
 import {
@@ -27,8 +24,10 @@ import {
 } from "@/lib/gemini/prompts";
 import {
   json,
-  resolveWritableOrgIdentity,
+  requireUser,
+  resolveWritableAdminIdentity,
   handleError,
+  type OrgIdentity,
 } from "@/lib/api/route-helpers";
 import { reportError } from "@/lib/observability/report";
 import { editorChatSchema } from "./schemas";
@@ -38,14 +37,13 @@ import { editorChatSchema } from "./schemas";
  * — the Admin-only conversational schema editor endpoint.
  *
  * Flow (every guard server-side; the LLM is NEVER a dependency for core CRUD):
- *   1. `getCurrentUser()` (JWT-validated) → 401 if no session;
+ *   1. `requireUser()` (JWT-validated) → 401 if no session;
  *   2. Zod-validate `{ slug, message, currentTableKey?, conversation? }`;
- *   3. `requireAdmin(user, createAdminClient())` → 403 for a Member — the
- *      service-role admin client reads `org_members` ONLY inside the guard; a
- *      direct call by a Member returns 403 (the chat is also hidden client-side);
- *   4. `membership.slug === slug` cross-check (no cross-org schema edits);
- *   5. `resolveWritableOrgIdentity(slug)` builds the RLS-scoped client + org id
- *      (and rejects a read_only / expired-trial org before any write);
+ *   3. `resolveWritableAdminIdentity(slug, user)` (retro [A1]) — one helper for the
+ *      admin gate (403 for a Member; the chat is also hidden client-side), the
+ *      `membership.slug === slug` cross-org check (403), the RLS-scoped client +
+ *      org id, and the read_only / expired-trial writable assertion, all before any
+ *      write. The service-role admin client reads `org_members` ONLY inside it;
  *   6. load the org's CURRENT schema (the table list the model may target);
  *   7. ONE `callGeminiWithTimeout` with `buildEditorPrompt` (the hardened system
  *      prompt is injected by the client on 100% of calls; hard 15s timeout);
@@ -55,14 +53,14 @@ import { editorChatSchema } from "./schemas";
  *        output containing raw SQL before any write, logging each via `reportRejection` with the org
  *        id + raw output. `needs_clarification`/`out_of_scope` are conversational
  *        kinds, not operations, and bypass the fence into their own flows below;
- *      then branch on the model's `kind`:
+ *      then a per-kind handler (retro [A3]) runs for the model's `kind`:
  *        - `add_field`          → `schema-mutate.addField` (focused validator +
  *                                 append-only write). On success → `applied` with
  *                                 the tableKey/fieldKey so the client can drive Undo;
  *        - `add_table`          → `schema-mutate.addTable` (focused validator +
  *                                 append-only write). On success → `applied` with
- *                                 ONLY the tableKey (no fieldKey → the client shows
- *                                 no Undo; Story 5.5 owns table visibility);
+ *                                 the tableKey + undo:"hide-table" so the client
+ *                                 offers an Undo that hides the just-added table;
  *        - `add_view`           → `schema-mutate.addView` (focused validator +
  *                                 append-only write). On success → `applied` with
  *                                 the viewKey + undo:"remove" so the client offers
@@ -82,9 +80,13 @@ import { editorChatSchema } from "./schemas";
  *                                 the client offers a show-again Undo. A missing
  *                                 table/field (`AppError(400)`) maps to a reassuring
  *                                 `declined`, never an error;
+ *        - `hide_table`         → resolve + validate the target and return a
+ *                                 `confirm` OFFER (no mutation; Story 5.7). The real
+ *                                 write runs on the button click via the direct
+ *                                 `/api/schema/tables` path;
  *        - `needs_clarification` → `clarify` with the model's question;
  *        - `out_of_scope`/other → `declined` with a friendly non-technical decline.
- *      A validator rejection (either branch) → the fixed plain-language `rejected`
+ *      A validator rejection (any branch) → the fixed plain-language `rejected`
  *      copy; a 5xx degrades gracefully.
  *   9. On ANY LLM timeout/failure → `degraded` with a translated message; CRUD is
  *      untouched. No raw JSON, SQL, schema, error, or stack ever reaches the user.
@@ -152,6 +154,23 @@ type GeminiEditorOutput = {
   reply?: unknown;
 };
 
+/**
+ * Everything a per-kind handler (retro [A3]) needs: the model output, the resolved
+ * writable admin identity, the VISIBLE-SCALAR table + view summaries the model was
+ * shown (used to resolve targets before any write), the raw current schema (for the
+ * `canHideTable` backstop), and the translator. Built once in `POST` after the
+ * Story-5.4 fence, so every mutating handler runs AFTER the allowlist + raw-SQL
+ * gate and none can reach a mutator ungated.
+ */
+type EditorContext = {
+  output: GeminiEditorOutput;
+  identity: OrgIdentity;
+  tables: ChatTableSummary[];
+  views: ChatViewSummary[];
+  schemaData: NonNullable<Awaited<ReturnType<typeof getSchema>>["data"]>;
+  t: Awaited<ReturnType<typeof getTranslations>>;
+};
+
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -161,10 +180,7 @@ export async function POST(
 ): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
   try {
     // 1. Identify the caller. No session → 401.
-    const user = await getCurrentUser();
-    if (!user) {
-      throw new AppError(401, "unauthorized");
-    }
+    const user = await requireUser();
 
     // 2. Validate the chat request body.
     let raw: unknown;
@@ -179,19 +195,12 @@ export async function POST(
     }
     const { slug, message, currentTableKey, conversation } = parsed.data;
 
-    // 3. Admin gate — server-side, the real security boundary. A Member is
-    //    rejected with 403 before any LLM call. The admin client reads
-    //    `org_members` ONLY here, never on the write path.
-    const membership = await requireAdmin(user, createAdminClient());
-
-    // 3b. Cross-org guard: the resolved membership must be the org named by `slug`.
-    if (membership.slug !== slug) {
-      throw new AppError(403, "forbidden");
-    }
-
-    // 4. Build the caller's RLS-scoped identity; the writable variant also rejects
-    //    a read_only / expired-trial org before any write.
-    const identity = await resolveWritableOrgIdentity(slug, user.id);
+    // 3. Admin gate + cross-org + writable in one helper (retro [A1]): resolve the
+    //    org under the caller's RLS client, require the caller be an admin of the
+    //    SAME org (a Member → 403 before any LLM call; an admin of a different org
+    //    → 403), and reject a read_only / expired-trial org before any write. The
+    //    service-role admin client reads `org_members` ONLY inside the guard.
+    const identity = await resolveWritableAdminIdentity(slug, user);
 
     // 5. Copy catalog (translated, no raw internals ever shown to the user).
     const t = await getTranslations("ChatAssistant");
@@ -280,457 +289,31 @@ export async function POST(
       }
     }
 
-    if (output.kind === "add_field") {
-      // A malformed add_field (missing table/label/type) is treated as a rejection
-      // rather than trusted — the model must name an exact target + scalar type.
-      if (
-        !isNonEmptyString(output.tableKey) ||
-        !isNonEmptyString(output.label) ||
-        !isNonEmptyString(output.type)
-      ) {
-        return json(
-          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
-          200,
-        );
-      }
-
-      try {
-        const result = await addField(
-          identity,
-          output.tableKey.trim(),
-          { label: output.label.trim(), type: output.type.trim() },
-          { rawOutput: output },
-        );
-
-        if (!result.data) {
-          // Defensive: the guarded layer throws on failure, so this is unreachable
-          // in practice — treat as a rejection rather than leak anything.
-          return json(
-            {
-              data: { kind: "rejected", assistantText: t("rejection") },
-              error: null,
-            },
-            200,
-          );
-        }
-
-        // Resolve the target table's human label for the success message.
-        const targetTable = tables.find(
-          (table) => table.key === result.data!.tableKey,
-        );
-        return json(
-          {
-            data: {
-              kind: "applied",
-              tableKey: result.data.tableKey,
-              fieldKey: result.data.fieldKey,
-              // Undo of an add-field HIDES the just-added column.
-              undo: "hide",
-              label: output.label.trim(),
-              assistantText: t("successApplied", {
-                field: output.label.trim(),
-                table: targetTable?.label ?? result.data.tableKey,
-              }),
-            },
-            error: null,
-          },
-          200,
-        );
-      } catch (mutateErr) {
-        return handleMutateError(mutateErr, t, "mutate");
-      }
-    }
-
-    if (output.kind === "add_table") {
-      // A malformed add_table (missing label or no fields) is treated as a rejection
-      // rather than trusted — the validator does the real gating, but a shapeless
-      // output never reaches it.
-      if (!isNonEmptyString(output.label) || !Array.isArray(output.fields)) {
-        return json(
-          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
-          200,
-        );
-      }
-
-      // Project the model's fields down to the `{ label, type }` scalar input; the
-      // validator rejects any malformed/non-scalar entry.
-      const fields = output.fields.map((field) => {
-        const f = (field ?? {}) as { label?: unknown; type?: unknown };
-        return {
-          label: typeof f.label === "string" ? f.label : "",
-          type: typeof f.type === "string" ? f.type : "",
-        };
-      });
-
-      try {
-        const result = await addTable(
-          identity,
-          { label: output.label.trim(), fields },
-          { rawOutput: output },
-        );
-
-        if (!result.data) {
-          return json(
-            {
-              data: { kind: "rejected", assistantText: t("rejection") },
-              error: null,
-            },
-            200,
-          );
-        }
-
-        // Surface-only navigation: the success copy points the Admin to the new
-        // table in the switcher (the client's router.refresh makes it appear). The
-        // result now carries `undo: "hide-table"` + the created `tableKey` so the
-        // chat bubble offers a one-tap Undo that HIDES the just-added table via the
-        // direct `/api/schema/tables` path (Story 5.7). An Undo click is itself the
-        // confirmation (no offer step), and a hide is non-destructive — the table
-        // and every row stay intact and can be restored from Settings.
-        return json(
-          {
-            data: {
-              kind: "applied",
-              tableKey: result.data.tableKey,
-              undo: "hide-table",
-              label: output.label.trim(),
-              assistantText: t("successTableAdded", {
-                table: output.label.trim(),
-              }),
-            },
-            error: null,
-          },
-          200,
-        );
-      } catch (mutateErr) {
-        return handleMutateError(mutateErr, t, "mutate-table");
-      }
-    }
-
-    if (output.kind === "add_view") {
-      // A shapeless add_view (missing label / source table, or non-array filters)
-      // is treated as a rejection rather than trusted — the validator does the real
-      // gating, but a shapeless output never reaches it.
-      if (
-        !isNonEmptyString(output.label) ||
-        !isNonEmptyString(output.sourceTableKey) ||
-        !Array.isArray(output.filters)
-      ) {
-        return json(
-          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
-          200,
-        );
-      }
-
-      // Project the model's filters/sort down to the validator input; the validator
-      // rejects any malformed/non-scalar/invalid-operator entry (nothing trusted).
-      const filters = output.filters.map((filter) => {
-        const f = (filter ?? {}) as {
-          field?: unknown;
-          operator?: unknown;
-          value?: unknown;
-          value2?: unknown;
-        };
-        return {
-          field: typeof f.field === "string" ? f.field : "",
-          operator: typeof f.operator === "string" ? f.operator : "",
-          value: f.value,
-          value2: f.value2,
-        };
-      });
-      const rawSort = output.sort as
-        | { field?: unknown; direction?: unknown }
-        | null
-        | undefined;
-      const sort =
-        rawSort && typeof rawSort === "object" && isNonEmptyString(rawSort.field)
-          ? {
-              field: String(rawSort.field),
-              direction:
-                typeof rawSort.direction === "string" ? rawSort.direction : "",
-            }
-          : null;
-
-      try {
-        const result = await addView(
-          identity,
-          {
-            label: output.label.trim(),
-            sourceTableKey: output.sourceTableKey.trim(),
-            filters,
-            sort,
-          },
-          { rawOutput: output },
-        );
-
-        if (!result.data) {
-          return json(
-            {
-              data: { kind: "rejected", assistantText: t("rejection") },
-              error: null,
-            },
-            200,
-          );
-        }
-
-        // Surface-only navigation: the success copy points the Admin to the new
-        // view in the switcher (the client's router.refresh makes it appear). The
-        // result now carries `undo: "remove"` + the created `viewKey` so the chat
-        // bubble offers a one-tap Undo that removes the just-added view via the
-        // `remove_view` path (Story 5.6). A view holds no rows, so its removal is
-        // non-destructive and the freed key re-derives identically on re-add.
-        return json(
-          {
-            data: {
-              kind: "applied",
-              viewKey: result.data.viewKey,
-              undo: "remove",
-              label: output.label.trim(),
-              assistantText: t("successViewAdded", {
-                view: output.label.trim(),
-              }),
-            },
-            error: null,
-          },
-          200,
-        );
-      } catch (mutateErr) {
-        return handleMutateError(mutateErr, t, "mutate-view");
-      }
-    }
-
-    if (output.kind === "hide_field") {
-      // The safe answer to "delete/remove this column" (Story 5.5): hide that one
-      // column via the append-only visibility flag — the field definition and all
-      // row data stay intact, and the hide is reversible from the chat. A shapeless
-      // hide_field (missing an exact table/field key) is treated as a rejection
-      // rather than trusted — the model must name an exact, existing target.
-      if (!isNonEmptyString(output.tableKey) || !isNonEmptyString(output.fieldKey)) {
-        return json(
-          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
-          200,
-        );
-      }
-
-      const tableKey = output.tableKey.trim();
-      const fieldKey = output.fieldKey.trim();
-
-      // Enforce the hide target against the VISIBLE-SCALAR summary the model was
-      // actually shown (`tables`), not just the model's obedience. The summary
-      // excludes relation columns and already-hidden fields, so a fieldKey outside
-      // it (a relation, an already-hidden column, or a hallucinated key) is NOT a
-      // hideable target: reassure and write nothing. This keeps the frozen "never
-      // expose a relation/already-hidden column as a hide target" invariant a
-      // route-side check (matching the distrust-the-model posture of Story 5.4),
-      // and guarantees the labels below resolve (so the message never shows a raw
-      // key).
-      const targetTable = tables.find((table) => table.key === tableKey);
-      const targetField = targetTable?.fields?.find(
-        (field) => field.key === fieldKey,
-      );
-      if (!targetTable || !targetField) {
-        return json(
-          {
-            data: { kind: "declined", assistantText: t("declineFallback") },
-            error: null,
-          },
-          200,
-        );
-      }
-
-      try {
-        const result = await setFieldVisibility(identity, tableKey, fieldKey, true);
-
-        if (!result.data) {
-          // Defensive: the guarded layer throws on failure, so this is unreachable
-          // in practice — treat as a rejection rather than leak anything.
-          return json(
-            {
-              data: { kind: "rejected", assistantText: t("rejection") },
-              error: null,
-            },
-            200,
-          );
-        }
-
-        return json(
-          {
-            data: {
-              kind: "applied",
-              tableKey: result.data.tableKey,
-              fieldKey: result.data.fieldKey,
-              // Undo of a hide SHOWS the column again (the inverse of add-field).
-              undo: "show",
-              label: targetField.label,
-              assistantText: t("columnHidden", {
-                field: targetField.label,
-                table: targetTable.label,
-              }),
-            },
-            error: null,
-          },
-          200,
-        );
-      } catch (hideErr) {
-        // A missing table/field is `AppError(400)` from the mutator — map it to a
-        // reassuring decline (nothing was written), NOT a rejection/error screen.
-        // A 5xx degrades gracefully. No raw detail ever reaches the user.
-        if (hideErr instanceof AppError && hideErr.statusCode === 400) {
-          return json(
-            {
-              data: { kind: "declined", assistantText: t("declineFallback") },
-              error: null,
-            },
-            200,
-          );
-        }
-        reportError(hideErr, { route: "/api/schema/edit", stage: "hide-field" });
-        return json(
-          { data: { kind: "degraded", assistantText: t("degraded") }, error: null },
-          200,
-        );
-      }
-    }
-
-    if (output.kind === "remove_view") {
-      // Remove a saved view (Story 5.6) — the ONE permitted true removal, because
-      // a view holds no rows. A shapeless remove_view (missing an exact viewKey)
-      // is treated as a rejection rather than trusted — the model must name an
-      // exact, existing view.
-      if (!isNonEmptyString(output.viewKey)) {
-        return json(
-          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
-          200,
-        );
-      }
-
-      const viewKey = output.viewKey.trim();
-
-      // Resolve-before-write guard (mirrors the Story 5.5 hide_field guard):
-      // enforce the viewKey against the VIEWS summary the model was actually shown
-      // (`views`), not just the model's obedience. A key outside it (a hallucinated
-      // or stale key) is NOT a removable target: reassure and write nothing. This
-      // also guarantees the label below resolves (the message never shows a raw key).
-      const targetView = views.find((view) => view.key === viewKey);
-      if (!targetView) {
-        return json(
-          {
-            data: { kind: "declined", assistantText: t("declineFallback") },
-            error: null,
-          },
-          200,
-        );
-      }
-
-      try {
-        const result = await removeView(identity, viewKey);
-
-        if (!result.data) {
-          // Defensive: the guarded layer throws on failure, so this is unreachable
-          // in practice — treat as a rejection rather than leak anything.
-          return json(
-            {
-              data: { kind: "rejected", assistantText: t("rejection") },
-              error: null,
-            },
-            200,
-          );
-        }
-
-        return json(
-          {
-            data: {
-              kind: "applied",
-              viewKey,
-              label: targetView.label,
-              assistantText: t("viewRemoved", { view: targetView.label }),
-            },
-            error: null,
-          },
-          200,
-        );
-      } catch (removeErr) {
-        // A missing view is `AppError(400)` from the mutator — map it to a
-        // reassuring decline (nothing was written), NOT a rejection/error screen.
-        // A 5xx degrades gracefully. No raw detail ever reaches the user.
-        if (removeErr instanceof AppError && removeErr.statusCode === 400) {
-          return json(
-            {
-              data: { kind: "declined", assistantText: t("declineFallback") },
-              error: null,
-            },
-            200,
-          );
-        }
-        reportError(removeErr, { route: "/api/schema/edit", stage: "remove-view" });
-        return json(
-          { data: { kind: "degraded", assistantText: t("degraded") }, error: null },
-          200,
-        );
-      }
-    }
-
-    if (output.kind === "hide_table") {
-      // The SAFE answer to "delete/remove a whole TABLE" (Story 5.7). Unlike
-      // hide_field (which applies immediately), a table hide is consequential — it
-      // removes a dashboard tab — so this branch performs NO mutation: it resolves
-      // + validates the target and returns an OFFER (`confirm`). A button click
-      // then drives the real write through the direct, non-LLM `/api/schema/tables`
-      // path. A shapeless hide_table (missing an exact tableKey) is treated as a
-      // rejection — the model must name an exact, existing table.
-      if (!isNonEmptyString(output.tableKey)) {
-        return json(
-          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
-          200,
-        );
-      }
-
-      const tableKey = output.tableKey.trim();
-
-      // Resolve-before-write guard (mirrors the hide_field / remove_view guards):
-      // enforce the tableKey against the VISIBLE tables summary the model was
-      // actually shown (`tables`), not just the model's obedience. A key outside it
-      // (a hallucinated or stale key, or an already-hidden table) is NOT a hideable
-      // target: reassure and offer nothing. This also guarantees the label below
-      // resolves (the message never shows a raw key).
-      const targetTable = tables.find((table) => table.key === tableKey);
-      if (!targetTable) {
-        return json(
-          {
-            data: { kind: "declined", assistantText: t("declineFallback") },
-            error: null,
-          },
-          200,
-        );
-      }
-
-      // Never offer to hide the LAST visible table (it would empty the dashboard).
-      // The mutator re-checks this as the real backstop, but checking here lets us
-      // decline with a good, specific message instead of making a dead-end offer.
-      if (!canHideTable(schemaResult.data)) {
-        return json(
-          {
-            data: { kind: "declined", assistantText: t("tableHideLast") },
-            error: null,
-          },
-          200,
-        );
-      }
-
-      // Return the OFFER. No mutation ran — the client renders a reassuring prompt
-      // with a "Hide the table" confirm button that calls `/api/schema/tables`.
-      return json(
-        {
-          data: {
-            kind: "confirm",
-            tableKey,
-            confirm: "hide-table",
-            label: targetTable.label,
-            assistantText: t("tableHideOffer", { table: targetTable.label }),
-          },
-          error: null,
-        },
-        200,
-      );
+    // 9. Dispatch the validated op to its focused handler (retro [A3]). Every
+    //    mutating handler runs AFTER the 8b fence above, so none can reach a
+    //    mutator ungated. `out_of_scope` is the only kind that skipped the fence;
+    //    it falls through to the friendly decline below.
+    const ctx: EditorContext = {
+      output,
+      identity,
+      tables,
+      views,
+      schemaData: schemaResult.data,
+      t,
+    };
+    switch (output.kind) {
+      case "add_field":
+        return handleAddField(ctx);
+      case "add_table":
+        return handleAddTable(ctx);
+      case "add_view":
+        return handleAddView(ctx);
+      case "hide_field":
+        return handleHideField(ctx);
+      case "remove_view":
+        return handleRemoveView(ctx);
+      case "hide_table":
+        return handleHideTable(ctx);
     }
 
     // out_of_scope → friendly, non-technical decline. (The 8b fence above already
@@ -745,6 +328,494 @@ export async function POST(
   } catch (err) {
     return handleError<EditorChatResult>(err, "/api/schema/edit");
   }
+}
+
+/**
+ * `add_field` → guarded append-only column add (Story 5.1). A shapeless output
+ * (missing table/label/type) is a rejection rather than trusted — the model must
+ * name an exact target + scalar type. On success → `applied` + `undo:"hide"`.
+ */
+async function handleAddField(
+  ctx: EditorContext,
+): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
+  const { output, identity, tables, t } = ctx;
+  if (
+    !isNonEmptyString(output.tableKey) ||
+    !isNonEmptyString(output.label) ||
+    !isNonEmptyString(output.type)
+  ) {
+    return json(
+      { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+      200,
+    );
+  }
+
+  try {
+    const result = await addField(
+      identity,
+      output.tableKey.trim(),
+      { label: output.label.trim(), type: output.type.trim() },
+      { rawOutput: output },
+    );
+
+    if (!result.data) {
+      // Defensive: the guarded layer throws on failure, so this is unreachable
+      // in practice — treat as a rejection rather than leak anything.
+      return json(
+        {
+          data: { kind: "rejected", assistantText: t("rejection") },
+          error: null,
+        },
+        200,
+      );
+    }
+
+    // Resolve the target table's human label for the success message.
+    const targetTable = tables.find(
+      (table) => table.key === result.data!.tableKey,
+    );
+    return json(
+      {
+        data: {
+          kind: "applied",
+          tableKey: result.data.tableKey,
+          fieldKey: result.data.fieldKey,
+          // Undo of an add-field HIDES the just-added column.
+          undo: "hide",
+          label: output.label.trim(),
+          assistantText: t("successApplied", {
+            field: output.label.trim(),
+            table: targetTable?.label ?? result.data.tableKey,
+          }),
+        },
+        error: null,
+      },
+      200,
+    );
+  } catch (mutateErr) {
+    return handleMutateError(mutateErr, t, "mutate");
+  }
+}
+
+/**
+ * `add_table` → guarded append-only table add (Story 5.2). A shapeless output
+ * (missing label or no fields) is a rejection. On success → `applied` with ONLY the
+ * tableKey + `undo:"hide-table"` (the Undo hides the just-added table; Story 5.7).
+ */
+async function handleAddTable(
+  ctx: EditorContext,
+): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
+  const { output, identity, t } = ctx;
+  if (!isNonEmptyString(output.label) || !Array.isArray(output.fields)) {
+    return json(
+      { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+      200,
+    );
+  }
+
+  // Project the model's fields down to the `{ label, type }` scalar input; the
+  // validator rejects any malformed/non-scalar entry.
+  const fields = output.fields.map((field) => {
+    const f = (field ?? {}) as { label?: unknown; type?: unknown };
+    return {
+      label: typeof f.label === "string" ? f.label : "",
+      type: typeof f.type === "string" ? f.type : "",
+    };
+  });
+
+  try {
+    const result = await addTable(
+      identity,
+      { label: output.label.trim(), fields },
+      { rawOutput: output },
+    );
+
+    if (!result.data) {
+      return json(
+        {
+          data: { kind: "rejected", assistantText: t("rejection") },
+          error: null,
+        },
+        200,
+      );
+    }
+
+    // Surface-only navigation: the success copy points the Admin to the new
+    // table in the switcher (the client's router.refresh makes it appear). The
+    // result now carries `undo: "hide-table"` + the created `tableKey` so the
+    // chat bubble offers a one-tap Undo that HIDES the just-added table via the
+    // direct `/api/schema/tables` path (Story 5.7). An Undo click is itself the
+    // confirmation (no offer step), and a hide is non-destructive — the table
+    // and every row stay intact and can be restored from Settings.
+    return json(
+      {
+        data: {
+          kind: "applied",
+          tableKey: result.data.tableKey,
+          undo: "hide-table",
+          label: output.label.trim(),
+          assistantText: t("successTableAdded", {
+            table: output.label.trim(),
+          }),
+        },
+        error: null,
+      },
+      200,
+    );
+  } catch (mutateErr) {
+    return handleMutateError(mutateErr, t, "mutate-table");
+  }
+}
+
+/**
+ * `add_view` → guarded append-only view add (Story 5.3). A shapeless output
+ * (missing label / source table, or non-array filters) is a rejection. On success →
+ * `applied` with the viewKey + `undo:"remove"` (the Undo removes the just-added
+ * view; Story 5.6 — a view holds no rows, so its removal is non-destructive).
+ */
+async function handleAddView(
+  ctx: EditorContext,
+): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
+  const { output, identity, t } = ctx;
+  if (
+    !isNonEmptyString(output.label) ||
+    !isNonEmptyString(output.sourceTableKey) ||
+    !Array.isArray(output.filters)
+  ) {
+    return json(
+      { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+      200,
+    );
+  }
+
+  // Project the model's filters/sort down to the validator input; the validator
+  // rejects any malformed/non-scalar/invalid-operator entry (nothing trusted).
+  const filters = output.filters.map((filter) => {
+    const f = (filter ?? {}) as {
+      field?: unknown;
+      operator?: unknown;
+      value?: unknown;
+      value2?: unknown;
+    };
+    return {
+      field: typeof f.field === "string" ? f.field : "",
+      operator: typeof f.operator === "string" ? f.operator : "",
+      value: f.value,
+      value2: f.value2,
+    };
+  });
+  const rawSort = output.sort as
+    | { field?: unknown; direction?: unknown }
+    | null
+    | undefined;
+  const sort =
+    rawSort && typeof rawSort === "object" && isNonEmptyString(rawSort.field)
+      ? {
+          field: String(rawSort.field),
+          direction:
+            typeof rawSort.direction === "string" ? rawSort.direction : "",
+        }
+      : null;
+
+  try {
+    const result = await addView(
+      identity,
+      {
+        label: output.label.trim(),
+        sourceTableKey: output.sourceTableKey.trim(),
+        filters,
+        sort,
+      },
+      { rawOutput: output },
+    );
+
+    if (!result.data) {
+      return json(
+        {
+          data: { kind: "rejected", assistantText: t("rejection") },
+          error: null,
+        },
+        200,
+      );
+    }
+
+    // Surface-only navigation: the success copy points the Admin to the new
+    // view in the switcher (the client's router.refresh makes it appear). The
+    // result now carries `undo: "remove"` + the created `viewKey` so the chat
+    // bubble offers a one-tap Undo that removes the just-added view via the
+    // `remove_view` path (Story 5.6). A view holds no rows, so its removal is
+    // non-destructive and the freed key re-derives identically on re-add.
+    return json(
+      {
+        data: {
+          kind: "applied",
+          viewKey: result.data.viewKey,
+          undo: "remove",
+          label: output.label.trim(),
+          assistantText: t("successViewAdded", {
+            view: output.label.trim(),
+          }),
+        },
+        error: null,
+      },
+      200,
+    );
+  } catch (mutateErr) {
+    return handleMutateError(mutateErr, t, "mutate-view");
+  }
+}
+
+/**
+ * `hide_field` → the SAFE answer to "delete/remove this column" (Story 5.5): hide
+ * that one column via the append-only visibility flag — the field definition and
+ * all row data stay intact, and the hide is reversible from the chat. The target is
+ * enforced against the VISIBLE-SCALAR summary the model was shown (so a relation,
+ * already-hidden, or hallucinated key → reassuring `declined`, no write). A missing
+ * table/field at the mutator (`AppError(400)`) also maps to `declined`; a 5xx
+ * degrades. On success → `applied` + `undo:"show"`.
+ */
+async function handleHideField(
+  ctx: EditorContext,
+): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
+  const { output, identity, tables, t } = ctx;
+  if (!isNonEmptyString(output.tableKey) || !isNonEmptyString(output.fieldKey)) {
+    return json(
+      { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+      200,
+    );
+  }
+
+  const tableKey = output.tableKey.trim();
+  const fieldKey = output.fieldKey.trim();
+
+  // Enforce the hide target against the VISIBLE-SCALAR summary the model was
+  // actually shown (`tables`), not just the model's obedience. The summary
+  // excludes relation columns and already-hidden fields, so a fieldKey outside
+  // it (a relation, an already-hidden column, or a hallucinated key) is NOT a
+  // hideable target: reassure and write nothing. This keeps the frozen "never
+  // expose a relation/already-hidden column as a hide target" invariant a
+  // route-side check (matching the distrust-the-model posture of Story 5.4),
+  // and guarantees the labels below resolve (so the message never shows a raw
+  // key).
+  const targetTable = tables.find((table) => table.key === tableKey);
+  const targetField = targetTable?.fields?.find(
+    (field) => field.key === fieldKey,
+  );
+  if (!targetTable || !targetField) {
+    return json(
+      {
+        data: { kind: "declined", assistantText: t("declineFallback") },
+        error: null,
+      },
+      200,
+    );
+  }
+
+  try {
+    const result = await setFieldVisibility(identity, tableKey, fieldKey, true);
+
+    if (!result.data) {
+      // Defensive: the guarded layer throws on failure, so this is unreachable
+      // in practice — treat as a rejection rather than leak anything.
+      return json(
+        {
+          data: { kind: "rejected", assistantText: t("rejection") },
+          error: null,
+        },
+        200,
+      );
+    }
+
+    return json(
+      {
+        data: {
+          kind: "applied",
+          tableKey: result.data.tableKey,
+          fieldKey: result.data.fieldKey,
+          // Undo of a hide SHOWS the column again (the inverse of add-field).
+          undo: "show",
+          label: targetField.label,
+          assistantText: t("columnHidden", {
+            field: targetField.label,
+            table: targetTable.label,
+          }),
+        },
+        error: null,
+      },
+      200,
+    );
+  } catch (hideErr) {
+    // A missing table/field is `AppError(400)` from the mutator — map it to a
+    // reassuring decline (nothing was written), NOT a rejection/error screen.
+    // A 5xx degrades gracefully. No raw detail ever reaches the user.
+    if (hideErr instanceof AppError && hideErr.statusCode === 400) {
+      return json(
+        {
+          data: { kind: "declined", assistantText: t("declineFallback") },
+          error: null,
+        },
+        200,
+      );
+    }
+    reportError(hideErr, { route: "/api/schema/edit", stage: "hide-field" });
+    return json(
+      { data: { kind: "degraded", assistantText: t("degraded") }, error: null },
+      200,
+    );
+  }
+}
+
+/**
+ * `remove_view` → remove a saved view (Story 5.6), the ONE permitted true removal
+ * because a view holds no rows. A shapeless output (missing viewKey) is a rejection;
+ * a viewKey outside the shown views summary → reassuring `declined` (no write); a
+ * missing view at the mutator (`AppError(400)`) also → `declined`; a 5xx degrades.
+ */
+async function handleRemoveView(
+  ctx: EditorContext,
+): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
+  const { output, identity, views, t } = ctx;
+  if (!isNonEmptyString(output.viewKey)) {
+    return json(
+      { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+      200,
+    );
+  }
+
+  const viewKey = output.viewKey.trim();
+
+  // Resolve-before-write guard (mirrors the Story 5.5 hide_field guard):
+  // enforce the viewKey against the VIEWS summary the model was actually shown
+  // (`views`), not just the model's obedience. A key outside it (a hallucinated
+  // or stale key) is NOT a removable target: reassure and write nothing. This
+  // also guarantees the label below resolves (the message never shows a raw key).
+  const targetView = views.find((view) => view.key === viewKey);
+  if (!targetView) {
+    return json(
+      {
+        data: { kind: "declined", assistantText: t("declineFallback") },
+        error: null,
+      },
+      200,
+    );
+  }
+
+  try {
+    const result = await removeView(identity, viewKey);
+
+    if (!result.data) {
+      // Defensive: the guarded layer throws on failure, so this is unreachable
+      // in practice — treat as a rejection rather than leak anything.
+      return json(
+        {
+          data: { kind: "rejected", assistantText: t("rejection") },
+          error: null,
+        },
+        200,
+      );
+    }
+
+    return json(
+      {
+        data: {
+          kind: "applied",
+          viewKey,
+          label: targetView.label,
+          assistantText: t("viewRemoved", { view: targetView.label }),
+        },
+        error: null,
+      },
+      200,
+    );
+  } catch (removeErr) {
+    // A missing view is `AppError(400)` from the mutator — map it to a
+    // reassuring decline (nothing was written), NOT a rejection/error screen.
+    // A 5xx degrades gracefully. No raw detail ever reaches the user.
+    if (removeErr instanceof AppError && removeErr.statusCode === 400) {
+      return json(
+        {
+          data: { kind: "declined", assistantText: t("declineFallback") },
+          error: null,
+        },
+        200,
+      );
+    }
+    reportError(removeErr, { route: "/api/schema/edit", stage: "remove-view" });
+    return json(
+      { data: { kind: "degraded", assistantText: t("degraded") }, error: null },
+      200,
+    );
+  }
+}
+
+/**
+ * `hide_table` → the SAFE answer to "delete/remove a whole TABLE" (Story 5.7).
+ * Unlike hide_field (which applies immediately), a table hide is consequential — it
+ * removes a dashboard tab — so this performs NO mutation: it resolves + validates
+ * the target against the shown tables summary and returns an OFFER (`confirm`). A
+ * button click then drives the real write through the direct, non-LLM
+ * `/api/schema/tables` path. A shapeless output (missing tableKey) is a rejection;
+ * an out-of-summary key → `declined`; the LAST visible table → `declined`
+ * (`tableHideLast`).
+ */
+async function handleHideTable(
+  ctx: EditorContext,
+): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
+  const { output, tables, schemaData, t } = ctx;
+  if (!isNonEmptyString(output.tableKey)) {
+    return json(
+      { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+      200,
+    );
+  }
+
+  const tableKey = output.tableKey.trim();
+
+  // Resolve-before-write guard (mirrors the hide_field / remove_view guards):
+  // enforce the tableKey against the VISIBLE tables summary the model was
+  // actually shown (`tables`), not just the model's obedience. A key outside it
+  // (a hallucinated or stale key, or an already-hidden table) is NOT a hideable
+  // target: reassure and offer nothing. This also guarantees the label below
+  // resolves (the message never shows a raw key).
+  const targetTable = tables.find((table) => table.key === tableKey);
+  if (!targetTable) {
+    return json(
+      {
+        data: { kind: "declined", assistantText: t("declineFallback") },
+        error: null,
+      },
+      200,
+    );
+  }
+
+  // Never offer to hide the LAST visible table (it would empty the dashboard).
+  // The mutator re-checks this as the real backstop, but checking here lets us
+  // decline with a good, specific message instead of making a dead-end offer.
+  if (!canHideTable(schemaData)) {
+    return json(
+      {
+        data: { kind: "declined", assistantText: t("tableHideLast") },
+        error: null,
+      },
+      200,
+    );
+  }
+
+  // Return the OFFER. No mutation ran — the client renders a reassuring prompt
+  // with a "Hide the table" confirm button that calls `/api/schema/tables`.
+  return json(
+    {
+      data: {
+        kind: "confirm",
+        tableKey,
+        confirm: "hide-table",
+        label: targetTable.label,
+        assistantText: t("tableHideOffer", { table: targetTable.label }),
+      },
+      error: null,
+    },
+    200,
+  );
 }
 
 /**
