@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { resolveUserOrgMembership } from "@/lib/auth/org";
 import { getSchema, listRecords } from "@/lib/data/records";
-import { visibleTables } from "@/lib/schema/overrides";
+import { visibleTables, visibleViews } from "@/lib/schema/overrides";
 import { type CellStrings } from "@/lib/format";
 import { RecordsView } from "@/components/dashboard/RecordsView";
 import type { MemberRole, RecordData } from "@/types/db";
@@ -73,7 +73,15 @@ export default async function SlugDashboardPage({
     membership && membership.slug === slug ? membership.role : "member";
 
   const schemaResult = await getSchema(supabase, orgId);
-  const tables = visibleTables(schemaResult.data ?? { tables: [] });
+  const schema = schemaResult.data ?? { tables: [] };
+  const tables = visibleTables(schema);
+  // Story 5.3: saved views render as sibling tabs after the tables. Keep only
+  // views whose source table is still visible (a hidden/removed source would have
+  // no rows to render through `applyFilterSort`).
+  const visibleTableKeys = new Set(tables.map((table) => table.key));
+  const views = visibleViews(schema).filter((view) =>
+    visibleTableKeys.has(view.sourceTableKey),
+  );
 
   // Load live rows per table concurrently (post-clear these are empty; Epic 3
   // adds CRUD). The per-table reads are independent, so fan them out.
@@ -110,6 +118,7 @@ export default async function SlugDashboardPage({
           orgId={orgId}
           role={role}
           tables={tables}
+          views={views}
           recordsByTable={recordsByTable}
           cellStrings={cellStrings}
         />

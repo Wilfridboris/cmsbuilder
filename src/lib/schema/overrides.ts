@@ -22,11 +22,20 @@ import type {
   FieldDefinition,
   SchemaDefinition,
   TableDefinition,
+  ViewDefinition,
 } from "@/types/db";
 
 /** The tables the dashboard should render — hidden ones dropped. */
 export function visibleTables(schema: SchemaDefinition): TableDefinition[] {
   return schema.tables.filter((table) => !table.hidden);
+}
+
+/**
+ * The views the dashboard should render as sibling tabs (Story 5.3) — hidden ones
+ * dropped. A schema with no `views` yields an empty array (backward-compatible).
+ */
+export function visibleViews(schema: SchemaDefinition): ViewDefinition[] {
+  return (schema.views ?? []).filter((view) => !view.hidden);
 }
 
 /**
@@ -199,5 +208,24 @@ export function addTable(
   return {
     ...schema,
     tables: [...schema.tables, table],
+  };
+}
+
+/**
+ * Append a (validated) new view to the schema's `views` (Story 5.3 — create a view
+ * via chat). Pure and immutable — returns a NEW `SchemaDefinition` with a NEW
+ * `views` array (the new view appended last); the input schema, every existing
+ * view, and every table + `records` row are never mutated. A view is append-only
+ * presentation metadata over an existing table — no row is copied or modified.
+ * Callers MUST pass a view already sanitized/disambiguated by `validateAddView` —
+ * this transform does no validation of its own (mirrors `addTable`/`addField`).
+ */
+export function addView(
+  schema: SchemaDefinition,
+  view: ViewDefinition,
+): SchemaDefinition {
+  return {
+    ...schema,
+    views: [...(schema.views ?? []), view],
   };
 }

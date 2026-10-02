@@ -1,4 +1,18 @@
-import type { FieldDefinition, RecordData } from "@/types/db";
+import type {
+  FieldDefinition,
+  FilterOperator,
+  FilterState,
+  RecordData,
+  SortState,
+} from "@/types/db";
+
+/**
+ * The filter/sort view-state type aliases were relocated into `types/db.ts`
+ * (Story 5.3) so `ViewDefinition` can reference them without a circular import.
+ * They are re-exported here so every existing importer of `filter-sort.ts` is
+ * unaffected — no behavior change.
+ */
+export type { FilterOperator, FilterState, SortState } from "@/types/db";
 
 /**
  * Pure, node-testable filter & sort for the records surface (Story 3.4).
@@ -14,45 +28,6 @@ import type { FieldDefinition, RecordData } from "@/types/db";
  * env (repo has no jsdom), per the 3.1–3.3 precedent. Value coercion mirrors
  * `field-input.ts` (numbers/currency parse to finite numbers; text trims).
  */
-
-/** Single-column sort. `direction` is `"asc"` or `"desc"`; `null` state = unsorted. */
-export type SortState = {
-  /** The field key to sort by. */
-  field: string;
-  /** Ascending or descending. */
-  direction: "asc" | "desc";
-} | null;
-
-/**
- * The type-aware operators, capped per the resolved decision:
- *  - text            → contains | equals
- *  - number/currency → eq | lt | gt | between
- *  - date/datetime   → before | after | on | between
- *  - boolean         → is
- */
-export type FilterOperator =
-  | "contains"
-  | "equals"
-  | "eq"
-  | "lt"
-  | "gt"
-  | "between"
-  | "before"
-  | "after"
-  | "on"
-  | "is";
-
-/** One ANDed field filter. `value2` is only used by the `between` operator. */
-export type FilterState = {
-  /** The field key this filter targets. */
-  field: string;
-  /** The operator, valid for the field's type (see `operatorsForType`). */
-  operator: FilterOperator;
-  /** The comparison value (raw string as entered, or "true"/"false" for boolean). */
-  value: string;
-  /** The upper bound for `between` (raw string); ignored otherwise. */
-  value2?: string;
-};
 
 /**
  * The fields eligible as filter/sort targets: every VISIBLE (non-`hidden`) field,

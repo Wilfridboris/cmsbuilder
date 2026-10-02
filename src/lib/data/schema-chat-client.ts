@@ -4,9 +4,9 @@ import type { ChatTurn } from "@/lib/gemini/prompts";
 
 /**
  * Client-side fetch wrapper for the conversational schema editor endpoint (Story
- * 5.1 add a column, Story 5.2 add a table). Posts the ephemeral chat turn to
- * `POST /api/schema/edit` and returns the typed server result envelope's `data`
- * (the `{ kind, assistantText, tableKey?, fieldKey?, label? }` contract).
+ * 5.1 add a column, 5.2 add a table, 5.3 add a view). Posts the ephemeral chat turn
+ * to `POST /api/schema/edit` and returns the typed server result envelope's `data`
+ * (the `{ kind, assistantText, tableKey?, fieldKey?, viewKey?, label? }` contract).
  *
  * The endpoint already maps every outcome — success, clarification, decline,
  * validator rejection, and LLM degradation — to a translated, human `assistantText`

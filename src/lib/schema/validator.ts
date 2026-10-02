@@ -2,10 +2,15 @@ import "server-only";
 
 import type {
   FieldDefinition,
+  FilterOperator,
+  FilterState,
   SchemaDefinition,
+  SortState,
   TableDefinition,
+  ViewDefinition,
 } from "@/types/db";
 import { GENERATION_FIELD_TYPES } from "@/lib/gemini/prompts";
+import { operatorsForType } from "@/lib/data/filter-sort";
 import { displayFieldKey } from "@/lib/schema/relations";
 import { reportRejection } from "@/lib/observability/report";
 import { normalizeTableName } from "@/lib/utils";
@@ -736,6 +741,229 @@ export function validateAddTable(
   }
 
   return { valid: true, table };
+}
+
+/** One filter the conversational `add_view` path proposes. */
+export type AddViewFilterInput = {
+  /** The source-table field key (or label — normalized) this filter targets. */
+  field: string;
+  /** The operator, which must be valid for the field's type. */
+  operator: string;
+  /** The comparison value. */
+  value?: unknown;
+  /** The upper bound (only used by `between`). */
+  value2?: unknown;
+};
+
+/** The sort the conversational `add_view` path proposes (or `null` for none). */
+export type AddViewSortInput = {
+  field: string;
+  direction: string;
+} | null;
+
+/** The input the conversational `add_view` path proposes for a new view. */
+export type AddViewInput = {
+  /** The human-facing view label the model derived (e.g. "Unpaid invoices"). */
+  label: string;
+  /** The key (or label) of the existing, visible source table. */
+  sourceTableKey: string;
+  /** The saved filters (ANDed), over visible scalar fields of the source. */
+  filters: AddViewFilterInput[];
+  /** The saved single-field sort, or `null` for none. */
+  sort: AddViewSortInput;
+};
+
+export type ValidateAddViewResult =
+  | { valid: true; view: ViewDefinition }
+  | { valid: false; reason: "addViewFailed" };
+
+/**
+ * Focused, targeted `add_view` validator (Story 5.3) — the conversational "create
+ * a view via chat" gate.
+ *
+ * Deliberately separate from `validateGeneratedSchema` (which sanitizes the whole
+ * generation batch and strips post-generation `hidden` flags) and mirrors
+ * `validateAddTable` (Story 5.2): it validates ONE new view against the CURRENT
+ * stored schema, reusing the shared rule primitives (`normalizeTableName`,
+ * `keyIsBlockedVerb`, `RESERVED_KEYS`, `operatorsForType`) and returns the
+ * sanitized `ViewDefinition` to append.
+ *
+ * A view is pure presentation metadata over an EXISTING visible table's live rows;
+ * it never alters that table or any `records` row. Accepts only when, against the
+ * stored `schema`:
+ *   - `sourceTableKey` (normalized) names an existing, non-hidden table;
+ *   - `label` is a non-empty string, its derived key normalizes non-empty, is NOT
+ *     a blocked SQL verb, and (after disambiguation with a numeric suffix) does not
+ *     collide with a reserved key, an EXISTING table key, OR an existing view key —
+ *     never overwritten;
+ *   - EACH filter targets a VISIBLE SCALAR field of the source table (never a
+ *     relation/hidden/unknown field), with an operator valid for that field's type
+ *     (`operatorsForType`) and a non-empty value (`value2` required + used only for
+ *     `between`);
+ *   - the sort (when present) names a visible scalar field with a valid direction;
+ *   - at least one filter OR a sort is present (a view with neither is rejected).
+ *
+ * Returns the reject CODE `addViewFailed` (the caller maps it to fixed plain-language
+ * rejection copy) on any failure — never a raw detail. Every rejection is logged via
+ * `reportRejection` with the org id + raw LLM output.
+ */
+export function validateAddView(
+  schema: SchemaDefinition,
+  input: AddViewInput,
+  context: ValidationContext = {},
+): ValidateAddViewResult {
+  const reject = (detail: string): ValidateAddViewResult => {
+    reportRejection(detail, { id: context.id, rawOutput: context.rawOutput });
+    return { valid: false, reason: "addViewFailed" };
+  };
+
+  const tables = schema.tables ?? [];
+  const views = schema.views ?? [];
+
+  // 1. The source table must exist and be visible.
+  if (!isNonEmptyString(input.sourceTableKey)) {
+    return reject("add_view: missing sourceTableKey");
+  }
+  const normalizedSource = normalizeTableName(String(input.sourceTableKey));
+  const sourceTable = tables.find((t) => t.key === normalizedSource && !t.hidden);
+  if (!sourceTable) {
+    return reject(
+      `add_view: unknown or hidden source table "${String(input.sourceTableKey)}"`,
+    );
+  }
+
+  // 2. The view label + derived key. A blocked SQL verb rejects outright (never
+  //    disambiguated); a collision with a reserved key, an existing table key, or
+  //    an existing view key is disambiguated with a numeric suffix.
+  if (!isNonEmptyString(input.label)) {
+    return reject("add_view: missing label");
+  }
+  const label = input.label.trim();
+  const baseKey = normalizeTableName(label);
+  if (!baseKey) {
+    return reject("add_view: key normalized to empty");
+  }
+  if (keyIsBlockedVerb(baseKey)) {
+    return reject(`add_view: key is a blocked SQL verb "${baseKey}"`);
+  }
+
+  const takenKeys = new Set<string>([
+    ...RESERVED_KEYS,
+    ...tables.map((t) => t.key),
+    ...views.map((v) => v.key),
+  ]);
+  let viewKey = baseKey;
+  if (takenKeys.has(viewKey)) {
+    let suffix = 2;
+    while (takenKeys.has(`${baseKey}_${suffix}`)) {
+      suffix += 1;
+    }
+    viewKey = `${baseKey}_${suffix}`;
+  }
+
+  // A lookup of the source table's VISIBLE fields (hidden fields are never a view
+  // target). Relation fields are excluded here (scalar-only via chat).
+  const visibleFieldByKey = new Map<string, FieldDefinition>();
+  for (const field of sourceTable.fields) {
+    if (!field.hidden) {
+      visibleFieldByKey.set(field.key, field);
+    }
+  }
+
+  // 3. Validate each filter: a visible SCALAR field + a type-valid operator +
+  //    required value(s). Never a relation/hidden/unknown field.
+  if (!Array.isArray(input.filters)) {
+    return reject("add_view: filters is not an array");
+  }
+  const sanitizedFilters: FilterState[] = [];
+  for (const filter of input.filters) {
+    if (!filter || typeof filter !== "object") {
+      return reject("add_view: a filter is not an object");
+    }
+    if (!isNonEmptyString(filter.field)) {
+      return reject("add_view: a filter is missing a field");
+    }
+    const fieldKey = normalizeTableName(String(filter.field));
+    const field = visibleFieldByKey.get(fieldKey);
+    if (!field) {
+      return reject(
+        `add_view: filter field "${String(filter.field)}" is not a visible field of "${normalizedSource}"`,
+      );
+    }
+    if (field.type === "relation") {
+      return reject(
+        `add_view: filter field "${fieldKey}" is a relation (scalar-only via chat)`,
+      );
+    }
+    const allowed = operatorsForType(field.type);
+    if (
+      typeof filter.operator !== "string" ||
+      !allowed.includes(filter.operator as FilterOperator)
+    ) {
+      return reject(
+        `add_view: operator "${String(filter.operator)}" is invalid for field type "${field.type}"`,
+      );
+    }
+    const operator = filter.operator as FilterOperator;
+    if (!isNonEmptyString(filter.value)) {
+      return reject(`add_view: filter on "${fieldKey}" is missing a value`);
+    }
+    const value = String(filter.value).trim();
+    const sanitizedFilter: FilterState = { field: fieldKey, operator, value };
+    if (operator === "between") {
+      if (!isNonEmptyString(filter.value2)) {
+        return reject(
+          `add_view: 'between' filter on "${fieldKey}" is missing value2`,
+        );
+      }
+      sanitizedFilter.value2 = String(filter.value2).trim();
+    }
+    sanitizedFilters.push(sanitizedFilter);
+  }
+
+  // 4. Validate the sort (when present): a visible scalar field + a valid direction.
+  let sanitizedSort: SortState = null;
+  if (input.sort !== null && input.sort !== undefined) {
+    if (typeof input.sort !== "object" || !isNonEmptyString(input.sort.field)) {
+      return reject("add_view: sort is present but malformed");
+    }
+    const sortFieldKey = normalizeTableName(String(input.sort.field));
+    const sortField = visibleFieldByKey.get(sortFieldKey);
+    if (!sortField) {
+      return reject(
+        `add_view: sort field "${String(input.sort.field)}" is not a visible field of "${normalizedSource}"`,
+      );
+    }
+    if (sortField.type === "relation") {
+      return reject(
+        `add_view: sort field "${sortFieldKey}" is a relation (scalar-only via chat)`,
+      );
+    }
+    const direction = input.sort.direction;
+    if (direction !== "asc" && direction !== "desc") {
+      return reject(
+        `add_view: invalid sort direction "${String(direction)}"`,
+      );
+    }
+    sanitizedSort = { field: sortFieldKey, direction };
+  }
+
+  // 5. A view must carry at least one filter or a sort (a view with neither is a
+  //    no-op and is rejected).
+  if (sanitizedFilters.length === 0 && sanitizedSort === null) {
+    return reject("add_view: a view with no filter and no sort is degenerate");
+  }
+
+  return {
+    valid: true,
+    view: {
+      key: viewKey,
+      label,
+      sourceTableKey: normalizedSource,
+      filters: sanitizedFilters,
+      sort: sanitizedSort,
+    },
+  };
 }
 
 /**

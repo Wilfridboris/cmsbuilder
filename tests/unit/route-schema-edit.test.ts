@@ -27,6 +27,7 @@ import type { NextRequest } from "next/server";
 const getCurrentUser = vi.fn();
 const addField = vi.fn();
 const addTable = vi.fn();
+const addView = vi.fn();
 const getSchema = vi.fn();
 const callGeminiWithTimeout = vi.fn();
 
@@ -78,7 +79,7 @@ vi.mock("@/lib/supabase/server", () => ({
   createServerSupabaseClient: () => makeRlsClient(),
 }));
 vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
-vi.mock("@/lib/data/schema-mutate", () => ({ addField, addTable }));
+vi.mock("@/lib/data/schema-mutate", () => ({ addField, addTable, addView }));
 vi.mock("@/lib/data/records", () => ({ getSchema }));
 vi.mock("@/lib/gemini/client", () => ({ callGeminiWithTimeout }));
 vi.mock("@/lib/observability/report", () => ({ reportError: vi.fn() }));
@@ -106,7 +107,13 @@ beforeEach(() => {
   };
   getSchema.mockResolvedValue({
     data: {
-      tables: [{ key: "jobs", label: "Jobs", fields: [] }],
+      tables: [
+        {
+          key: "jobs",
+          label: "Jobs",
+          fields: [{ key: "status", label: "Status", type: "text" }],
+        },
+      ],
     },
     error: null,
   });
@@ -122,6 +129,10 @@ beforeEach(() => {
   });
   addTable.mockResolvedValue({
     data: { tableKey: "employee_timesheets" },
+    error: null,
+  });
+  addView.mockResolvedValue({
+    data: { viewKey: "unpaid_jobs" },
     error: null,
   });
 });
@@ -182,6 +193,97 @@ describe("POST /api/schema/edit", () => {
         { label: "Hours worked", type: "number" },
       ],
     });
+  });
+
+  it("applied: valid Admin add_view → 200 applied (viewKey, no fieldKey), view write ran", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_view",
+      label: "Unpaid jobs",
+      sourceTableKey: "jobs",
+      filters: [{ field: "status", operator: "equals", value: "unpaid" }],
+      sort: { field: "status", direction: "asc" },
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "show me unpaid jobs" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data.kind).toBe("applied");
+    expect(body.data.viewKey).toBe("unpaid_jobs");
+    // No fieldKey on a view add → the client shows no Undo.
+    expect(body.data.fieldKey).toBeUndefined();
+    expect(addView).toHaveBeenCalledTimes(1);
+    expect(addField).not.toHaveBeenCalled();
+    expect(addTable).not.toHaveBeenCalled();
+    const call = addView.mock.calls[0];
+    expect(call[0]).toEqual(
+      expect.objectContaining({ actorId: "user-1", orgId: "org-1" }),
+    );
+    expect(call[1]).toEqual({
+      label: "Unpaid jobs",
+      sourceTableKey: "jobs",
+      filters: [
+        { field: "status", operator: "equals", value: "unpaid", value2: undefined },
+      ],
+      sort: { field: "status", direction: "asc" },
+    });
+  });
+
+  it("rejected: a shapeless add_view (missing label / source / non-array filters) → 200 rejected, addView NOT called", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+
+    // Missing sourceTableKey.
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_view",
+      label: "A view",
+      filters: [],
+      sort: null,
+    });
+    let res = await POST(postReq({ slug: "acme", message: "a view" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.kind).toBe("rejected");
+
+    // Non-array filters.
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_view",
+      label: "A view",
+      sourceTableKey: "jobs",
+      filters: "nope",
+      sort: null,
+    });
+    res = await POST(postReq({ slug: "acme", message: "a view of jobs" }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.kind).toBe("rejected");
+
+    expect(addView).not.toHaveBeenCalled();
+  });
+
+  it("rejected: an add_view validator rejection → 200 rejected with fixed copy, no raw leak", async () => {
+    const { AppError } = await import("@/types/api");
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_view",
+      label: "Empty",
+      sourceTableKey: "jobs",
+      filters: [],
+      sort: null,
+    });
+    addView.mockRejectedValue(new AppError(400, "addViewFailed"));
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "a degenerate view" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+    expect(body.data.assistantText).not.toContain("addViewFailed");
+    expect(addField).not.toHaveBeenCalled();
   });
 
   it("rejected: a shapeless add_table (missing label / non-array fields) → 200 rejected, addTable NOT called", async () => {

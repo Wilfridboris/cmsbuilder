@@ -47,8 +47,10 @@ type ChatMessage =
       role: "assistant";
       kind: EditorChatResult["kind"];
       text: string;
-      /** Present on an `applied` message: drives the one-tap Undo. */
+      /** Present on an `applied` ADD-COLUMN message: drives the one-tap Undo. */
       applied?: { tableKey: string; fieldKey: string };
+      /** True on an `applied` ADD-VIEW message (no Undo; a filter-glyph bubble). */
+      isView?: boolean;
       /** Local flag once Undo has hidden this column. */
       undone?: boolean;
     };
@@ -120,6 +122,7 @@ export function ChatPanel({
           result.kind === "applied" && result.tableKey && result.fieldKey
             ? { tableKey: result.tableKey, fieldKey: result.fieldKey }
             : undefined,
+        isView: result.kind === "applied" && Boolean(result.viewKey),
       };
       setMessages((prev) => [...prev, assistantMessage]);
       if (result.kind === "applied") {
@@ -229,11 +232,13 @@ export function ChatPanel({
                   variant={
                     message.kind === "applied" && !message.undone
                       ? // An add-column success carries an Undo payload; an add-table
-                        // success does not (table visibility is a later story) and
-                        // gets the table-glyph treatment pointing to the switcher.
+                        // or add-view success does not (visibility is a later story)
+                        // and gets a glyph-only bubble pointing to the switcher.
                         message.applied
                         ? "applied"
-                        : "appliedTable"
+                        : message.isView
+                          ? "appliedView"
+                          : "appliedTable"
                       : message.kind === "declined"
                         ? "declined"
                         : message.kind === "degraded"

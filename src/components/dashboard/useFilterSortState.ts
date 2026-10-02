@@ -5,7 +5,8 @@ import type { RelationFilter } from "@/lib/data/records-client";
 import type { FilterState, SortState } from "@/lib/data/filter-sort";
 
 /**
- * Ephemeral, per-table filter & sort view state (Story 3.4 + 3.8).
+ * Ephemeral, per-table filter & sort view state (Story 3.4 + 3.8; seeded from a
+ * saved view in Story 5.3).
  *
  * Extracted from `RecordsView` so the same partition logic — RELATION filters
  * ride the records query key + params to be applied SERVER-SIDE (JSONB
@@ -14,11 +15,22 @@ import type { FilterState, SortState } from "@/lib/data/filter-sort";
  * the reverse-related list (which had a byte-identical copy).
  *
  * State resets when the active table changes, via the render-time "adjust state
- * on prop change" pattern (no effect, no cascading render). Never persisted to
- * URL, storage, or the server.
+ * on prop change" pattern (no effect, no cascading render). Story 5.3: when a
+ * saved view is active, the caller passes a `seed` (the view's filters/sort) and
+ * a `seedKey` (the view key); switching to that view SEEDS the state from the view
+ * instead of clearing it, so opening a view shows the saved filters/sort applied.
+ * The owner can then adjust them freely (the view definition is unchanged — view
+ * editing is a later story). Never persisted to URL, storage, or the server.
  */
-export function useFilterSortState(table: TableDefinition) {
+export function useFilterSortState(
+  table: TableDefinition,
+  seed?: { key: string; filters: FilterState[]; sort: SortState } | null,
+) {
   const tableKey = table.key;
+  // The identity of the current selection: a bare table, or a saved view keyed
+  // distinctly so switching between a table and a view OVER THAT SAME TABLE still
+  // re-seeds (the table key alone would not change).
+  const selectionKey = seed ? `view:${seed.key}` : `table:${tableKey}`;
 
   // Field-type lookup so we can tell a relation filter (server-side) from a
   // scalar filter (client-side).
@@ -28,14 +40,17 @@ export function useFilterSortState(table: TableDefinition) {
     return map;
   }, [table]);
 
-  const [sort, setSort] = useState<SortState>(null);
-  const [filters, setFilters] = useState<FilterState[]>([]);
+  const [sort, setSort] = useState<SortState>(seed ? seed.sort : null);
+  const [filters, setFilters] = useState<FilterState[]>(
+    seed ? seed.filters : [],
+  );
 
-  const [seenTableKey, setSeenTableKey] = useState(tableKey);
-  if (seenTableKey !== tableKey) {
-    setSeenTableKey(tableKey);
-    setSort(null);
-    setFilters([]);
+  const [seenSelectionKey, setSeenSelectionKey] = useState(selectionKey);
+  if (seenSelectionKey !== selectionKey) {
+    setSeenSelectionKey(selectionKey);
+    // Seed from the active view's saved config, or clear for a bare table.
+    setSort(seed ? seed.sort : null);
+    setFilters(seed ? seed.filters : []);
   }
 
   // RELATION filters → server-side (as `{ field, targetId }`), SCALAR → client.

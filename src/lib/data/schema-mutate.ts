@@ -7,15 +7,18 @@ import {
   addField as addFieldTransform,
   addRelationField as addRelationFieldTransform,
   addTable as addTableTransform,
+  addView as addViewTransform,
   hideField,
   showField,
 } from "@/lib/schema/overrides";
 import {
   validateAddField,
   validateAddTable,
+  validateAddView,
   validateRelationField,
   type AddFieldInput,
   type AddTableInput,
+  type AddViewInput,
 } from "@/lib/schema/validator";
 import { normalizeTableName } from "@/lib/utils";
 
@@ -312,6 +315,75 @@ export async function addTable(
     }
 
     return { data: { tableKey: result.table.key }, error: null };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/**
+ * Append an Admin-created view to the org schema (Story 5.3 — create a view via
+ * chat). Mirrors `addTable`'s guarded read-validate-write contract exactly:
+ *   - read the org's CURRENT authoritative definition under the RLS client;
+ *   - run the focused `validateAddView` against the stored schema → a validator
+ *     rejection is `AppError(400, "addViewFailed")` with NO write, and is logged to
+ *     Sentry with the org id + raw LLM output (the `context` the caller passes).
+ *     Collisions with reserved keys, existing tables, or existing views are
+ *     disambiguated inside the validator (never overwritten);
+ *   - apply the pure `addView` transform (append-only presentation metadata; every
+ *     table and `records` row is untouched — a view renders live source rows);
+ *   - write the full definition back under the RLS client (tenant-isolation policy
+ *     scopes the UPDATE to the caller's own org).
+ *
+ * A client can never post an arbitrary schema — the definition is always re-derived
+ * from the stored one and only a validated view is appended. Returns the created
+ * view's `{ viewKey }`; raw SQL is never leaked.
+ */
+export async function addView(
+  identity: SchemaMutateIdentity,
+  input: AddViewInput,
+  context: { rawOutput?: unknown } = {},
+): Promise<ApiResponse<{ viewKey: string }>> {
+  try {
+    const { client, orgId } = identity;
+
+    // 1. Read the org's CURRENT authoritative definition under the RLS client.
+    const current = await getSchema(client, orgId);
+    if (current.error || !current.data) {
+      throw new AppError(500, "writeFailed");
+    }
+    const schema = current.data;
+
+    // 2. Focused validation against the stored schema. An unknown/hidden source
+    //    table, blocked/empty key, bad filter field/operator/value, bad sort, or a
+    //    degenerate (no filter + no sort) view → 400 with NO write. Reserved/
+    //    existing-table/existing-view key collisions are disambiguated. The
+    //    rejection is logged with the org id + raw output.
+    const result = validateAddView(schema, input, {
+      id: orgId,
+      rawOutput: context.rawOutput,
+    });
+    if (!result.valid) {
+      throw new AppError(400, result.reason);
+    }
+
+    // 3. Apply the pure, immutable append (only a new view is added; every table
+    //    and records row is never migrated or mutated).
+    const next = addViewTransform(schema, result.view);
+
+    // 4. Persist the full definition back under the RLS client.
+    const { error } = await client
+      .from("org_schemas")
+      .update({ definition: next, updated_at: new Date().toISOString() })
+      .eq("organization_id", orgId);
+
+    if (error) {
+      throw new AppError(500, "writeFailed", error.message);
+    }
+
+    return { data: { viewKey: result.view.key }, error: null };
   } catch (err) {
     if (err instanceof AppError) {
       throw err;

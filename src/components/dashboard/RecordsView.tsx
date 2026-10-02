@@ -11,6 +11,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   Eye,
+  ListFilter,
   Maximize2,
   Trash2,
 } from "lucide-react";
@@ -20,6 +21,7 @@ import type {
   MemberRole,
   RecordData,
   TableDefinition,
+  ViewDefinition,
 } from "@/types/db";
 import { type CellStrings } from "@/lib/format";
 import {
@@ -114,6 +116,12 @@ type RecordsViewProps = {
   role: MemberRole;
   /** Visible logical tables (already filtered via `visibleTables`). */
   tables: TableDefinition[];
+  /**
+   * Visible saved views (Story 5.3), each over one of `tables`. Rendered as
+   * sibling tabs AFTER the tables; selecting one drives its source table's rows
+   * through the saved filters/sort. Defaults to none (backward-compatible).
+   */
+  views?: ViewDefinition[];
   /** Server-fetched rows per table key, seeding each table's query `initialData`. */
   recordsByTable: Record<string, RecordData[]>;
   /** Locale-dependent cell strings for `formatCell`. */
@@ -125,6 +133,7 @@ export function RecordsView({
   orgId,
   role,
   tables,
+  views = [],
   recordsByTable,
   cellStrings,
 }: RecordsViewProps) {
@@ -132,14 +141,53 @@ export function RecordsView({
   const router = useRouter();
   const [activeIndex, setActiveIndex] = useState(0);
 
-  const safeIndex = Math.min(activeIndex, tables.length - 1);
-  const activeTable = tables[safeIndex];
-  const tableKey = activeTable.key;
-  const hasSwitcher = tables.length > 1;
+  // The switcher's tabs are the tables followed by the saved views (Story 5.3).
+  // A `view` tab drives its SOURCE table's rows through the view's saved
+  // filters/sort; a `table` tab is the plain surface. A view whose source table
+  // is absent is dropped defensively.
+  const tableByKey = useMemo(() => {
+    const map = new Map<string, TableDefinition>();
+    for (const table of tables) map.set(table.key, table);
+    return map;
+  }, [tables]);
 
-  // Story 5.1: publish the currently-selected table key so the floating AI
-  // Assistant chat can infer an unnamed add-column target from the current view.
-  // Safe no-op when no `ActiveTableProvider` is mounted (e.g. the 3.1 unit test).
+  const selections = useMemo(() => {
+    const tableTabs = tables.map((table) => ({
+      kind: "table" as const,
+      id: `table:${table.key}`,
+      label: table.label,
+      table,
+      view: null as ViewDefinition | null,
+    }));
+    const viewTabs = views
+      .filter((view) => tableByKey.has(view.sourceTableKey))
+      .map((view) => ({
+        kind: "view" as const,
+        id: `view:${view.key}`,
+        label: view.label,
+        table: tableByKey.get(view.sourceTableKey)!,
+        view,
+      }));
+    return [...tableTabs, ...viewTabs];
+  }, [tables, views, tableByKey]);
+
+  const safeIndex = Math.min(activeIndex, selections.length - 1);
+  const activeSelection = selections[safeIndex];
+  const activeTable = activeSelection.table;
+  const activeView = activeSelection.view;
+  const tableKey = activeTable.key;
+  const hasSwitcher = selections.length > 1;
+  // The label of the active SURFACE: a view tab shows the view's name, a bare
+  // table tab the table's. Drives the records caption / card-list label so they
+  // match the selected tab. The add-record modal still names the TABLE (a record
+  // is added to the source table, not the view).
+  const activeSurfaceLabel = activeView ? activeView.label : activeTable.label;
+  const hasViewTabs = selections.some((selection) => selection.kind === "view");
+
+  // Story 5.1: publish the currently-selected table key (a view publishes its
+  // SOURCE table) so the floating AI Assistant chat can infer an unnamed
+  // add-column / add-view target from the current view. Safe no-op when no
+  // `ActiveTableProvider` is mounted (e.g. the 3.1 unit test).
   const { setActiveTableKey } = useActiveTable();
   useEffect(() => {
     setActiveTableKey(tableKey);
@@ -160,7 +208,20 @@ export function RecordsView({
   // Per-table view state. Each hook resets its own state on active-table change
   // (render-time "adjust state on prop change", no effect): the filter/sort
   // partition (3.4/3.8) and the lifted add-draft + modal (3.2).
-  const filterSort = useFilterSortState(activeTable);
+  // Story 5.3: when a saved view is active, seed the filter/sort state from the
+  // view's config so opening it immediately shows the saved filters/sort applied.
+  const viewSeed = useMemo(
+    () =>
+      activeView
+        ? {
+            key: activeView.key,
+            filters: activeView.filters,
+            sort: activeView.sort,
+          }
+        : null,
+    [activeView],
+  );
+  const filterSort = useFilterSortState(activeTable, viewSeed);
   const draftState = useAddDraft(tableKey, visibleFields);
 
   // Active table's rows via TanStack Query, seeded with server `initialData` so
@@ -233,7 +294,7 @@ export function RecordsView({
   );
 
   const goTo = (index: number) => {
-    setActiveIndex(clampTableIndex(index, tables.length));
+    setActiveIndex(clampTableIndex(index, selections.length));
   };
 
   const swipeHandlers = useSwipeable({
@@ -247,24 +308,25 @@ export function RecordsView({
       {hasSwitcher ? (
         <div
           role="tablist"
-          aria-label={t("switcherLabel")}
+          aria-label={t(hasViewTabs ? "switcherLabelWithViews" : "switcherLabel")}
           aria-orientation="horizontal"
           className="flex flex-wrap items-center gap-2 border-b border-border pb-px"
         >
-          {tables.map((table, index) => {
+          {selections.map((selection, index) => {
             const selected = index === safeIndex;
+            const isView = selection.kind === "view";
             return (
               <button
-                key={table.key}
+                key={selection.id}
                 type="button"
                 role="tab"
-                id={`records-tab-${table.key}`}
+                id={`records-tab-${selection.id}`}
                 aria-selected={selected}
-                aria-controls={`records-panel-${table.key}`}
+                aria-controls={`records-panel-${selection.id}`}
                 tabIndex={selected ? 0 : -1}
                 onClick={() => goTo(index)}
                 onKeyDown={(event) => {
-                  const count = tables.length;
+                  const count = selections.length;
                   let next: number | null = null;
                   if (event.key === "ArrowRight") next = (index + 1) % count;
                   else if (event.key === "ArrowLeft")
@@ -275,17 +337,25 @@ export function RecordsView({
                   event.preventDefault();
                   goTo(next);
                   document
-                    .getElementById(`records-tab-${tables[next].key}`)
+                    .getElementById(`records-tab-${selections[next].id}`)
                     ?.focus();
                 }}
                 className={cn(
-                  "relative min-h-12 min-w-12 rounded-t-md px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                  "relative flex min-h-12 min-w-12 items-center gap-1.5 rounded-t-md px-4 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
                   selected
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                {table.label}
+                {isView ? (
+                  <ListFilter
+                    aria-hidden="true"
+                    className="size-3.5 shrink-0 text-primary/70"
+                  />
+                ) : null}
+                <span className="truncate">
+                  {isView ? t("viewTabLabel", { view: selection.label }) : selection.label}
+                </span>
                 {selected ? (
                   <span
                     aria-hidden="true"
@@ -302,8 +372,8 @@ export function RecordsView({
         {...(hasSwitcher
           ? {
               role: "tabpanel" as const,
-              id: `records-panel-${activeTable.key}`,
-              "aria-labelledby": `records-tab-${activeTable.key}`,
+              id: `records-panel-${activeSelection.id}`,
+              "aria-labelledby": `records-tab-${activeSelection.id}`,
               tabIndex: 0,
             }
           : {})}
@@ -404,7 +474,7 @@ export function RecordsView({
               rows={visibleRows}
               cellStrings={cellStrings}
               resolveRelation={resolveRelation}
-              caption={t("tableCaption", { table: activeTable.label })}
+              caption={t("tableCaption", { table: activeSurfaceLabel })}
               actionsHeader={t("actionsHeader")}
               openLabel={t("openRecord")}
               deleteLabel={t("deleteRecord")}
@@ -441,7 +511,7 @@ export function RecordsView({
             )
           ) : (
             <ul
-              aria-label={t("cardListLabel", { table: activeTable.label })}
+              aria-label={t("cardListLabel", { table: activeSurfaceLabel })}
               className="flex list-none flex-col gap-3 p-0"
             >
               <RecordsCards

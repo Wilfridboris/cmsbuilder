@@ -10,7 +10,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { getSchema } from "@/lib/data/records";
 import { visibleTables } from "@/lib/schema/overrides";
-import { addField, addTable } from "@/lib/data/schema-mutate";
+import { addField, addTable, addView } from "@/lib/data/schema-mutate";
 import { callGeminiWithTimeout } from "@/lib/gemini/client";
 import {
   EDITOR_RESPONSE_SCHEMA,
@@ -26,8 +26,8 @@ import { reportError } from "@/lib/observability/report";
 import { editorChatSchema } from "./schemas";
 
 /**
- * `POST /api/schema/edit` (Story 5.1 add a column, Story 5.2 add a table) — the
- * Admin-only conversational schema editor endpoint.
+ * `POST /api/schema/edit` (Story 5.1 add a column, 5.2 add a table, 5.3 add a view)
+ * — the Admin-only conversational schema editor endpoint.
  *
  * Flow (every guard server-side; the LLM is NEVER a dependency for core CRUD):
  *   1. `getCurrentUser()` (JWT-validated) → 401 if no session;
@@ -49,6 +49,10 @@ import { editorChatSchema } from "./schemas";
  *                                 append-only write). On success → `applied` with
  *                                 ONLY the tableKey (no fieldKey → the client shows
  *                                 no Undo; Story 5.5 owns table visibility);
+ *        - `add_view`           → `schema-mutate.addView` (focused validator +
+ *                                 append-only write). On success → `applied` with
+ *                                 ONLY the viewKey (no fieldKey → no Undo; Story 5.5
+ *                                 owns view visibility);
  *        - `needs_clarification` → `clarify` with the model's question;
  *        - `out_of_scope`/other → `declined` with a friendly non-technical decline.
  *      A validator rejection (either branch) → the fixed plain-language `rejected`
@@ -66,9 +70,11 @@ export type EditorChatResult = {
   kind: "applied" | "clarify" | "declined" | "rejected" | "degraded";
   /** Present on `applied`: the table the change targets (an add-field target, or the new table). */
   tableKey?: string;
-  /** Present on an `applied` ADD-FIELD only: the added field key (drives Undo). Absent for an add-table. */
+  /** Present on an `applied` ADD-FIELD only: the added field key (drives Undo). Absent for an add-table/add-view. */
   fieldKey?: string;
-  /** Present on `applied`: the added column's / new table's label, for the success message. */
+  /** Present on an `applied` ADD-VIEW only: the created view key. Absent for an add-field/add-table. */
+  viewKey?: string;
+  /** Present on `applied`: the added column's / new table's / new view's label, for the success message. */
   label?: string;
   /** Always a translated, human-readable sentence. Never raw JSON/SQL/errors. */
   assistantText: string;
@@ -76,11 +82,19 @@ export type EditorChatResult = {
 
 /** Shape returned by the single Gemini call (flat — the route reads by `kind`). */
 type GeminiEditorOutput = {
-  kind?: "add_field" | "add_table" | "needs_clarification" | "out_of_scope";
+  kind?:
+    | "add_field"
+    | "add_table"
+    | "add_view"
+    | "needs_clarification"
+    | "out_of_scope";
   tableKey?: unknown;
+  sourceTableKey?: unknown;
   label?: unknown;
   type?: unknown;
   fields?: unknown;
+  filters?: unknown;
+  sort?: unknown;
   question?: unknown;
   reply?: unknown;
 };
@@ -135,7 +149,19 @@ export async function POST(
       throw new AppError(500, "writeFailed");
     }
     const tables: ChatTableSummary[] = visibleTables(schemaResult.data).map(
-      (table) => ({ key: table.key, label: table.label }),
+      (table) => ({
+        key: table.key,
+        label: table.label,
+        // Expose only VISIBLE SCALAR fields so the model builds a view's
+        // filters/sort against real, filterable keys (relations are chat-excluded).
+        fields: table.fields
+          .filter((field) => !field.hidden && field.type !== "relation")
+          .map((field) => ({
+            key: field.key,
+            label: field.label,
+            type: field.type,
+          })),
+      }),
     );
 
     // 7. ONE hardened, timeout-wrapped Gemini call. Any failure (timeout, parse,
@@ -290,6 +316,94 @@ export async function POST(
       }
     }
 
+    if (output.kind === "add_view") {
+      // A shapeless add_view (missing label / source table, or non-array filters)
+      // is treated as a rejection rather than trusted — the validator does the real
+      // gating, but a shapeless output never reaches it.
+      if (
+        !isNonEmptyString(output.label) ||
+        !isNonEmptyString(output.sourceTableKey) ||
+        !Array.isArray(output.filters)
+      ) {
+        return json(
+          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+          200,
+        );
+      }
+
+      // Project the model's filters/sort down to the validator input; the validator
+      // rejects any malformed/non-scalar/invalid-operator entry (nothing trusted).
+      const filters = output.filters.map((filter) => {
+        const f = (filter ?? {}) as {
+          field?: unknown;
+          operator?: unknown;
+          value?: unknown;
+          value2?: unknown;
+        };
+        return {
+          field: typeof f.field === "string" ? f.field : "",
+          operator: typeof f.operator === "string" ? f.operator : "",
+          value: f.value,
+          value2: f.value2,
+        };
+      });
+      const rawSort = output.sort as
+        | { field?: unknown; direction?: unknown }
+        | null
+        | undefined;
+      const sort =
+        rawSort && typeof rawSort === "object" && isNonEmptyString(rawSort.field)
+          ? {
+              field: String(rawSort.field),
+              direction:
+                typeof rawSort.direction === "string" ? rawSort.direction : "",
+            }
+          : null;
+
+      try {
+        const result = await addView(
+          identity,
+          {
+            label: output.label.trim(),
+            sourceTableKey: output.sourceTableKey.trim(),
+            filters,
+            sort,
+          },
+          { rawOutput: output },
+        );
+
+        if (!result.data) {
+          return json(
+            {
+              data: { kind: "rejected", assistantText: t("rejection") },
+              error: null,
+            },
+            200,
+          );
+        }
+
+        // Surface-only navigation: the success copy points the Admin to the new
+        // view in the switcher (the client's router.refresh makes it appear). No
+        // fieldKey → the client shows no Undo (Story 5.5 owns view visibility).
+        return json(
+          {
+            data: {
+              kind: "applied",
+              viewKey: result.data.viewKey,
+              label: output.label.trim(),
+              assistantText: t("successViewAdded", {
+                view: output.label.trim(),
+              }),
+            },
+            error: null,
+          },
+          200,
+        );
+      } catch (mutateErr) {
+        return handleMutateError(mutateErr, t, "mutate-view");
+      }
+    }
+
     // out_of_scope (or any unexpected kind) → friendly, non-technical decline.
     const reply = isNonEmptyString(output.reply)
       ? output.reply.trim()
@@ -313,7 +427,7 @@ export async function POST(
 function handleMutateError(
   err: unknown,
   t: Awaited<ReturnType<typeof getTranslations>>,
-  stage: "mutate" | "mutate-table",
+  stage: "mutate" | "mutate-table" | "mutate-view",
 ): NextResponse<ApiResponse<EditorChatResult>> {
   if (err instanceof AppError && err.statusCode === 400) {
     return json(

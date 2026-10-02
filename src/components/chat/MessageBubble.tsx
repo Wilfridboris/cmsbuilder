@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Table2 } from "lucide-react";
+import { Check, ListFilter, Table2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -12,7 +12,9 @@ import { cn } from "@/lib/utils";
  * inline one-tap Undo as `children`. An `appliedTable` (add-table, Story 5.2) success
  * bubble reuses the exact same glass shell but swaps the check for a table glyph —
  * the copy points the Admin to the new table in the switcher, and there is NO Undo
- * (table visibility is owned by a later story), so it is passed no `children`.
+ * (table visibility is owned by a later story), so it is passed no `children`. An
+ * `appliedView` (add-view, Story 5.3) success bubble is identical but swaps in a
+ * filter glyph and likewise has no Undo (view visibility is Story 5.5).
  *
  * Never renders raw JSON, SQL, or errors — the `text` it receives is always a
  * translated, human string produced server-side. All microstates are CSS
@@ -25,6 +27,7 @@ export type BubbleVariant =
   | "assistant"
   | "applied"
   | "appliedTable"
+  | "appliedView"
   | "declined"
   | "degraded";
 
@@ -40,6 +43,7 @@ export function MessageBubble({
   const isUser = variant === "user";
   const isApplied = variant === "applied";
   const isAppliedTable = variant === "appliedTable";
+  const isAppliedView = variant === "appliedView";
 
   return (
     <div
@@ -65,6 +69,12 @@ export function MessageBubble({
           ) : null}
           {isAppliedTable ? (
             <Table2
+              aria-hidden="true"
+              className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+            />
+          ) : null}
+          {isAppliedView ? (
+            <ListFilter
               aria-hidden="true"
               className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
             />

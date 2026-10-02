@@ -129,6 +129,30 @@ describe("postEditorChat (Story 5.1, 5.2)", () => {
     expect(result.fieldKey).toBeUndefined();
   });
 
+  it("returns an add-view applied result (viewKey, no fieldKey)", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        data: {
+          kind: "applied",
+          viewKey: "unpaid_invoices",
+          label: "Unpaid invoices",
+          assistantText: "Done. I created the Unpaid invoices view.",
+        },
+        error: null,
+      }),
+    );
+
+    const result = await postEditorChat({
+      slug: "acme",
+      message: "show me unpaid invoices sorted by date",
+    });
+
+    expect(result.kind).toBe("applied");
+    expect(result.viewKey).toBe("unpaid_invoices");
+    expect(result.fieldKey).toBeUndefined();
+    expect(result.tableKey).toBeUndefined();
+  });
+
   it("throws SchemaChatError with the server code on a transport/auth failure", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ data: null, error: "forbidden" }, false, 403),
