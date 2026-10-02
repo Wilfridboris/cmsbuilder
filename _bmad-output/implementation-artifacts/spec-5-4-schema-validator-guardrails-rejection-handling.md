@@ -123,3 +123,8 @@ Layering: hardened prompt → `PERMITTED_OPERATIONS` allowlist → raw-SQL disca
 
 **Manual checks:**
 - As an Admin on the dashboard, confirm a normal "add a column to Jobs" / "add a table for timesheets" / "show me unpaid invoices sorted by date" still succeed unchanged. Confirm a benign label like "Drop-off time" still adds successfully (no false reject). No raw JSON/SQL/error is ever shown.
+
+**Manual review (Playwright, post-commit) — verified.** On the authed Admin fixture `/session-1f4fa453` against the running dev app on `localhost:3000` with a live Gemini key:
+- **Story 2.5 pin (benign verb-adjacent label, through the new fence):** "add a drop-off time to Quotes & Jobs" returned "Done. I added Drop-off time to Quotes & Jobs." with an Undo button. The **Drop-off time** column really landed on Quotes & Jobs (add-record field + sortable column header + data-row cell). No false reject.
+- **Blocked-keyword rejection (AC2, end-to-end):** "add a column named DROP to Customers" returned exactly the fixed copy "That change isn't allowed. Try describing what you'd like to add instead." with **no Undo** and **no raw JSON/SQL/stack**. Switching to Customers confirmed its 5 original columns are unchanged — **no `DROP` column written** (rejected before any write, AC1).
+- **Zero console errors or warnings** across the session.
