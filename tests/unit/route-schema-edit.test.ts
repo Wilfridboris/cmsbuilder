@@ -82,7 +82,10 @@ vi.mock("next/headers", () => ({ cookies: async () => ({}) }));
 vi.mock("@/lib/data/schema-mutate", () => ({ addField, addTable, addView }));
 vi.mock("@/lib/data/records", () => ({ getSchema }));
 vi.mock("@/lib/gemini/client", () => ({ callGeminiWithTimeout }));
-vi.mock("@/lib/observability/report", () => ({ reportError: vi.fn() }));
+vi.mock("@/lib/observability/report", () => ({
+  reportError: vi.fn(),
+  reportRejection: vi.fn(),
+}));
 vi.mock("next-intl/server", () => ({
   getTranslations: async () => (key: string) => key,
 }));
@@ -332,6 +335,63 @@ describe("POST /api/schema/edit", () => {
     expect(body.data.assistantText).toBe("rejection");
     expect(body.data.assistantText).not.toContain("addTableFailed");
     expect(addField).not.toHaveBeenCalled();
+  });
+
+  it("rejected: an out-of-allowlist kind → 200 rejected, no write, reportRejection logged", async () => {
+    const { reportRejection } = await import("@/lib/observability/report");
+    vi.mocked(reportRejection).mockClear();
+    const { POST } = await import("@/app/api/schema/edit/route");
+    // A kind the model should never emit (and the enum forbids) — the explicit
+    // allowlist fence must reject it before any dispatch or write.
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "delete_table",
+      tableKey: "jobs",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "delete the jobs table" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+    expect(body.data.assistantText).not.toContain("delete_table");
+    expect(addField).not.toHaveBeenCalled();
+    expect(addTable).not.toHaveBeenCalled();
+    expect(addView).not.toHaveBeenCalled();
+    // Logged with the org id + raw output (FR45).
+    expect(reportRejection).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(reportRejection).mock.calls[0][1]).toEqual(
+      expect.objectContaining({ id: "org-1" }),
+    );
+  });
+
+  it("rejected: raw SQL in a permitted op's output → 200 rejected, no write, reportRejection logged", async () => {
+    const { reportRejection } = await import("@/lib/observability/report");
+    vi.mocked(reportRejection).mockClear();
+    const { POST } = await import("@/app/api/schema/edit/route");
+    // A well-formed add_field whose output smuggles raw SQL — the raw-SQL discard
+    // guard must fire before the write.
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_field",
+      tableKey: "jobs",
+      label: "Notes",
+      type: "text",
+      smuggled: "DROP TABLE records;",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "add notes to jobs" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+    expect(body.data.assistantText).not.toContain("DROP");
+    expect(addField).not.toHaveBeenCalled();
+    expect(reportRejection).toHaveBeenCalled();
   });
 
   it("401 unauthorized when there is no session, no LLM call, no write", async () => {

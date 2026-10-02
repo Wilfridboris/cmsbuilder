@@ -164,13 +164,17 @@ describe("validateAddTable (Story 5.2)", () => {
     }
   });
 
-  it("rejects a blocked SQL verb as a bare field name (incl. mixed-case)", () => {
-    for (const name of ["drop", "DELETE", "TrUnCaTe"]) {
+  it("rejects EVERY blocked SQL verb as a bare field name (incl. mixed-case + punctuation)", () => {
+    // Exercise all 5 verbs in the FIELD loop — EXEC and GRANT were the gaps.
+    for (const name of ["drop", "GrAnt", "TrUnCaTe", "DELETE!", "exec;"]) {
       const result = validateAddTable(schema(), {
         label: "Timesheets",
         fields: [{ label: name, type: "text" }],
       });
-      expect(result).toEqual({ valid: false, reason: "addTableFailed" });
+      expect(result, `blocked field ${name} must reject`).toEqual({
+        valid: false,
+        reason: "addTableFailed",
+      });
     }
   });
 

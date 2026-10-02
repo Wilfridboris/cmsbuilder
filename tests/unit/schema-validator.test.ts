@@ -2,11 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   BLOCKED_KEYWORDS,
+  PERMITTED_OPERATIONS,
   RESERVED_KEYS,
+  assertEditorOperationAllowed,
+  containsRawSql,
   filterSeedRows,
+  isPermittedOperation,
+  validateAddField,
   validateGeneratedSchema,
 } from "@/lib/schema/validator";
-import type { TableDefinition } from "@/types/db";
+import type { SchemaDefinition, TableDefinition } from "@/types/db";
 
 /**
  * Unit coverage for the pre-persist Schema Validator (Story 1.4). No network, no
@@ -467,5 +472,247 @@ describe("filterSeedRows — malformed rows are skipped, not fatal", () => {
   it("returns an empty array when seedRows is not an array", () => {
     expect(filterSeedRows(table, undefined)).toEqual([]);
     expect(filterSeedRows(table, { not: "an array" })).toEqual([]);
+  });
+});
+
+/**
+ * Story 5.4 — the conversational editor guardrails. Three surfaces, all pinned:
+ * (a) the PERMITTED_OPERATIONS allowlist + `assertEditorOperationAllowed` guard;
+ * (b) the raw-SQL discard guard (`containsRawSql`) over the RAW model output —
+ *     the full 8 tokens (5 verbs + `;`/`--`/`/*`) + a complete SQL string;
+ * (c) that every rejection path logs via `reportRejection` with { id, rawOutput };
+ * plus the Story 2.5 pins that labels/substrings still PASS and reserved-key
+ * collisions still reject.
+ */
+describe("Story 5.4 — PERMITTED_OPERATIONS allowlist", () => {
+  it("names exactly the three additive editor ops", () => {
+    expect([...PERMITTED_OPERATIONS]).toEqual([
+      "add_field",
+      "add_table",
+      "add_view",
+    ]);
+  });
+
+  it("isPermittedOperation accepts each permitted op and rejects everything else", () => {
+    for (const op of PERMITTED_OPERATIONS) {
+      expect(isPermittedOperation(op)).toBe(true);
+    }
+    for (const bad of [
+      "delete_field",
+      "drop_table",
+      "rename",
+      "add_relation",
+      "needs_clarification",
+      "out_of_scope",
+      "",
+      undefined,
+      null,
+      42,
+    ]) {
+      expect(isPermittedOperation(bad), `${String(bad)} must not be permitted`).toBe(
+        false,
+      );
+    }
+  });
+
+  it("assertEditorOperationAllowed passes each permitted, well-formed op", () => {
+    expect(
+      assertEditorOperationAllowed({
+        kind: "add_field",
+        tableKey: "jobs",
+        label: "Warranty date",
+        type: "date",
+      }),
+    ).toEqual({ allowed: true, kind: "add_field" });
+    expect(
+      assertEditorOperationAllowed({
+        kind: "add_table",
+        label: "Timesheets",
+        fields: [{ label: "Hours", type: "number" }],
+      }),
+    ).toEqual({ allowed: true, kind: "add_table" });
+    expect(
+      assertEditorOperationAllowed({
+        kind: "add_view",
+        label: "Unpaid",
+        sourceTableKey: "invoices",
+        filters: [{ field: "status", operator: "equals", value: "unpaid" }],
+      }),
+    ).toEqual({ allowed: true, kind: "add_view" });
+  });
+
+  it("rejects an out-of-allowlist / unknown / conversational op as operationNotAllowed", () => {
+    for (const kind of [
+      "delete_field",
+      "drop_table",
+      "rename",
+      "needs_clarification",
+      "out_of_scope",
+      undefined,
+    ]) {
+      const result = assertEditorOperationAllowed({ kind });
+      expect(result).toEqual({
+        allowed: false,
+        reason: "operationNotAllowed",
+      });
+    }
+  });
+
+  it("logs an out-of-allowlist rejection via reportRejection with { id, rawOutput }", async () => {
+    const { reportRejection } = await import("@/lib/observability/report");
+    vi.mocked(reportRejection).mockClear();
+    const output = { kind: "delete_everything" };
+    const result = assertEditorOperationAllowed(output, {
+      id: "org-1",
+      rawOutput: output,
+    });
+    expect(result.allowed).toBe(false);
+    expect(reportRejection).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(reportRejection).mock.calls[0][1]).toEqual({
+      id: "org-1",
+      rawOutput: output,
+    });
+  });
+});
+
+describe("Story 5.4 — raw-SQL discard guard (containsRawSql)", () => {
+  it("detects each SQL punctuation token in raw output", () => {
+    for (const token of [";", "--", "/*"]) {
+      expect(containsRawSql(`anything ${token} here`), `token ${token}`).toBe(
+        true,
+      );
+    }
+  });
+
+  it("detects each blocked SQL verb as a whole word in raw output", () => {
+    for (const verb of BLOCKED_KEYWORDS) {
+      expect(containsRawSql(`please ${verb} the table`), `verb ${verb}`).toBe(
+        true,
+      );
+      // Mixed case still matches (case-insensitive).
+      expect(containsRawSql(`please ${verb.toLowerCase()} the table`)).toBe(true);
+    }
+  });
+
+  it("detects a complete raw-SQL string (DROP TABLE x;)", () => {
+    expect(containsRawSql("DROP TABLE x;")).toBe(true);
+    expect(containsRawSql({ kind: "add_field", label: "x", note: "DROP TABLE x;" })).toBe(
+      true,
+    );
+  });
+
+  it("scans a nested value (a verb smuggled into a field), not just the top level", () => {
+    expect(
+      containsRawSql({
+        kind: "add_field",
+        tableKey: "jobs",
+        label: "ok",
+        type: "text",
+        value: "0; DELETE FROM records",
+      }),
+    ).toBe(true);
+  });
+
+  it("does NOT flag a benign operation object or label as raw SQL", () => {
+    expect(
+      containsRawSql({
+        kind: "add_field",
+        tableKey: "jobs",
+        label: "Drop-off time",
+        type: "datetime",
+      }),
+    ).toBe(false);
+    // Substrings that merely embed a verb are not whole-word matches.
+    expect(containsRawSql("dropoff backdrop granted deleted")).toBe(false);
+    expect(containsRawSql(null)).toBe(false);
+    expect(containsRawSql(undefined)).toBe(false);
+  });
+
+  it("FAILS CLOSED: an unserializable raw output (circular reference) is treated as SQL", () => {
+    // A value JSON.stringify cannot audit for SQL shape must be discarded, never
+    // waved through — the security fence errs toward rejection.
+    const cyclic: Record<string, unknown> = { kind: "add_field" };
+    cyclic.self = cyclic;
+    expect(containsRawSql(cyclic)).toBe(true);
+  });
+
+  it("assertEditorOperationAllowed discards a permitted op whose raw output carries SQL", async () => {
+    const { reportRejection } = await import("@/lib/observability/report");
+    vi.mocked(reportRejection).mockClear();
+    const output = {
+      kind: "add_field",
+      tableKey: "jobs",
+      label: "ok",
+      type: "text",
+      smuggled: "DROP TABLE records;",
+    };
+    const result = assertEditorOperationAllowed(output, {
+      id: "org-1",
+      rawOutput: output,
+    });
+    expect(result).toEqual({ allowed: false, reason: "rawSqlRejected" });
+    expect(reportRejection).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(reportRejection).mock.calls[0][1]).toEqual({
+      id: "org-1",
+      rawOutput: output,
+    });
+  });
+});
+
+describe("Story 5.4 — full blocklist on the normalized key (whole-word) + Story 2.5 pins", () => {
+  function editorSchema(): SchemaDefinition {
+    return {
+      tables: [
+        {
+          key: "jobs",
+          label: "Jobs",
+          fields: [{ key: "status", label: "Status", type: "text" }],
+        },
+      ],
+    };
+  }
+
+  it("rejects each blocked verb as a bare key (lower, UPPER, and mixed case)", () => {
+    for (const verb of BLOCKED_KEYWORDS) {
+      for (const variant of [
+        verb.toLowerCase(),
+        verb.toUpperCase(),
+        // Mixed case, e.g. DrOp / GrAnt.
+        verb.charAt(0) + verb.slice(1).toLowerCase(),
+      ]) {
+        const result = validateAddField(editorSchema(), "jobs", {
+          label: variant,
+          type: "text",
+        });
+        expect(
+          result,
+          `blocked verb ${variant} must reject`,
+        ).toEqual({ valid: false, reason: "addFieldFailed" });
+      }
+    }
+  });
+
+  it("PASSES a label/key that merely embeds a blocked verb as a substring (Story 2.5)", () => {
+    for (const label of ["dropoff", "backdrop", "Drop-off time"]) {
+      const result = validateAddField(editorSchema(), "jobs", {
+        label,
+        type: "text",
+      });
+      expect(result.valid, `${label} must pass`).toBe(true);
+    }
+  });
+
+  it("rejects a key that collides with EACH reserved key", () => {
+    expect(RESERVED_KEYS.length).toBe(7);
+    for (const reserved of RESERVED_KEYS) {
+      const result = validateAddField(editorSchema(), "jobs", {
+        label: reserved,
+        type: "text",
+      });
+      expect(result, `reserved key ${reserved} must reject`).toEqual({
+        valid: false,
+        reason: "addFieldFailed",
+      });
+    }
   });
 });

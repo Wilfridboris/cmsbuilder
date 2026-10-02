@@ -133,23 +133,30 @@ describe("validateAddField (Story 5.1)", () => {
     }
   });
 
-  it("rejects a blocked verb regardless of case (mixed-case)", () => {
-    const result = validateAddField(schema(), "jobs", {
-      label: "DrOp",
-      type: "text",
-    });
-    expect(result).toEqual({ valid: false, reason: "addFieldFailed" });
+  it("rejects EVERY blocked verb in mixed-case (e.g. DrOp, GrAnt, TrUnCaTe, DeLeTe, ExEc)", () => {
+    // Capitalize the first letter, lowercase the rest — a distinct mixed-case
+    // variant per verb (GRANT mixed-case was the identified gap).
+    for (const verb of ["DROP", "GRANT", "TRUNCATE", "DELETE", "EXEC"]) {
+      const mixed = verb.charAt(0) + verb.slice(1).toLowerCase();
+      const result = validateAddField(schema(), "jobs", { label: mixed, type: "text" });
+      expect(result, `mixed-case ${mixed} must reject`).toEqual({
+        valid: false,
+        reason: "addFieldFailed",
+      });
+    }
   });
 
-  it("rejects a blocked verb surrounded by punctuation that strips away (e.g. 'DROP!')", () => {
-    // "DROP!" normalizes to the bare key "drop" (punctuation is stripped), so the
-    // whole-word guard catches it — mirroring the validator's documented behavior
-    // (the key is `[a-z0-9_]`; `_` is a word char, so only a BARE verb matches).
-    const result = validateAddField(schema(), "jobs", {
-      label: "DROP!",
-      type: "text",
-    });
-    expect(result).toEqual({ valid: false, reason: "addFieldFailed" });
+  it("rejects EVERY blocked verb surrounded by punctuation that strips away (e.g. 'DELETE!', 'EXEC;')", () => {
+    // Each wrapped in stray punctuation that `normalizeTableName` strips, leaving
+    // the bare verb key the whole-word guard catches. Covers the DELETE/EXEC
+    // punctuation variants that were the identified gap.
+    for (const label of ["DROP!", "GRANT.", "TRUNCATE?", "DELETE!", "EXEC;"]) {
+      const result = validateAddField(schema(), "jobs", { label, type: "text" });
+      expect(result, `punctuated ${label} must reject`).toEqual({
+        valid: false,
+        reason: "addFieldFailed",
+      });
+    }
   });
 
   it("does NOT reject a legitimate label that merely contains a blocked substring", () => {

@@ -48,10 +48,31 @@ import { normalizeTableName } from "@/lib/utils";
  * schema.)
  */
 
-// Append-only allowlisting is enforced by SHAPE, not by a checked op list: the
-// generation contract can only express tables/fields (add_table/add_field), so no
-// destructive op is representable in the first place. (No `PERMITTED_OPERATIONS`
-// constant — it would imply a runtime check that does not, and need not, exist.)
+// --- Conversational editor operation allowlist (Story 5.4) ------------------
+//
+// The GENERATION path enforces append-only by SHAPE (its contract can only
+// express tables/fields), but the conversational EDITOR path dispatches on an
+// LLM-chosen `kind`, so it gets an EXPLICIT, auditable allowlist seam here — the
+// clean fence the epic names as the template for a future real-world action
+// allowlist. Anything outside these three ops is rejected + logged before any
+// metadata write. The two conversational kinds (`needs_clarification`,
+// `out_of_scope`) are NOT operations — they are handled upstream and must never
+// reach this guard.
+export const PERMITTED_OPERATIONS = [
+  "add_field",
+  "add_table",
+  "add_view",
+] as const;
+
+export type PermittedOperation = (typeof PERMITTED_OPERATIONS)[number];
+
+/** Whether `kind` is one of the three permitted editor operations. */
+export function isPermittedOperation(kind: unknown): kind is PermittedOperation {
+  return (
+    typeof kind === "string" &&
+    (PERMITTED_OPERATIONS as readonly string[]).includes(kind)
+  );
+}
 
 /** Max seed rows persisted per table — the generation contract promises 5–8. */
 export const MAX_SEED_ROWS = 8;
@@ -68,13 +89,21 @@ export const RESERVED_KEYS = [
 ];
 
 /**
- * Blocked SQL verbs, matched as whole words against the *normalized* key only.
+ * Blocked SQL verbs. They serve TWO distinct guards with different inputs:
  *
- * The old punctuation entries (`--`, `;`, `/*`) are intentionally gone: keys are
- * normalized to `[a-z0-9_]` by `normalizeTableName`, so punctuation can never
- * survive into a key, and labels are no longer keyword-checked at all. What
- * remains is a whole-word guard so a bare reserved verb used as a standalone key
- * (`drop`, `delete`) still rejects, while `dropoff` / `backdrop` do not.
+ *  1. The whole-word, normalized-KEY guard (`keyIsBlockedVerb`, below): matched
+ *     against a key already normalized to `[a-z0-9_]` by `normalizeTableName`, so
+ *     punctuation can never survive into a key and labels are NOT keyword-checked
+ *     at all. A bare reserved verb used as a standalone key (`drop`, `delete`)
+ *     rejects; `dropoff` / `backdrop` do not. (Story 2.5 — do not change.)
+ *
+ *  2. The raw-SQL discard guard (`containsRawSql`, below, Story 5.4): matched as
+ *     SQL-shaped tokens against the RAW LLM OUTPUT (the model's returned operation
+ *     object / its stringified JSON), NEVER against a human-typed display label.
+ *     This gives literal coverage of the SQL punctuation tokens (`;`, `--`, `/*`)
+ *     plus these verbs — the epic's "any LLM response containing SQL is discarded"
+ *     rule. Splitting it from guard (1) is deliberate: it leaves Story 2.5's
+ *     label-is-free-text / `dropoff`-passes behavior untouched.
  */
 export const BLOCKED_KEYWORDS = [
   "DROP",
@@ -120,6 +149,117 @@ const BLOCKED_KEYWORD_RE = new RegExp(
 
 function keyIsBlockedVerb(normalizedKey: string): boolean {
   return BLOCKED_KEYWORD_RE.test(normalizedKey);
+}
+
+/**
+ * The SQL punctuation tokens that must never appear in raw LLM output. These are
+ * the statement terminator / comment markers that, together with the blocked
+ * verbs, let `containsRawSql` discard any model response that is shaped like SQL.
+ */
+const RAW_SQL_PUNCTUATION = [";", "--", "/*"] as const;
+
+/**
+ * A case-insensitive match of a blocked SQL verb as a SQL-SHAPED TOKEN in FREE
+ * TEXT (the raw LLM output): the verb must be bounded by WHITESPACE or the
+ * string ends — the shape of a verb in an actual SQL statement (`DROP TABLE x`,
+ * `please DELETE the row`). This deliberately differs from the normalized-key
+ * guard (`BLOCKED_KEYWORD_RE`, `\b`-bounded): a label like `"Drop-off time"`
+ * binds the verb with a hyphen, not whitespace, so it does NOT match — Story
+ * 2.5's label-is-free-text behavior is preserved even though the label rides
+ * along inside the raw output. `dropoff` / `granted` (glued) likewise do not
+ * match. A JSON string delimiter (`"`) also counts as a boundary so a verb
+ * occupying a whole JSON value (`"DROP"`) is still caught.
+ */
+const RAW_SQL_VERB_RE = new RegExp(
+  `(^|[\\s"'])(${BLOCKED_KEYWORDS.join("|")})($|[\\s"'])`,
+  "i",
+);
+
+/**
+ * Raw-SQL discard guard (Story 5.4). Returns `true` when the RAW LLM output (the
+ * model's returned operation object, or any string) contains a SQL punctuation
+ * token (`;`, `--`, `/*`) or a blocked SQL verb as a whole word.
+ *
+ * MUST run against raw model output ONLY — never a human-typed display label: a
+ * label is inert, auto-escaped JSONB text and is free to say "Drop-off time"
+ * (Story 2.5). The model's own output, by contrast, is JSON-only by contract, so
+ * any SQL shape there is a security violation and the whole response is discarded.
+ *
+ * A non-string input is stringified via `JSON.stringify` so a nested value (e.g. a
+ * `type` or `value` field smuggling `DROP TABLE`) is still scanned.
+ */
+export function containsRawSql(rawOutput: unknown): boolean {
+  if (rawOutput === undefined || rawOutput === null) {
+    return false;
+  }
+  let text: string;
+  if (typeof rawOutput === "string") {
+    text = rawOutput;
+  } else {
+    try {
+      text = JSON.stringify(rawOutput);
+    } catch {
+      // A value that cannot be serialized (e.g. a cycle) cannot be audited for
+      // SQL shape — treat it as suspicious and discard rather than pass it.
+      return true;
+    }
+    if (typeof text !== "string") {
+      return true;
+    }
+  }
+  for (const token of RAW_SQL_PUNCTUATION) {
+    if (text.includes(token)) {
+      return true;
+    }
+  }
+  return RAW_SQL_VERB_RE.test(text);
+}
+
+export type EditorOperationGuardResult =
+  | { allowed: true; kind: PermittedOperation }
+  | { allowed: false; reason: "operationNotAllowed" | "rawSqlRejected" };
+
+/**
+ * The explicit editor-path fence (Story 5.4). Run against the parsed LLM output
+ * BEFORE any per-op dispatch / metadata write:
+ *   - reject (and log) any `kind` outside `PERMITTED_OPERATIONS`;
+ *   - reject (and log) any output whose RAW form contains SQL (`containsRawSql`).
+ *
+ * Every rejection calls `reportRejection(detail, { id, rawOutput })` (FR45) and
+ * returns a reject CODE the caller maps to the single fixed rejection copy — never
+ * a raw detail. On success returns the validated permitted `kind`.
+ *
+ * Note: `needs_clarification` / `out_of_scope` are conversational kinds, NOT
+ * operations — they are handled upstream and must never reach this guard (passing
+ * one here is itself an out-of-allowlist rejection).
+ */
+export function assertEditorOperationAllowed(
+  output: { kind?: unknown; [key: string]: unknown } | null | undefined,
+  context: ValidationContext = {},
+): EditorOperationGuardResult {
+  const reject = (
+    reason: "operationNotAllowed" | "rawSqlRejected",
+    detail: string,
+  ): EditorOperationGuardResult => {
+    reportRejection(detail, { id: context.id, rawOutput: context.rawOutput });
+    return { allowed: false, reason };
+  };
+
+  const kind = output?.kind;
+  if (!isPermittedOperation(kind)) {
+    return reject(
+      "operationNotAllowed",
+      `editor op not in allowlist: "${String(kind)}"`,
+    );
+  }
+
+  // Defense-in-depth + audit trail: the data layer never generates SQL (JSONB
+  // metadata store), but any SQL-shaped model output is discarded on principle.
+  if (containsRawSql(context.rawOutput ?? output)) {
+    return reject("rawSqlRejected", "editor output contains raw SQL");
+  }
+
+  return { allowed: true, kind };
 }
 
 function isNonEmptyString(value: unknown): value is string {

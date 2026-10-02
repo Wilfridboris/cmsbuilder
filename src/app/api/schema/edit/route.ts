@@ -11,6 +11,7 @@ import { requireAdmin } from "@/lib/auth/rbac";
 import { getSchema } from "@/lib/data/records";
 import { visibleTables } from "@/lib/schema/overrides";
 import { addField, addTable, addView } from "@/lib/data/schema-mutate";
+import { assertEditorOperationAllowed } from "@/lib/schema/validator";
 import { callGeminiWithTimeout } from "@/lib/gemini/client";
 import {
   EDITOR_RESPONSE_SCHEMA,
@@ -41,7 +42,13 @@ import { editorChatSchema } from "./schemas";
  *   6. load the org's CURRENT schema (the table list the model may target);
  *   7. ONE `callGeminiWithTimeout` with `buildEditorPrompt` (the hardened system
  *      prompt is injected by the client on 100% of calls; hard 15s timeout);
- *   8. branch on the model's `kind`:
+ *   8. the explicit operation-allowlist + raw-SQL discard fence (Story 5.4):
+ *        `assertEditorOperationAllowed` rejects any `kind` outside
+ *        `add_field`/`add_table`/`add_view` and any output containing raw SQL
+ *        before any write, logging each via `reportRejection` with the org id +
+ *        raw output. `needs_clarification`/`out_of_scope` are conversational
+ *        kinds, not operations, and bypass the fence into their own flows below;
+ *      then branch on the model's `kind`:
  *        - `add_field`          → `schema-mutate.addField` (focused validator +
  *                                 append-only write). On success → `applied` with
  *                                 the tableKey/fieldKey so the client can drive Undo;
@@ -195,6 +202,26 @@ export async function POST(
         { data: { kind: "clarify", assistantText: question }, error: null },
         200,
       );
+    }
+
+    // 8b. The explicit operation allowlist + raw-SQL discard fence (Story 5.4).
+    //     `out_of_scope` is a conversational kind, not an operation — it falls
+    //     through to the friendly `declined` path below and is NOT a rejection.
+    //     Everything else must be one of the three permitted ops with no raw SQL
+    //     in its output; anything else is rejected before any write and logged
+    //     via `reportRejection` with the org id + raw output (the fixed copy is
+    //     all the user ever sees).
+    if (output.kind !== "out_of_scope") {
+      const guard = assertEditorOperationAllowed(output, {
+        id: identity.orgId,
+        rawOutput: output,
+      });
+      if (!guard.allowed) {
+        return json(
+          { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+          200,
+        );
+      }
     }
 
     if (output.kind === "add_field") {
@@ -404,7 +431,8 @@ export async function POST(
       }
     }
 
-    // out_of_scope (or any unexpected kind) → friendly, non-technical decline.
+    // out_of_scope → friendly, non-technical decline. (The 8b fence above already
+    // rejected every other non-permitted kind, so only out_of_scope reaches here.)
     const reply = isNonEmptyString(output.reply)
       ? output.reply.trim()
       : t("declineFallback");
