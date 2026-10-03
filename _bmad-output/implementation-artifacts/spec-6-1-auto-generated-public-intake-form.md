@@ -111,6 +111,17 @@ UI direction from the `web-uiux-architect` skill, adapted to this repo's establi
 **Manual checks:**
 - Start the dev server, open `/forms/{slug}` for a claimed org while logged out; confirm the form renders with correct labels/input types, ≥48px touch targets, no nav chrome, and that an unknown slug shows the unavailable state. Toggle `NEXT_LOCALE=fr` and confirm translated UI copy.
 
+**Manual review (Playwright, post-commit) — verified.** Against the running dev app on `localhost:3000` while logged out, on two real generated org fixtures:
+- **Relation + hidden exclusion (rich path):** on `/forms/session-1f4fa453` the heuristic selected the `jobs_and_quotes` table, whose schema carries a `customer` relation field plus hidden `warranty`/`priority` fields; the rendered form showed only the six eligible scalar fields in schema order (Job Reference, Service Type, Status, Quoted Amount, Scheduled Date, Drop-off Time). The `customer` relation never rendered — zero `role="combobox"`/`listbox`, no target-table ids/labels in the markup — confirming the FR78 pre-alignment live.
+- **Type mapping (live):** currency `quoted_amount` → `type="text"` + `inputmode="decimal"`, `scheduled_date` → `type="date"`, `drop_off_time` → `type="datetime-local"`; on `/forms/session-ba566656` (intake table `prospective_clients`) `contact_email` → `type="email"`, `contact_phone` → `type="tel"`, text fields → `type="text"`.
+- **No-login + clean surface:** both forms loaded with no session and no dashboard nav/header; business-name eyebrow + "Get in touch" heading + subtitle; the Send button is `type="button"` and the `<form>` has no `action` (unwired, per 6.1).
+- **Accessibility:** every input has an associated `<label>`; all inputs and the Send button are 48px touch targets.
+- **Unavailable state:** `/forms/no-such-org-zzz-999` returned HTTP 200 with the friendly "Form not available" heading + body, no form, no `role="alert"`, no chrome — never an error screen.
+- **French locale:** with `NEXT_LOCALE=fr`, `<html lang="fr">`, heading "Contactez-nous", French subtitle, "Envoyer" button; field labels stayed as authored in the schema.
+- **Zero console errors/warnings** across the session.
+- **Observation (accepted trade-off, triage BH4):** the heuristic selected `prospective_clients` (matched "client") and `jobs_and_quotes` (matched "job"); term order can favor a "client"/"contact" table over a dedicated "leads" table — the accepted misfire risk, worth revisiting when a 6.x designates the intake table explicitly.
+- **Not exercised live (unit-covered):** the boolean Yes/No `radiogroup` — neither selected intake table had a boolean field; pinned by `tests/unit/intake-form.test.tsx`.
+
 ## Implementation Notes
 
 - Files: `src/lib/intake/target.ts` (pure `selectIntakeTable`/`intakeFields`), `src/lib/data/intake.ts` (`getPublicIntakeForm`, server-only, service-role, never throws/leaks → `null`), `src/app/forms/[slug]/page.tsx` (public SC, `force-dynamic`+`runtime="nodejs"`), `src/components/intake/IntakeForm.tsx` (`IntakeForm` + `Unavailable` + shared `FormShell`), `src/middleware.ts` (`"forms"` in `PUBLIC_TOP_LEVEL`), `IntakeForm` i18n namespace in `en.json`/`fr.json`.
