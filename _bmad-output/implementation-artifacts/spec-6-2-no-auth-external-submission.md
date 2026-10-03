@@ -123,3 +123,11 @@ UI direction from the `web-uiux-architect` skill, held inside the repo's establi
 
 **Manual checks:**
 - Dev server, logged out: open `/forms/{slug}` for a claimed org, fill and submit; confirm the owner-named confirmation appears and a new row shows in that org's intake table (viewable as a normal record). Submit an invalid number and an empty form; confirm inline accessible errors block submission. Toggle `NEXT_LOCALE=fr` and confirm translated validation/confirmation copy. Confirm an unknown slug POST returns a generic error with no internals.
+
+**Manual review (Playwright, post-commit) — verified.** Against the running dev app on `localhost:3000` while logged out, on the rich fixture `/forms/session-1f4fa453` (intake table `jobs_and_quotes`, which carries a `customer` relation plus hidden `warranty_*`/`priority` fields):
+- **Form surface:** only the 6 eligible scalar fields rendered (Job Reference, Service Type, Status, Quoted Amount (CAD), Scheduled Date, Drop-off time), owner eyebrow "Scheza Session 1f4fa453". The `customer` relation and hidden fields never appeared.
+- **Inline validation (before submit):** a non-numeric Quoted Amount marked the input `aria-invalid` with an adjacent `role="alert"` "Enter a valid number." and blocked submission (no write, form intact).
+- **Submitting -> confirmation:** the Send button went to "Sending…" (disabled, inputs disabled), then the form was replaced by the confirmation "Message sent" / "Thanks, Scheza Session 1f4fa453 will be in touch shortly." (owner-named, no em-dash, heading not redundant with the body).
+- **The lead actually landed (rich-path artifact check):** the `records` row was written under `actor_id = INTAKE_ACTOR_ID` in `jobs_and_quotes` with `quoted_amount` coerced to the number `1499.99` and `scheduled_date` "2026-10-15"; the payload contained **no** `customer` relation key and **no** hidden `warranty_*`/`priority` keys, and the blank `drop_off_time` was omitted (FR26 + FR78 pre-alignment live).
+- **Zero console errors/warnings** across the session.
+- **Not exercised live (unit-covered):** the boolean Yes/No `radiogroup` (this intake table has no boolean field), the submit-error retry path, and French copy — pinned by the unit tests.
