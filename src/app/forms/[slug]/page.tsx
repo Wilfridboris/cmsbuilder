@@ -38,5 +38,5 @@ export default async function IntakeFormPage({
     return <Unavailable />;
   }
 
-  return <IntakeForm orgName={form.orgName} fields={form.fields} />;
+  return <IntakeForm slug={slug} orgName={form.orgName} fields={form.fields} />;
 }

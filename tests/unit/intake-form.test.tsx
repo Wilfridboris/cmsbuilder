@@ -8,16 +8,17 @@ import type { FieldDefinition } from "@/types/db";
 import { IntakeForm, Unavailable } from "@/components/intake/IntakeForm";
 
 /**
- * SSR coverage for the public `IntakeForm` + `Unavailable` surface (Story 6.1),
- * closing the frozen I/O & Edge-Case matrix rows that live in the component: the
- * happy-path field render (one labelled, type-matched input per field, in order),
- * the boolean radiogroup, the present-but-unwired submit, the French-locale chrome,
- * and the friendly unavailable state.
+ * SSR coverage for the public `IntakeForm` + `Unavailable` surface (Stories 6.1 +
+ * 6.2). The repo test env is `node` (no jsdom), so the component — which calls the
+ * isomorphic `useTranslations` hook and holds `useState` — is exercised through
+ * React's server renderer (`renderToStaticMarkup`) wrapped in `NextIntlClientProvider`
+ * with the REAL en/fr catalogs, so the French-copy assertion is genuine (not an echoed
+ * key). Static SSR reflects the INITIAL render (the un-submitted form); the submit
+ * write path, empty/format rejection, idempotency, and generic-error masking are
+ * driven end-to-end in `intake-submit-route.test.ts` where behavior actually lives.
  *
- * The repo test env is `node` (no jsdom), so the component — which calls the
- * isomorphic `useTranslations` hook — is exercised through React's server renderer
- * (`renderToStaticMarkup`) wrapped in `NextIntlClientProvider` with the REAL en/fr
- * catalogs, so the French-copy assertion is genuine (not an echoed key).
+ * `crypto.randomUUID()` (used for the per-instance idempotency key) is available in
+ * the node 18+ test runtime, so the component renders without a DOM.
  */
 
 function render(
@@ -42,7 +43,9 @@ const HAPPY_FIELDS: FieldDefinition[] = [
 ];
 
 describe("IntakeForm — happy path", () => {
-  const html = render(<IntakeForm orgName="Acme Plumbing" fields={HAPPY_FIELDS} />);
+  const html = render(
+    <IntakeForm slug="acme" orgName="Acme Plumbing" fields={HAPPY_FIELDS} />,
+  );
 
   it("renders the business name and the translated heading/CTA", () => {
     expect(html).toContain("Acme Plumbing");
@@ -78,18 +81,25 @@ describe("IntakeForm — happy path", () => {
     expect(Math.min(...order)).toBeGreaterThan(-1);
   });
 
-  it("renders a present-but-unwired submit (type=button, no form submission)", () => {
-    expect(html).toContain("Send"); // the translated submit label
-    expect(html).not.toContain('type="submit"');
-    // The <form> carries no action (submission is wired in Story 6.2).
-    expect(html).not.toMatch(/<form[^>]*\saction=/);
+  it("renders a WIRED submit (a real submit button with the idle label)", () => {
+    // 6.2 wires the form: the footer carries a real submit button (associated to
+    // the form via `form=`), showing the idle "Send" label at rest.
+    expect(html).toContain("Send");
+    expect(html).toContain('type="submit"');
+  });
+
+  it("does not render an inline error or a confirmation on the initial render", () => {
+    // No error has occurred yet, and the form has not been submitted.
+    expect(html).not.toContain('role="alert"');
+    expect(html).not.toContain("will be in touch shortly");
   });
 });
 
 describe("IntakeForm — boolean field", () => {
-  it("renders a radiogroup with translated Yes/No, not a text input", () => {
+  it("renders a WIRED radiogroup with translated Yes/No and a defined selection", () => {
     const html = render(
       <IntakeForm
+        slug="acme"
         orgName="Acme"
         fields={[{ key: "subscribe", label: "Subscribe?", type: "boolean" }]}
       />,
@@ -100,6 +110,11 @@ describe("IntakeForm — boolean field", () => {
     expect((html.match(/role="radio"/g) ?? []).length).toBe(2);
     expect(html).toContain("Yes");
     expect(html).toContain("No");
+    // The control is wired: it reflects a selection via aria-checked. The blank
+    // draft defaults to the "No" (false) choice, so exactly one option is checked
+    // and one is not.
+    expect((html.match(/aria-checked="false"/g) ?? []).length).toBe(1);
+    expect((html.match(/aria-checked="true"/g) ?? []).length).toBe(1);
     // A boolean renders the toggle, never a scalar <input>.
     expect(html).not.toContain("<input");
   });
@@ -108,13 +123,15 @@ describe("IntakeForm — boolean field", () => {
 describe("IntakeForm — French locale", () => {
   it("renders French chrome copy while field labels stay as authored", () => {
     const html = render(
-      <IntakeForm orgName="Acme" fields={HAPPY_FIELDS} />,
+      <IntakeForm slug="acme" orgName="Acme" fields={HAPPY_FIELDS} />,
       "fr",
       fr as AbstractIntlMessages,
     );
     expect(html).toContain("Contactez-nous"); // fr heading
     expect(html).not.toContain("Get in touch"); // en heading absent
     expect(html).toContain("Full Name"); // authored field label, not translated
+    // The wired submit's idle label is the French "Envoyer".
+    expect(html).toContain("Envoyer");
   });
 });
 

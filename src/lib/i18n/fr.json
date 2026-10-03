@@ -806,6 +806,12 @@
     "yes": "Oui",
     "no": "Non",
     "submit": "Envoyer",
+    "invalidNumber": "Saisissez un nombre valide.",
+    "emptyForm": "Veuillez remplir au moins un champ avant d'envoyer.",
+    "sending": "Envoi en cours…",
+    "submitError": "Une erreur est survenue. Veuillez réessayer.",
+    "confirmationHeading": "Message envoyé",
+    "confirmationBody": "Merci, {owner} vous contactera sous peu.",
     "unavailableHeading": "Formulaire indisponible",
     "unavailableBody": "Ce formulaire n'est pas disponible pour le moment. Vérifiez le lien et réessayez plus tard."
   }

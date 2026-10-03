@@ -38,6 +38,18 @@ import { getSchema } from "@/lib/data/records";
  */
 export const SYSTEM_ACTOR_ID = "00000000-0000-0000-0000-0000000000a0";
 
+/**
+ * The anonymous public-intake actor id (Story 6.2). A no-auth submission through
+ * `/api/intake/[slug]` has no human identity, so its `records.actor_id` is stamped
+ * with THIS dedicated constant — distinct from `SYSTEM_ACTOR_ID` so intake leads are
+ * attributable and never confused with synthetic/demo rows. Real leads are never swept
+ * by the claim-time synthetic-data clear because of lifecycle timing, not actor
+ * filtering: that clear (`src/lib/claim/claim.ts`) soft-deletes by `organization_id` +
+ * `deleted_at IS NULL` and runs once at claim finalization — before the org has a
+ * unique slug, so before any public `/forms/{slug}` submission can exist.
+ */
+export const INTAKE_ACTOR_ID = "00000000-0000-0000-0000-0000000000b0";
+
 export type MutateIdentity = {
   client: SupabaseClient;
   actorId: string;

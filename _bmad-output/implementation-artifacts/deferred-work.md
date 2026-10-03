@@ -164,3 +164,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-5-6-remove-a-view-via-chat.md`
   summary: Remove the now-dead view-hide infrastructure — `ViewDefinition.hidden?` and the `!view.hidden` filter in `visibleViews` (overrides.ts) — left over from a pre-5.6 design.
   evidence: Story 5.6 settled that a view is REMOVED (true array delete), not hidden — "no view visibility flag" (spec Design Notes, prompt + validator comments). But `src/lib/schema/overrides.ts` `visibleViews` still filters `!view.hidden` against a `ViewDefinition.hidden?` field that no code ever sets. The 5.6 `removeView` transform correctly does a true removal, so this is harmless dead code, but it contradicts the design narrative and should be dropped in a cleanup (verify no other reader depends on the field first). Flagged by the 5.6 review (verification-gap + blind-hunter); not fixed in-story because it is pre-existing and out of 5.6's scope.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-6-2-no-auth-external-submission.md`
+  summary: Add abuse protection (rate-limiting / CAPTCHA / honeypot) to the public no-auth intake endpoint POST /api/intake/[slug].
+  evidence: Story 6.2 (frozen Never) deliberately deferred anti-abuse. The endpoint is an unauthenticated write that runs two DB reads (org lookup + getSchema) per POST and inserts a record with no ceiling, so it is the surface where spam/abuse will first bite; flagged by review BH9.

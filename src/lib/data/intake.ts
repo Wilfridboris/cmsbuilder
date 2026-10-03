@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { FieldDefinition } from "@/types/db";
+import type { FieldDefinition, TableDefinition } from "@/types/db";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSchema } from "@/lib/data/records";
 import { selectIntakeTable, intakeFields } from "@/lib/intake/target";
@@ -32,16 +32,37 @@ export type PublicIntakeForm = {
 };
 
 /**
- * Resolve `slug` -> the public intake form, or `null` when there is nothing to show.
- *
- * Returns `null` (never throws) for every unavailable case — an unknown/absent slug, a
- * missing or empty schema, no visible tables, or an intake table whose only fields are
- * hidden/relation — so the caller can degrade to friendly copy uniformly. An empty slug
- * short-circuits before any query.
+ * The server-resolved intake target for a slug (Story 6.2). The SINGLE authority on
+ * which org, which logical table, and which eligible non-relation fields a public
+ * submission may touch — shared by the read page (`getPublicIntakeForm`) and the write
+ * handler (`/api/intake/[slug]`). The write handler NEVER trusts the client for the
+ * table or column set; it re-derives them here, so the client payload can only ever
+ * land in this resolved `table` under this `orgId`, writing only these `fields`.
  */
-export async function getPublicIntakeForm(
+export type IntakeTarget = {
+  /** The resolved org id — the write's `orgId` scope (never client-supplied). */
+  orgId: string;
+  /** The business name shown as the card eyebrow. */
+  orgName: string;
+  /** The logical table the form collects into (`mutate` `tableKey`). */
+  table: TableDefinition;
+  /** The eligible, non-relation fields: the server-side write allowlist. */
+  fields: FieldDefinition[];
+};
+
+/**
+ * Resolve `slug` -> the intake target, or `null` when there is nothing to collect.
+ *
+ * The shared resolver: slug -> org (service-role admin client, RLS-bypassing, exactly
+ * as the public page needs) -> schema -> `selectIntakeTable` -> `intakeFields`. Returns
+ * `null` (never throws) for every unavailable case — an unknown/absent slug, a missing
+ * or empty schema, no visible tables, or an intake table whose only fields are
+ * hidden/relation. An empty slug short-circuits before any query. Any unexpected
+ * provider error is reported and collapses to `null` so no DB/provider internals leak.
+ */
+export async function getIntakeTarget(
   slug: string,
-): Promise<PublicIntakeForm | null> {
+): Promise<IntakeTarget | null> {
   if (!slug) {
     return null;
   }
@@ -77,8 +98,9 @@ export async function getPublicIntakeForm(
     }
 
     return {
+      orgId: org.id as string,
       orgName: (org.name as string) ?? "",
-      tableLabel: table.label,
+      table,
       fields,
     };
   } catch (err) {
@@ -87,4 +109,26 @@ export async function getPublicIntakeForm(
     reportError(err, { route: "/forms/[slug]" });
     return null;
   }
+}
+
+/**
+ * Resolve `slug` -> the public intake form, or `null` when there is nothing to show.
+ *
+ * Delegates to {@link getIntakeTarget} (the single slug->org->schema->table resolver)
+ * and projects to the page's render shape. Keeps the `null`-on-any-failure contract so
+ * the caller degrades to friendly copy uniformly.
+ */
+export async function getPublicIntakeForm(
+  slug: string,
+): Promise<PublicIntakeForm | null> {
+  const target = await getIntakeTarget(slug);
+  if (!target) {
+    return null;
+  }
+
+  return {
+    orgName: target.orgName,
+    tableLabel: target.table.label,
+    fields: target.fields,
+  };
 }

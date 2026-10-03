@@ -806,6 +806,12 @@
     "yes": "Yes",
     "no": "No",
     "submit": "Send",
+    "invalidNumber": "Enter a valid number.",
+    "emptyForm": "Please fill in at least one field before sending.",
+    "sending": "Sending…",
+    "submitError": "Something went wrong. Please try again.",
+    "confirmationHeading": "Message sent",
+    "confirmationBody": "Thanks, {owner} will be in touch shortly.",
     "unavailableHeading": "Form not available",
     "unavailableBody": "This form is not available right now. Please check the link and try again later."
   }
