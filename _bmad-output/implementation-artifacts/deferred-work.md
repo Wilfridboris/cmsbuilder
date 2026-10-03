@@ -168,3 +168,20 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-6-2-no-auth-external-submission.md`
   summary: Add abuse protection (rate-limiting / CAPTCHA / honeypot) to the public no-auth intake endpoint POST /api/intake/[slug].
   evidence: Story 6.2 (frozen Never) deliberately deferred anti-abuse. The endpoint is an unauthenticated write that runs two DB reads (org lookup + getSchema) per POST and inserts a record with no ceiling, so it is the surface where spam/abuse will first bite; flagged by review BH9.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-6-2-no-auth-external-submission.md`
+  summary: Owner-driven public intake form management on the dashboard — surface/share the link, let the owner pick the target table the data saves into, and customize the form (per-field "show on public form" control, labels/help text, ordering).
+  evidence: >
+    Epic 6 (stories 6.1-6.5) generates the form URL (FR25) and handles submission/real-time/email,
+    but everything about the form is currently implicit and owner-uncontrollable. Gaps to cover:
+    (1) No in-app surface shows/copies/shares the live scheza.com/forms/{slug} URL (optionally a QR code),
+    so an owner can't discover or share their own form (undercuts the "share from a Google Business bio" use case).
+    (2) The target table the submission saves into is chosen by a heuristic (selectIntakeTable) with no override;
+    the owner should explicitly choose which table receives intake data.
+    (3) No form customization: fields are auto-derived (visible/non-hidden minus relation), with the dashboard
+    "hide column" (Story 3.5) as the only indirect lever. The owner should get explicit per-field "show on public
+    form" control, and likely custom field labels/help text and field ordering for the public surface, independent
+    of the dashboard's hidden flag.
+    Net-new scope beyond Epic 6 (overlaps the Growth-phase "multiple named forms" idea in epics.md); needs product
+    sign-off and its own planning (PRD/epic) before building. Keep the FR78 invariant: relation/lookup fields stay
+    excluded from the public surface regardless of any per-field toggle.
