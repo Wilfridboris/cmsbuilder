@@ -250,7 +250,8 @@ Decide which ONE of these eight outcomes applies and return it as JSON matching 
    - "kind": "add_field"
    - "tableKey": the EXACT key (from the list above) of the target table
    - "label": a short, human-facing column name in the SAME language the owner used (e.g. "Warranty date")
-   - "type": the best-fitting scalar type, one of: ${GENERATION_FIELD_TYPES.join(", ")}. Pick by meaning: a date -> "date", money/price/cost -> "currency", a count/quantity -> "number", a yes/no -> "boolean", an email address -> "email", a phone number -> "phone", otherwise -> "text".
+   - "type": the best-fitting type. When the owner explicitly NAMES a fixed set of allowed choices for the column (e.g. "a status field with Paid, Unpaid, Rejected", "a priority: Low, Medium, High"), use "select". Otherwise pick the best-fitting scalar type, one of: ${GENERATION_FIELD_TYPES.join(", ")} — by meaning: a date -> "date", money/price/cost -> "currency", a count/quantity -> "number", a yes/no -> "boolean", an email address -> "email", a phone number -> "phone", otherwise -> "text".
+   - "options": REQUIRED only when "type" is "select": an array with one entry per choice the owner named, each an object with "label" (the choice exactly as the owner said it, in their language) and "value" (a short lowercase token of that label, e.g. "paid"). List ONLY the choices the owner actually stated — never invent, add, or guess extra choices. If the owner asks for a dropdown / single-select / status column but does NOT name its choices, do NOT use "select" and do NOT guess choices or silently fall back to a text column: use "needs_clarification" and ask them to list the values.
 
 2. "add_table" — the request asks to add a whole NEW table (a new area to track, not a column on an existing table). Return:
    - "kind": "add_table"
@@ -270,9 +271,9 @@ Decide which ONE of these eight outcomes applies and return it as JSON matching 
    - "sort": either null, or an object with "field" (an EXACT field key of the source table) and "direction" ("asc" or "desc"). Use "desc" for "most recent / newest first".
    A view MUST have at least one filter OR a sort. If the owner names no table and you cannot infer one unambiguously, use "needs_clarification" instead.
 
-4. "needs_clarification" — the request is about adding a COLUMN or creating a VIEW but you CANNOT tell which table it belongs to (no table named and no unambiguous current table, or several plausible tables). Return:
+4. "needs_clarification" — the request is about adding a COLUMN or creating a VIEW but you CANNOT tell which table it belongs to (no table named and no unambiguous current table, or several plausible tables), OR the owner asks for a dropdown / single-select / status column on a clear table but does NOT name its allowed choices (ask which values it should offer; never guess them). Return:
    - "kind": "needs_clarification"
-   - "question": a short, friendly question naming the plausible tables by their labels, in the owner's language (e.g. "Which table should this view be based on - Jobs, Invoices, or Clients?"). Do not use an em-dash.
+   - "question": a short, friendly question in the owner's language — either naming the plausible tables by their labels (e.g. "Which table should this view be based on - Jobs, Invoices, or Clients?") or asking which values the dropdown should offer (e.g. "What choices should the status field offer?"). Do not use an em-dash.
 
 5. "out_of_scope" — anything else: renaming anything, deleting or removing a column you CANNOT identify exactly, linking tables, changing or viewing data, or a request that is not about app structure at all. (A request to remove a SAVED VIEW is NOT out of scope: handle it with "remove_view" below. A request to delete or hide a whole TABLE is NOT out of scope: handle it with "hide_table" below.) Return:
    - "kind": "out_of_scope"
@@ -349,9 +350,31 @@ export const EDITOR_RESPONSE_SCHEMA = {
     },
     type: {
       type: Type.STRING,
-      enum: [...GENERATION_FIELD_TYPES],
+      enum: [...GENERATION_FIELD_TYPES, "select"],
       description:
-        "Present when kind is 'add_field': the scalar field type. Never 'relation'.",
+        "Present when kind is 'add_field': the field type. Use 'select' when the owner named a fixed set of choices (then 'options' is required); otherwise a scalar type. Never 'relation'.",
+    },
+    options: {
+      type: Type.ARRAY,
+      description:
+        "Present when kind is 'add_field' AND type is 'select': one entry per choice the owner explicitly named (never invented). Each has a human 'label' in the owner's language and a short 'value' token of that label.",
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          label: {
+            type: Type.STRING,
+            description:
+              "The choice as the owner stated it, in the owner's language.",
+          },
+          value: {
+            type: Type.STRING,
+            description:
+              "A short lowercase token of the label (the validator re-normalizes it).",
+          },
+        },
+        required: ["label", "value"],
+        propertyOrdering: ["label", "value"],
+      },
     },
     fields: {
       type: Type.ARRAY,
@@ -423,7 +446,7 @@ export const EDITOR_RESPONSE_SCHEMA = {
     question: {
       type: Type.STRING,
       description:
-        "Present when kind is 'needs_clarification': a short friendly question naming the candidate tables.",
+        "Present when kind is 'needs_clarification': a short friendly question, either naming the candidate tables or asking which values a dropdown should offer.",
     },
     reply: {
       type: Type.STRING,
@@ -440,6 +463,7 @@ export const EDITOR_RESPONSE_SCHEMA = {
     "sourceTableKey",
     "label",
     "type",
+    "options",
     "fields",
     "filters",
     "sort",

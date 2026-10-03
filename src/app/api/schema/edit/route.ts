@@ -147,6 +147,13 @@ type GeminiEditorOutput = {
   sourceTableKey?: unknown;
   label?: unknown;
   type?: unknown;
+  /**
+   * Present when `kind` is `add_field` and `type` is `select` (Story 13.3): the
+   * owner-stated choices as `{ label, value }` objects. Forwarded verbatim into
+   * `AddFieldInput.options`, where `validateSelectOptions` normalizes, dedupes,
+   * and rejects empty/duplicate/unlabelled entries. Ignored for scalar types.
+   */
+  options?: unknown;
   fields?: unknown;
   filters?: unknown;
   sort?: unknown;
@@ -351,10 +358,17 @@ async function handleAddField(
   }
 
   try {
+    const type = output.type.trim();
+    // A `select` field carries the owner-stated choices through to the already-
+    // ready validator/mutator (Story 13.1): `validateSelectOptions` normalizes,
+    // dedupes, and rejects empty/duplicate/unlabelled options. Scalar types pass
+    // no `options` and the field is unchanged.
     const result = await addField(
       identity,
       output.tableKey.trim(),
-      { label: output.label.trim(), type: output.type.trim() },
+      type === "select"
+        ? { label: output.label.trim(), type, options: output.options }
+        : { label: output.label.trim(), type },
       { rawOutput: output },
     );
 

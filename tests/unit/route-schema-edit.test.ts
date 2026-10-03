@@ -200,6 +200,89 @@ describe("POST /api/schema/edit", () => {
     expect(call[2]).toEqual({ label: "Warranty date", type: "date" });
   });
 
+  it("applied: add_field type:select forwards options into AddFieldInput → 200 applied (Story 13.3)", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    // The model named a fixed set of choices, so it emits type:'select' + options.
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_field",
+      tableKey: "jobs",
+      label: "Status",
+      type: "select",
+      options: [
+        { label: "Paid", value: "paid" },
+        { label: "Unpaid", value: "unpaid" },
+        { label: "Rejected", value: "rejected" },
+      ],
+    });
+    addField.mockResolvedValue({
+      data: { tableKey: "jobs", fieldKey: "status" },
+      error: null,
+    });
+
+    const res = await POST(
+      postReq({
+        slug: "acme",
+        message: "add a status field with Paid, Unpaid, Rejected to Jobs",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data.kind).toBe("applied");
+    expect(body.data.tableKey).toBe("jobs");
+    expect(body.data.fieldKey).toBe("status");
+    expect(body.data.undo).toBe("hide");
+    expect(addField).toHaveBeenCalledTimes(1);
+    const call = addField.mock.calls[0];
+    expect(call[1]).toBe("jobs");
+    // The select options are threaded verbatim into AddFieldInput so the
+    // already-ready validateSelectOptions/addField path (Story 13.1) persists them.
+    expect(call[2]).toEqual({
+      label: "Status",
+      type: "select",
+      options: [
+        { label: "Paid", value: "paid" },
+        { label: "Unpaid", value: "unpaid" },
+        { label: "Rejected", value: "rejected" },
+      ],
+    });
+  });
+
+  it("rejected: add_field type:select with malformed options → 200 rejected, fixed copy, no raw leak (Story 13.3)", async () => {
+    const { AppError } = await import("@/types/api");
+    const { POST } = await import("@/app/api/schema/edit/route");
+    // Duplicate values — the Story 13.1 validator rejects via addField's 400.
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_field",
+      tableKey: "jobs",
+      label: "Status",
+      type: "select",
+      options: [
+        { label: "Paid", value: "paid" },
+        { label: "Paid", value: "paid" },
+      ],
+    });
+    addField.mockRejectedValue(new AppError(400, "addFieldFailed"));
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "add a status with Paid, Paid to Jobs" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+    expect(body.data.assistantText).not.toContain("addFieldFailed");
+    // The options still reached the guarded mutator (which is where validation
+    // lives); the handler itself never short-circuits a select.
+    expect(addField).toHaveBeenCalledTimes(1);
+    expect(addField.mock.calls[0][2]).toEqual(
+      expect.objectContaining({ type: "select" }),
+    );
+  });
+
   it("applied: valid Admin add_table → 200 applied (tableKey, undo:hide-table, no fieldKey), table write ran", async () => {
     const { POST } = await import("@/app/api/schema/edit/route");
     callGeminiWithTimeout.mockResolvedValue({
