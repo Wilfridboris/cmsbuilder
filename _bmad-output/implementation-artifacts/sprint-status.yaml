@@ -1,5 +1,5 @@
 # generated: 2026-09-23
-# last_updated: 2026-10-03 (6-4 review)
+# last_updated: 2026-10-03 (6-1..6-4 done)
 # project: Scheza
 # project_key: NOKEY
 # tracking_system: file-system
@@ -112,10 +112,10 @@ development_status:
   epic-5-retrospective: done
 
   epic-6: in-progress
-  6-1-auto-generated-public-intake-form: review
-  6-2-no-auth-external-submission: review
-  6-3-real-time-push-to-owner-s-dashboard: review
-  6-4-email-notification-on-new-submission: review
+  6-1-auto-generated-public-intake-form: done
+  6-2-no-auth-external-submission: done
+  6-3-real-time-push-to-owner-s-dashboard: done
+  6-4-email-notification-on-new-submission: done
   6-5-exclude-relationship-fields-from-public-intake-forms: backlog
   epic-6-retrospective: optional
 
