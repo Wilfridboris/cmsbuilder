@@ -31,6 +31,28 @@ describe("recordsChangeFilter", () => {
   it("scopes postgres_changes to the caller's org", () => {
     expect(recordsChangeFilter(ORG_ID)).toBe(`organization_id=eq.${ORG_ID}`);
   });
+
+  it("[6.3] scopes the subscription to organization_id with no second predicate", () => {
+    // Story 6.3 (FR27, NFR-P5) invariant pinned here: the per-org records
+    // subscription filters on organization_id and nothing else. That org-only
+    // filter is what lets an anonymous public-intake row (actor_id =
+    // INTAKE_ACTOR_ID, written by the service-role intake handler) reach the
+    // owner's Realtime channel identically to a dashboard-authored write. If the
+    // filter ever gained a second predicate, intake rows could silently stop
+    // appearing in the owner's dashboard in real time.
+    // Scope of this test: the pure filter string only. The surrounding live
+    // behavior (the `event: "*"` subscription, the payload-agnostic handler
+    // re-invalidating GET /api/records, and the ~2s delivery) is verified by the
+    // post-commit Playwright manual review, since this repo has no jsdom.
+    const filter = recordsChangeFilter(ORG_ID);
+
+    // `toBe` proves the filter is exactly the org predicate (no actor or other
+    // field); `not.toContain("&")` guards specifically against an appended,
+    // compound (`&`-joined) predicate that an equality assertion alone invites a
+    // future edit to "fix" by updating the expected string.
+    expect(filter).toBe(`organization_id=eq.${ORG_ID}`);
+    expect(filter).not.toContain("&");
+  });
 });
 
 describe("invalidateOrgRecords", () => {
