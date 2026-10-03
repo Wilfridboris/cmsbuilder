@@ -2,7 +2,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
-import type { FieldDefinition, TableDefinition } from "@/types/db";
+import type {
+  FieldDefinition,
+  SchemaDefinition,
+  TableDefinition,
+} from "@/types/db";
 import { normalizeTableName } from "@/lib/utils";
 import { getSchema } from "@/lib/data/records";
 
@@ -65,6 +69,15 @@ export type MutateOptions = {
   idempotencyKey?: string;
   /** For `update`/`delete`: the target row's id. Required there. */
   recordId?: string;
+  /**
+   * A pre-resolved org schema (epic-3 retro item 21). When the caller already
+   * read the schema for this write — e.g. the public intake path resolves it in
+   * `getIntakeTarget` — pass it here so the relation referential-integrity guard
+   * reuses it instead of issuing a second `getSchema` round-trip per write. Omit
+   * it and the guard reads the schema itself, exactly as before (no behavior
+   * change for callers that don't supply it).
+   */
+  schema?: SchemaDefinition;
 };
 
 export type MutateResult = { id: string; version: number };
@@ -224,7 +237,7 @@ async function insertRecord(
   // Referential integrity (Story 3.8): every relation id in the payload must
   // point at a live row under the same org + target table. Rejects foreign,
   // dangling, or wrong-table ids before persisting.
-  await assertRelationReferencesExist(identity, tableKey, data);
+  await assertRelationReferencesExist(identity, tableKey, data, opts.schema);
 
   // Idempotency: if this key already produced a row for (org, table_key),
   // return that row rather than writing a duplicate.
@@ -290,7 +303,7 @@ async function updateRecord(
   // Referential integrity (Story 3.8): an edit replaces `records.data` wholesale,
   // so every relation id in the merged payload must resolve to a live row under the
   // same org + target table. Rejects foreign / dangling / wrong-table ids first.
-  await assertRelationReferencesExist(identity, tableKey, data);
+  await assertRelationReferencesExist(identity, tableKey, data, opts.schema);
 
   const { data: updated, error } = await client
     .from("records")
@@ -367,15 +380,26 @@ async function assertRelationReferencesExist(
   identity: MutateIdentity,
   tableKey: string,
   data: Record<string, unknown>,
+  preResolvedSchema?: SchemaDefinition,
 ): Promise<void> {
   const { client, orgId } = identity;
 
-  const schemaResult = await getSchema(client, orgId);
-  if (schemaResult.error || !schemaResult.data) {
-    throw new AppError(500, "The write could not be completed.");
+  // Reuse the caller's already-resolved schema when supplied (epic-3 retro item
+  // 21), else read it. Only the second `getSchema` per write is avoided — the
+  // relation-verification `.in("id", ids)` query below still runs when there are
+  // relation ids to check.
+  let schema: SchemaDefinition;
+  if (preResolvedSchema) {
+    schema = preResolvedSchema;
+  } else {
+    const schemaResult = await getSchema(client, orgId);
+    if (schemaResult.error || !schemaResult.data) {
+      throw new AppError(500, "The write could not be completed.");
+    }
+    schema = schemaResult.data;
   }
 
-  const table: TableDefinition | undefined = schemaResult.data.tables.find(
+  const table: TableDefinition | undefined = schema.tables.find(
     (t) => t.key === tableKey,
   );
   // Unknown table (e.g. the delete placeholder key) → nothing to verify. The

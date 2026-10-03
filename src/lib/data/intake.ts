@@ -1,6 +1,10 @@
 import "server-only";
 
-import type { FieldDefinition, TableDefinition } from "@/types/db";
+import type {
+  FieldDefinition,
+  SchemaDefinition,
+  TableDefinition,
+} from "@/types/db";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSchema } from "@/lib/data/records";
 import { selectIntakeTable, intakeFields } from "@/lib/intake/target";
@@ -48,6 +52,12 @@ export type IntakeTarget = {
   table: TableDefinition;
   /** The eligible, non-relation fields: the server-side write allowlist. */
   fields: FieldDefinition[];
+  /**
+   * The org's full resolved schema, read once here. The write handler passes it
+   * into `mutate` so the referential-integrity guard reuses it instead of reading
+   * `org_schemas` a second time per POST (epic-3 retro item 21).
+   */
+  schema: SchemaDefinition;
 };
 
 /**
@@ -102,6 +112,7 @@ export async function getIntakeTarget(
       orgName: (org.name as string) ?? "",
       table,
       fields,
+      schema: schemaResult.data,
     };
   } catch (err) {
     // Never leak provider/DB output to the public surface. Report and degrade to the

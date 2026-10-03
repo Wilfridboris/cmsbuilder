@@ -35,6 +35,8 @@ class FakeClient {
   rows: Row[];
   /** Optional org schema returned by `getSchema` (referential-integrity guard). */
   schema: unknown;
+  /** How many times `org_schemas` was read (epic-3 item 21 passthrough check). */
+  schemaReads = 0;
   private seq = 0;
 
   constructor(initial: Row[] = [], schema: unknown = { tables: [] }) {
@@ -47,6 +49,7 @@ class FakeClient {
       // Story 3.8 referential-integrity guard reads the org schema before a
       // write. Return the configured definition so the guard can run (or no-op
       // when the table has no relation fields).
+      this.schemaReads += 1;
       return new FakeSchemaQuery(this);
     }
     if (table !== "records") {
@@ -238,6 +241,36 @@ describe("mutate — idempotency", () => {
     await mutate(identityFor(client), "insert", "clients", { name: "a" }, { idempotencyKey: "k-1" });
     await mutate(identityFor(client), "insert", "clients", { name: "b" }, { idempotencyKey: "k-2" });
     expect(client.rows.length).toBe(2);
+  });
+});
+
+describe("mutate — pre-resolved schema passthrough (epic-3 retro item 21)", () => {
+  it("reuses opts.schema and does NOT read org_schemas when provided", async () => {
+    const client = new FakeClient();
+    const res = await mutate(
+      identityFor(client),
+      "insert",
+      "clients",
+      { name: "a" },
+      { idempotencyKey: "k-ps", schema: { tables: [] } },
+    );
+    expect(res.error).toBeNull();
+    expect(client.rows.length).toBe(1);
+    // The guard reused the passed schema — no second org_schemas round-trip.
+    expect(client.schemaReads).toBe(0);
+  });
+
+  it("reads org_schemas itself when no schema is supplied (unchanged default)", async () => {
+    const client = new FakeClient();
+    const res = await mutate(
+      identityFor(client),
+      "insert",
+      "clients",
+      { name: "a" },
+      { idempotencyKey: "k-nops" },
+    );
+    expect(res.error).toBeNull();
+    expect(client.schemaReads).toBe(1);
   });
 });
 

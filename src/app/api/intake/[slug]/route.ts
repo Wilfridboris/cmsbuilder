@@ -111,6 +111,13 @@ export async function POST(
     // A fully-empty submission (no field filled) is rejected — the client blocks it
     // too, but the server is the authority. Booleans always write a value, so a form
     // that has any boolean field can never be "empty"; a scalar-only form can.
+    //
+    // Accepted deviation (epic-6 retro [S1]): because a boolean always writes, this
+    // "at least one field" guard is vacuous on any boolean-bearing intake form — an
+    // all-blank submission still persists `{boolean: false}` and emails the owner.
+    // Low-impact (intake tables are rarely boolean-bearing) and left as-is by design;
+    // a meaningful-submission threshold belongs with the deferred Epic-14 anti-abuse
+    // work (rate-limiting / honeypot), not here. Recorded so later retros don't re-flag.
     if (Object.keys(data).length === 0) {
       throw new AppError(400, "genericError");
     }
@@ -124,7 +131,10 @@ export async function POST(
       "insert",
       target.table.key,
       data,
-      { idempotencyKey },
+      // Pass the schema already resolved by `getIntakeTarget` so the relation
+      // referential-integrity guard reuses it instead of re-reading `org_schemas`
+      // a second time on this unauthenticated endpoint (epic-3 retro item 21).
+      { idempotencyKey, schema: target.schema },
     );
     if (result.error || !result.data) {
       throw new AppError(500, "genericError");

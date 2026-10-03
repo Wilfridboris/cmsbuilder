@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: '10-02-2026 (6-3 review)'
+last_updated: '10-03-2026 10:00'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -117,7 +117,7 @@ development_status:
   6-3-real-time-push-to-owner-s-dashboard: done
   6-4-email-notification-on-new-submission: done
   6-5-exclude-relationship-fields-from-public-intake-forms: done
-  epic-6-retrospective: optional
+  epic-6-retrospective: done
 
   epic-7: done
   7-1-14-day-free-trial-no-card: done
@@ -733,3 +733,31 @@ action_items:
     owner: "Boris"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-10-02.md"
+  - id: "epic-6-retro-item-73-a1-when-epic-3-item-21-is-executed-pass"
+    epic: 6
+    action: "[A1] When epic-3 item 21 is executed (pass the resolved schema into mutate
+      so assertRelationReferencesExist stops re-reading org_schemas), include the
+      public intake write at src/app/api/intake/[slug]/route.ts:122 — it already holds
+      the resolved target, dropping the second per-POST getSchema on the unauthenticated
+      endpoint. Fold into item 21, not a parallel intake-only fix."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-6-retro-2026-10-03.md"
+  - id: "epic-6-retro-item-74-doc-correction-fix-the-deferred-work-md"
+    epic: 6
+    action: "Doc correction: fix the deferred-work.md abuse-protection entry (line
+      ~172) from \"two DB reads (org lookup + getSchema) per POST\" to three (org
+      + two getSchema), so the Epic-14 anti-abuse story sizes the per-POST cost correctly."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-6-retro-2026-10-03.md"
+  - id: "epic-6-retro-item-75-s1-record-the-boolean-field-vacuous-empt"
+    epic: 6
+    action: "[S1] Record the boolean-field vacuous empty-guard behavior (route.ts:112-116,
+      IntakeForm.tsx:138-139 — any boolean field means a form can never be \"empty\"\
+      , so an all-blank submission still writes {boolean:false} and emails the owner)
+      as an accepted deviation; reconsider a meaningful-submission threshold when
+      the Epic-14 anti-abuse story lands."
+    owner: "Boris+Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-6-retro-2026-10-03.md"

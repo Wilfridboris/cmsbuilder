@@ -169,7 +169,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-6-2-no-auth-external-submission.md`
   status: SCHEDULED - Epic 14 Story 14.7 (sprint-change-proposal-2026-10-02-intake-forms).
   summary: Add abuse protection (rate-limiting / CAPTCHA / honeypot) to the public no-auth intake endpoint POST /api/intake/[slug].
-  evidence: Story 6.2 (frozen Never) deliberately deferred anti-abuse. The endpoint is an unauthenticated write that runs two DB reads (org lookup + getSchema) per POST and inserts a record with no ceiling, so it is the surface where spam/abuse will first bite; flagged by review BH9.
+  evidence: Story 6.2 (frozen Never) deliberately deferred anti-abuse. The endpoint is an unauthenticated write that runs an org lookup + one schema read per POST and inserts a record with no ceiling, so it is the surface where spam/abuse will first bite; flagged by review BH9. (Note: the epic-6 retrospective [A1] removed the redundant second getSchema this write used to do — the `mutate` referential-integrity guard now reuses the schema already resolved by `getIntakeTarget`, per epic-3 item 21 — so the per-POST cost is org lookup + one schema read + the insert.)
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-6-2-no-auth-external-submission.md`
   status: SCHEDULED - Epic 14 Stories 14.1-14.6 (sprint-change-proposal-2026-10-02-intake-forms).

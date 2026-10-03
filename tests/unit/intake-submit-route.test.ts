@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 
-import type { FieldDefinition, TableDefinition } from "@/types/db";
+import type {
+  FieldDefinition,
+  SchemaDefinition,
+  TableDefinition,
+} from "@/types/db";
 
 /**
  * Unit coverage for the public `POST /api/intake/[slug]` handler (Story 6.2) WITHOUT
@@ -69,11 +73,17 @@ const FIELDS: FieldDefinition[] = [
 
 const TABLE: TableDefinition = { key: "leads", label: "Leads", fields: FIELDS };
 
+// The schema `getIntakeTarget` resolves once and hands to the route, which passes
+// it into `mutate` so the referential-integrity guard skips a second read (epic-3
+// retro item 21). The route forwards it verbatim in the mutate opts.
+const SCHEMA: SchemaDefinition = { tables: [TABLE] };
+
 const TARGET = {
   orgId: "org-1",
   orgName: "Acme Plumbing",
   table: TABLE,
   fields: FIELDS,
+  schema: SCHEMA,
 };
 
 beforeEach(() => {
@@ -133,8 +143,9 @@ describe("POST /api/intake/[slug] — happy path", () => {
       quantity: 3,
       subscribe: true,
     });
-    // The client's stable idempotency key is passed straight through for dedupe.
-    expect(call[4]).toEqual({ idempotencyKey: "form-key-1" });
+    // The client's stable idempotency key is passed straight through for dedupe,
+    // alongside the pre-resolved schema (so mutate's guard skips the second read).
+    expect(call[4]).toEqual({ idempotencyKey: "form-key-1", schema: SCHEMA });
   });
 
   it("omits blank scalar fields but a boolean always writes a value", async () => {
@@ -310,8 +321,14 @@ describe("POST /api/intake/[slug] — write failure is masked", () => {
     await POST(postReq(payload), paramsFor("acme"));
     await POST(postReq(payload), paramsFor("acme"));
 
-    expect(mutate.mock.calls[0][4]).toEqual({ idempotencyKey: "stable-instance-key" });
-    expect(mutate.mock.calls[1][4]).toEqual({ idempotencyKey: "stable-instance-key" });
+    expect(mutate.mock.calls[0][4]).toEqual({
+      idempotencyKey: "stable-instance-key",
+      schema: SCHEMA,
+    });
+    expect(mutate.mock.calls[1][4]).toEqual({
+      idempotencyKey: "stable-instance-key",
+      schema: SCHEMA,
+    });
   });
 });
 
