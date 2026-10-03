@@ -7,6 +7,25 @@
  * plus a `TableDefinition` in the org's `org_schemas.definition`.
  */
 
+/**
+ * One choice in a single-select (`select`) field's option list (Story 13.1).
+ * `value` is the stable, normalized token actually stored in `records.data`
+ * (normalized with the same `normalizeTableName` helper used for field keys);
+ * `label` is the free-text display name (never keyword-checked — Story 2.5).
+ * `archived` is an append-only soft-hide flag: an archived option is kept so
+ * existing cells that reference it still resolve, but it is not offered as a new
+ * choice. Archiving only ever arrives via the value-management ops (Story 13.4);
+ * a freshly generated or added option is never archived.
+ */
+export type SelectOption = {
+  /** Stable normalized token stored in `records.data` (one per select cell). */
+  value: string;
+  /** Free-text display name shown in the UI. */
+  label: string;
+  /** Append-only soft-hide flag (Story 13.4); absent/false on new options. */
+  archived?: boolean;
+};
+
 /** A single field within a logical table definition. */
 export type FieldDefinition = {
   /** Normalized snake_case key used inside `records.data`. */
@@ -20,6 +39,9 @@ export type FieldDefinition = {
    * record (see `relationConfig`). A `relation` cell stores the target record's
    * UUID in `records.data`, never the label; the label resolves at read time
    * from the target table's `displayField`.
+   * Story 13.1 adds `select` — a single-select list-of-values (see `options`). A
+   * `select` cell stores exactly one option `value` in `records.data`, never the
+   * label; the label resolves at read time from the matching `SelectOption`.
    */
   type:
     | "text"
@@ -30,7 +52,8 @@ export type FieldDefinition = {
     | "currency"
     | "email"
     | "phone"
-    | "relation";
+    | "relation"
+    | "select";
   /**
    * Present only when `type === "relation"` (Story 1.8). Describes the link:
    * `targetTable` is the `TableDefinition.key` this field points at, and
@@ -41,6 +64,15 @@ export type FieldDefinition = {
     targetTable: string;
     cardinality: "one" | "many";
   };
+  /**
+   * Present only when `type === "select"` (Story 13.1): the non-empty list of
+   * allowed choices. Each option's normalized `value` is unique within the list
+   * and is what a select cell stores in `records.data` (one `value` per cell).
+   * Append-only for archive: an option is soft-hidden via `SelectOption.archived`
+   * (Story 13.4), never removed, so existing cells keep resolving. Backward-
+   * compatible optional JSONB field — no migration.
+   */
+  options?: SelectOption[];
   /** Plain-language reason this field exists (FR46 explainability). */
   reason?: string;
   /** Append-only hide flag — a display concern, never a data delete. */

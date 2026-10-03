@@ -84,6 +84,14 @@ export const PERMITTED_OPERATIONS = [
   // every model-driven operation. Its op name contains no BLOCKED_KEYWORDS
   // substring, so the blocklist is unchanged.
   "hide_table",
+  // Story 13.1: the three append-only value-management ops for `select` fields.
+  // They are allowlisted now (with NO handler) so later stories can dispatch them
+  // through this same fence; the model is never told they exist and the edit route
+  // is untouched, so none can be driven until Story 13.4 wires the handlers. Each
+  // op name contains no BLOCKED_KEYWORDS substring, so the blocklist is unchanged.
+  "add_select_option",
+  "rename_select_option",
+  "archive_select_option",
 ] as const;
 
 export type PermittedOperation = (typeof PERMITTED_OPERATIONS)[number];
@@ -294,6 +302,71 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 /**
+ * Shared `select` option-list validator (Story 13.1). Used by BOTH validator
+ * entry points (`validateGeneratedSchema` on the generation path and
+ * `validateAddField` on the conversational add-field path) so a `select` field
+ * is accepted on identical terms everywhere.
+ *
+ * Accepts only a NON-EMPTY array in which every entry is an object with:
+ *   - a non-empty `label` (free text, trimmed, NEVER keyword-checked — Story 2.5);
+ *   - a `value` that is a non-empty string and normalizes (via the shared
+ *     `normalizeTableName`, same helper that derives keys) to a token unique
+ *     across the list.
+ * Duplicate normalized values are REJECTED, never silently deduped. The output
+ * carries only `{ value, label }` — an inbound `archived` flag is dropped (a new
+ * option is never archived; archiving arrives only via Story 13.4).
+ *
+ * Returns `{ valid: true, options }` with the sanitized list, or
+ * `{ valid: false, detail }` with a debugging detail string the caller feeds to
+ * its own rejection/logging path (this helper never logs or decides the
+ * caller-facing error copy).
+ */
+export function validateSelectOptions(
+  raw: unknown,
+):
+  | { valid: true; options: { value: string; label: string }[] }
+  | { valid: false; detail: string } {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { valid: false, detail: "select options missing, not an array, or empty" };
+  }
+
+  const seenValues = new Set<string>();
+  const options: { value: string; label: string }[] = [];
+
+  for (const option of raw) {
+    if (!option || typeof option !== "object") {
+      return { valid: false, detail: "a select option is not an object" };
+    }
+    const o = option as Record<string, unknown>;
+
+    if (!isNonEmptyString(o.label)) {
+      return { valid: false, detail: "a select option is missing a label" };
+    }
+    // Guard the raw value BEFORE normalizing: `normalizeTableName` never returns
+    // empty (it falls back to a synthetic key), so an empty/missing raw value
+    // must be rejected here rather than silently gaining a hash-derived value.
+    if (!isNonEmptyString(o.value)) {
+      return { valid: false, detail: "a select option is missing a value" };
+    }
+    const value = normalizeTableName(String(o.value));
+    if (!value) {
+      return { valid: false, detail: "a select option value normalized to empty" };
+    }
+    if (seenValues.has(value)) {
+      return {
+        valid: false,
+        detail: `duplicate select option value: "${value}"`,
+      };
+    }
+    seenValues.add(value);
+
+    options.push({ value, label: o.label.trim() });
+  }
+
+  return { valid: true, options };
+}
+
+/**
  * Validate + sanitize the LLM's proposed schema. On success returns a schema
  * with every `table_key`/field `key` normalized and types confirmed to be in
  * the MVP set (`relation` can never appear). On the first structural problem it
@@ -398,10 +471,12 @@ export function validateGeneratedSchema(
         return reject(genericError, `a field in "${tableKey}" is missing a key`);
       }
       const type = f.type;
-      // A `relation` is now accepted (gated below); anything outside the MVP
-      // set plus `relation` is still rejected.
+      // A `relation` (Story 1.8) and a `select` (Story 13.1) are accepted via
+      // their own gated branches below; anything outside the MVP scalar set plus
+      // those two is still rejected.
       const isSupported =
         type === "relation" ||
+        type === "select" ||
         (typeof type === "string" &&
           (GENERATION_FIELD_TYPES as readonly string[]).includes(type));
       if (typeof type !== "string" || !isSupported) {
@@ -485,6 +560,20 @@ export function validateGeneratedSchema(
         };
       }
 
+      // Select gate (Story 13.1). A select field is valid only with a non-empty
+      // list of unique, normalized, labelled options (reuses the shared helper so
+      // the generation + add-field paths accept on identical terms).
+      if (type === "select") {
+        const optionsResult = validateSelectOptions(f.options);
+        if (!optionsResult.valid) {
+          return reject(
+            genericError,
+            `select field "${fieldKey}": ${optionsResult.detail}`,
+          );
+        }
+        sanitizedField.options = optionsResult.options;
+      }
+
       if (isNonEmptyString(f.reason)) {
         sanitizedField.reason = f.reason.trim();
       }
@@ -505,10 +594,12 @@ export function validateGeneratedSchema(
     }
 
     // Validate `displayField` (Story 1.8): when present it must name a
-    // non-hidden, non-relation field of this table. A relation stores a target
-    // id (never a label), so it can't be a display label; a missing/hidden/
-    // relation target is rejected. An absent displayField is left unset
-    // (provisioning defaults it).
+    // non-hidden field of this table that holds a human label. A relation
+    // (Story 1.8) and a select (Story 13.1) both store an opaque token — a
+    // target id / a normalized option `value` — never the display label, so
+    // neither can be a display label; a missing/hidden/relation/select target
+    // is rejected. An absent displayField is left unset (provisioning defaults
+    // it).
     if (t.displayField !== undefined) {
       if (!isNonEmptyString(t.displayField)) {
         return reject(
@@ -528,6 +619,12 @@ export function validateGeneratedSchema(
         return reject(
           genericError,
           `table "${tableKey}" displayField "${String(t.displayField)}" is a relation field, which cannot be a display label`,
+        );
+      }
+      if (target.type === "select") {
+        return reject(
+          genericError,
+          `table "${tableKey}" displayField "${String(t.displayField)}" is a select field, whose stored value token cannot be a display label`,
         );
       }
       sanitizedTable.displayField = displayKey;
@@ -665,8 +762,14 @@ export type ScalarFieldType = (typeof SCALAR_FIELD_TYPES)[number];
 export type AddFieldInput = {
   /** The human-facing label the model derived (e.g. "Warranty date"). */
   label: string;
-  /** A scalar field type (never `relation`). */
+  /** A scalar field type, or `select` (never `relation`). */
   type: string;
+  /**
+   * The option list — REQUIRED (non-empty, unique, labelled) when `type` is
+   * `select` (Story 13.1), ignored for every scalar type. Each option's
+   * normalized `value` is what a cell stores; `label` is free display text.
+   */
+  options?: unknown;
 };
 
 export type ValidateAddFieldResult =
@@ -721,14 +824,26 @@ export function validateAddField(
   }
   const label = input.label.trim();
 
-  // Type must be a scalar type — `relation`/unknown are rejected outright.
+  // Type must be a scalar type OR `select` (Story 13.1) — `relation`/unknown are
+  // rejected outright.
+  const isSelect = input.type === "select";
   if (
     typeof input.type !== "string" ||
-    !(SCALAR_FIELD_TYPES as readonly string[]).includes(input.type)
+    (!isSelect && !(SCALAR_FIELD_TYPES as readonly string[]).includes(input.type))
   ) {
     return reject(`add_field: unsupported type "${String(input.type)}"`);
   }
-  const type = input.type as ScalarFieldType;
+
+  // A `select` field is valid only with a non-empty list of unique, normalized,
+  // labelled options (shared helper — same terms as the generation path).
+  let selectOptions: { value: string; label: string }[] | undefined;
+  if (isSelect) {
+    const optionsResult = validateSelectOptions(input.options);
+    if (!optionsResult.valid) {
+      return reject(`add_field: ${optionsResult.detail}`);
+    }
+    selectOptions = optionsResult.options;
+  }
 
   // Derive the field key from the label and run every key protection.
   const key = normalizeTableName(label);
@@ -747,9 +862,16 @@ export function validateAddField(
     return reject(`add_field: key collides with existing field "${key}"`);
   }
 
+  if (isSelect) {
+    return {
+      valid: true,
+      field: { key, label, type: "select", options: selectOptions },
+    };
+  }
+
   return {
     valid: true,
-    field: { key, label, type },
+    field: { key, label, type: input.type as ScalarFieldType },
   };
 }
 

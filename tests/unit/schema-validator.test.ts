@@ -4,6 +4,7 @@ import {
   BLOCKED_KEYWORDS,
   PERMITTED_OPERATIONS,
   RESERVED_KEYS,
+  SCALAR_FIELD_TYPES,
   assertEditorOperationAllowed,
   containsRawSql,
   filterSeedRows,
@@ -11,6 +12,7 @@ import {
   validateAddField,
   validateGeneratedSchema,
 } from "@/lib/schema/validator";
+import { GENERATION_FIELD_TYPES } from "@/lib/gemini/prompts";
 import type { SchemaDefinition, TableDefinition } from "@/types/db";
 
 /**
@@ -485,7 +487,7 @@ describe("filterSeedRows — malformed rows are skipped, not fatal", () => {
  * collisions still reject.
  */
 describe("Story 5.4 — PERMITTED_OPERATIONS allowlist", () => {
-  it("names exactly the permitted editor ops (three additive + hide_field + remove_view + hide_table)", () => {
+  it("names exactly the permitted editor ops (additive + hide_field + remove_view + hide_table + the 3 select-option ops)", () => {
     expect([...PERMITTED_OPERATIONS]).toEqual([
       "add_field",
       "add_table",
@@ -493,6 +495,10 @@ describe("Story 5.4 — PERMITTED_OPERATIONS allowlist", () => {
       "hide_field",
       "remove_view",
       "hide_table",
+      // Story 13.1 — the three append-only select value-management ops.
+      "add_select_option",
+      "rename_select_option",
+      "archive_select_option",
     ]);
   });
 
@@ -768,5 +774,315 @@ describe("Story 5.4 — full blocklist on the normalized key (whole-word) + Stor
         reason: "addFieldFailed",
       });
     }
+  });
+});
+
+/**
+ * Story 13.1 — the single-select (`select`) field type in the data model + the
+ * Schema Validator. Covers the I/O & Edge-Case Matrix across BOTH validator
+ * entry points:
+ *  (a) `validateGeneratedSchema` + `validateAddField` accept a `select` field
+ *      only with a non-empty list of unique, normalized, labelled options;
+ *  (b) empty / duplicate-value / missing-label option lists are rejected on both
+ *      paths (never silently deduped);
+ *  (c) the three new value-management op names join the allowlist, pass the guard
+ *      when well-formed, are discarded under raw SQL, and an unknown op still
+ *      rejects;
+ *  (d) a pin that `BLOCKED_KEYWORDS` and the whole-word key guard are unchanged.
+ */
+describe("Story 13.1 — select field: generation path", () => {
+  function schemaWithSelect(options: unknown) {
+    return {
+      schema: {
+        tables: [
+          {
+            key: "invoices",
+            label: "Invoices",
+            fields: [
+              { key: "amount", label: "Amount", type: "currency" },
+              { key: "status", label: "Status", type: "select", options },
+            ],
+          },
+        ],
+      },
+    };
+  }
+
+  it("accepts a select field and normalizes + trims its options", () => {
+    const result = validateGeneratedSchema(
+      schemaWithSelect([
+        { value: "Paid", label: "Paid" },
+        { value: "Unpaid", label: " Unpaid " },
+      ]),
+    );
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    const field = result.sanitized.tables[0].fields[1];
+    expect(field.type).toBe("select");
+    expect(field.options).toEqual([
+      { value: "paid", label: "Paid" },
+      { value: "unpaid", label: "Unpaid" },
+    ]);
+    // No archived flag carried in on the generation path.
+    expect(field.options?.every((o) => !("archived" in o))).toBe(true);
+  });
+
+  it("drops an inbound archived flag (new options are never archived)", () => {
+    const result = validateGeneratedSchema(
+      schemaWithSelect([
+        { value: "Paid", label: "Paid", archived: true },
+        { value: "Unpaid", label: "Unpaid" },
+      ]),
+    );
+    expect(result.valid).toBe(true);
+    if (!result.valid) return;
+    const field = result.sanitized.tables[0].fields[1];
+    expect(field.options).toEqual([
+      { value: "paid", label: "Paid" },
+      { value: "unpaid", label: "Unpaid" },
+    ]);
+  });
+
+  it("rejects empty options (missing, [], or not an array)", () => {
+    for (const options of [undefined, [], {}, "nope"]) {
+      const result = validateGeneratedSchema(schemaWithSelect(options));
+      expect(result.valid, `options=${JSON.stringify(options)}`).toBe(false);
+    }
+  });
+
+  it("rejects options whose normalized values collide (not deduped)", () => {
+    const result = validateGeneratedSchema(
+      schemaWithSelect([
+        { value: "Paid", label: "Paid" },
+        { value: "paid", label: "Also paid" },
+      ]),
+    );
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects an option missing its label", () => {
+    const result = validateGeneratedSchema(
+      schemaWithSelect([
+        { value: "Paid", label: "Paid" },
+        { value: "Unpaid", label: "" },
+      ]),
+    );
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects an option whose value is missing / empty", () => {
+    const result = validateGeneratedSchema(
+      schemaWithSelect([
+        { value: "Paid", label: "Paid" },
+        { value: "", label: "Unpaid" },
+      ]),
+    );
+    expect(result.valid).toBe(false);
+  });
+
+  it("rejects a displayField that names a select field (stored token is not a label)", () => {
+    const raw = schemaWithSelect([
+      { value: "Paid", label: "Paid" },
+      { value: "Unpaid", label: "Unpaid" },
+    ]);
+    // Point the table's display label at the select field — like a relation,
+    // it stores an opaque token (`paid`), not the label, so it must be rejected.
+    (raw.schema.tables[0] as { displayField?: string }).displayField = "status";
+    const result = validateGeneratedSchema(raw);
+    expect(result.valid).toBe(false);
+  });
+});
+
+describe("Story 13.1 — select field: add-field path", () => {
+  function editorSchema(): SchemaDefinition {
+    return {
+      tables: [
+        {
+          key: "invoices",
+          label: "Invoices",
+          fields: [{ key: "amount", label: "Amount", type: "currency" }],
+        },
+      ],
+    };
+  }
+
+  it("accepts a select field with a non-empty, unique, labelled option list", () => {
+    const result = validateAddField(editorSchema(), "invoices", {
+      label: "Status",
+      type: "select",
+      options: [
+        { value: "Paid", label: "Paid" },
+        { value: "Unpaid", label: "Unpaid" },
+        { value: "Rejected", label: "Rejected" },
+      ],
+    });
+    expect(result).toEqual({
+      valid: true,
+      field: {
+        key: "status",
+        label: "Status",
+        type: "select",
+        options: [
+          { value: "paid", label: "Paid" },
+          { value: "unpaid", label: "Unpaid" },
+          { value: "rejected", label: "Rejected" },
+        ],
+      },
+    });
+  });
+
+  it("rejects empty options", () => {
+    for (const options of [undefined, [], "nope"]) {
+      const result = validateAddField(editorSchema(), "invoices", {
+        label: "Status",
+        type: "select",
+        options,
+      });
+      expect(result, `options=${JSON.stringify(options)}`).toEqual({
+        valid: false,
+        reason: "addFieldFailed",
+      });
+    }
+  });
+
+  it("rejects duplicate normalized option values (not deduped)", () => {
+    const result = validateAddField(editorSchema(), "invoices", {
+      label: "Status",
+      type: "select",
+      options: [
+        { value: "Paid", label: "Paid" },
+        { value: "paid", label: "Also paid" },
+      ],
+    });
+    expect(result).toEqual({ valid: false, reason: "addFieldFailed" });
+  });
+
+  it("rejects an option missing its label", () => {
+    const result = validateAddField(editorSchema(), "invoices", {
+      label: "Status",
+      type: "select",
+      options: [{ value: "Paid", label: "" }],
+    });
+    expect(result).toEqual({ valid: false, reason: "addFieldFailed" });
+  });
+
+  it("drops an inbound archived flag (same guarantee as the generation path)", () => {
+    const result = validateAddField(editorSchema(), "invoices", {
+      label: "Status",
+      type: "select",
+      options: [
+        { value: "Paid", label: "Paid", archived: true },
+        { value: "Unpaid", label: "Unpaid" },
+      ],
+    });
+    expect(result).toEqual({
+      valid: true,
+      field: {
+        key: "status",
+        label: "Status",
+        type: "select",
+        options: [
+          { value: "paid", label: "Paid" },
+          { value: "unpaid", label: "Unpaid" },
+        ],
+      },
+    });
+  });
+});
+
+describe("Story 13.1 — new value-management ops join the allowlist + raw-SQL fence", () => {
+  const NEW_OPS = [
+    "add_select_option",
+    "rename_select_option",
+    "archive_select_option",
+  ] as const;
+
+  it("PERMITTED_OPERATIONS contains each of the three new op names", () => {
+    for (const op of NEW_OPS) {
+      expect((PERMITTED_OPERATIONS as readonly string[]).includes(op)).toBe(true);
+      expect(isPermittedOperation(op)).toBe(true);
+    }
+  });
+
+  it("assertEditorOperationAllowed passes each well-formed new op", () => {
+    for (const op of NEW_OPS) {
+      expect(
+        assertEditorOperationAllowed({
+          kind: op,
+          tableKey: "invoices",
+          fieldKey: "status",
+          optionValue: "paid",
+        }),
+      ).toEqual({ allowed: true, kind: op });
+    }
+  });
+
+  it("discards a new op whose raw output carries SQL (same fence)", () => {
+    for (const op of NEW_OPS) {
+      const result = assertEditorOperationAllowed({
+        kind: op,
+        tableKey: "invoices",
+        fieldKey: "status",
+        smuggled: "DROP TABLE records;",
+      });
+      expect(result, op).toEqual({ allowed: false, reason: "rawSqlRejected" });
+    }
+  });
+
+  it("still rejects an unknown select-shaped op as operationNotAllowed", () => {
+    const result = assertEditorOperationAllowed({
+      kind: "delete_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+    });
+    expect(result).toEqual({ allowed: false, reason: "operationNotAllowed" });
+  });
+});
+
+describe("Story 13.1 — blocklist + whole-word key guard unchanged", () => {
+  it("pins the BLOCKED_KEYWORDS set verbatim", () => {
+    expect([...BLOCKED_KEYWORDS]).toEqual([
+      "DROP",
+      "GRANT",
+      "TRUNCATE",
+      "DELETE",
+      "EXEC",
+    ]);
+  });
+
+  it("a select field with a blocked-verb KEY still rejects; a label that merely embeds one still passes", () => {
+    const schema: SchemaDefinition = {
+      tables: [
+        {
+          key: "invoices",
+          label: "Invoices",
+          fields: [{ key: "amount", label: "Amount", type: "currency" }],
+        },
+      ],
+    };
+    // Bare blocked verb as the derived key → reject (whole-word guard unchanged).
+    expect(
+      validateAddField(schema, "invoices", {
+        label: "drop",
+        type: "select",
+        options: [{ value: "a", label: "A" }],
+      }),
+    ).toEqual({ valid: false, reason: "addFieldFailed" });
+    // A label that merely embeds a verb still passes (Story 2.5 unchanged); the
+    // option LABEL "Drop-off" is free text and is never keyword-checked.
+    const ok = validateAddField(schema, "invoices", {
+      label: "Drop-off status",
+      type: "select",
+      options: [{ value: "Dropped off", label: "Drop-off done" }],
+    });
+    expect(ok.valid).toBe(true);
+  });
+
+  it("keeps `select` OUT of the scalar + generation type sets (model can't emit it until 13.5)", () => {
+    // Load-bearing boundary: `select` is accepted only via its own validator
+    // branch, never by membership in these sets, so neither the editor
+    // response-schema enum nor the generation enum offers it to the model.
+    expect([...SCALAR_FIELD_TYPES]).not.toContain("select");
+    expect([...GENERATION_FIELD_TYPES]).not.toContain("select");
   });
 });
