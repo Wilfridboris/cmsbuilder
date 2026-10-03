@@ -69,4 +69,14 @@ describe("middleware — tenant-route protection", () => {
 
     expect(res.headers.get("location")).toBeNull();
   });
+
+  it("treats /forms/[slug] (public intake form) as public — no redirect for an unauthenticated visitor (Story 6.1)", async () => {
+    const { middleware } = await import("@/middleware");
+    // A lead opening a shared intake link has no session. Dropping "forms" from
+    // PUBLIC_TOP_LEVEL would make `firstSegment === "forms"` a protected slug and
+    // bounce them to /login — silently breaking every public intake link.
+    const res = await middleware(req("/forms/acme-plumbing"));
+
+    expect(res.headers.get("location")).toBeNull();
+  });
 });

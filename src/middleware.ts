@@ -36,6 +36,10 @@ const PUBLIC_TOP_LEVEL = new Set([
   // (and last) unauthenticated surface — a token holder must reach it without a
   // session, so it must never be treated as a protected tenant slug.
   "i",
+  // Story 6.1: the auto-generated public intake form `/forms/[slug]` is reachable
+  // with no login (a lead arriving from a shared link has no session), so `forms`
+  // must never be treated as a protected tenant slug.
+  "forms",
 ]);
 
 export async function middleware(request: NextRequest): Promise<NextResponse> {

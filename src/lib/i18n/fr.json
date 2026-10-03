@@ -799,5 +799,14 @@
     "body": "Veuillez trouver ci-joint la facture {number} au format PDF. Pour toute question, il vous suffit de répondre à ce courriel.",
     "linkIntro": "Vous pouvez aussi consulter la facture en ligne :",
     "signature": "Merci"
+  },
+  "IntakeForm": {
+    "heading": "Contactez-nous",
+    "subtitle": "Remplissez le formulaire ci-dessous et nous vous répondrons sous peu.",
+    "yes": "Oui",
+    "no": "Non",
+    "submit": "Envoyer",
+    "unavailableHeading": "Formulaire indisponible",
+    "unavailableBody": "Ce formulaire n'est pas disponible pour le moment. Vérifiez le lien et réessayez plus tard."
   }
 }

@@ -799,5 +799,14 @@
     "body": "Please find invoice {number} attached as a PDF. If you have any questions, simply reply to this email.",
     "linkIntro": "You can also view the invoice online:",
     "signature": "Thank you"
+  },
+  "IntakeForm": {
+    "heading": "Get in touch",
+    "subtitle": "Fill out the form below and we will get back to you shortly.",
+    "yes": "Yes",
+    "no": "No",
+    "submit": "Send",
+    "unavailableHeading": "Form not available",
+    "unavailableBody": "This form is not available right now. Please check the link and try again later."
   }
 }
