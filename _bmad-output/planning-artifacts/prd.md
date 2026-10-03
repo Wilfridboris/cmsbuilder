@@ -844,10 +844,18 @@ Ordered by dependency and payoff. Items 1–4 and 4b are MVP; 5–11 are Growth,
 
 ### Intake Forms
 
-- **FR25:** The system automatically generates a public intake form URL for every claimed dashboard
+- **FR25:** A claimed dashboard can have one or more public intake forms. An Admin creates each form with a title; the public slug is generated from the title (slugified, unique within the org, editable before publishing). Each form is unpublished by default and becomes reachable at `scheza.com/forms/{orgSlug}/{formSlug}` only after the Admin publishes it and confirms a target table. An unknown or unpublished URL returns the same data-free "form not available" state
 - **FR26:** External visitors can submit records via the public intake form without creating an account
 - **FR27:** Intake form submissions appear in the dashboard owner's data table in real time
 - **FR28:** Admin receives an email notification when a new intake form submission is received (web push notifications are deferred to Growth phase; MVP fulfillment is email via Resend)
+
+### Owner-Controlled Intake Forms *(MVP — added via sprint-change-proposal-2026-10-02-intake-forms)*
+
+- **FR100:** An Admin can create, rename, and delete intake forms, and manage them from the dashboard: view, copy, and share each live link (copy-to-clipboard and a scannable QR code) and preview the form as an external visitor sees it
+- **FR101:** Each form targets exactly one table, chosen explicitly by the Admin. The intake-term heuristic supplies the suggested default at creation; the owner's explicit choice always overrides it
+- **FR102:** Per form, an Admin can control which fields appear on the public surface (independent of the dashboard column-hide flag) and can set a public label, optional help text, and field order. Relationship/lookup fields remain excluded regardless of any toggle (FR78 invariant)
+- **FR103:** Each public form displays the business's branding (operating name and logo, reused from the Epic 12 business profile) plus an optional short, per-form owner-authored intro/info message
+- **FR104:** The public intake endpoint is protected against automated abuse (honeypot plus per-IP / per-slug rate limiting), and protection must never block a legitimate submission's data capture
 
 ### Billing & Subscriptions
 

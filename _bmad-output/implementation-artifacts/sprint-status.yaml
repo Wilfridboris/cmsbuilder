@@ -165,6 +165,18 @@ development_status:
   13-5-generation-fallback-emit-select-fields: backlog
   13-6-single-select-on-intake-forms-csv-import: backlog
   epic-13-retrospective: optional
+
+  # ── Epic 14: Owner-Controlled Intake Forms ───────────────────────────────
+  # Added via sprint-change-proposal-2026-10-02-intake-forms.md (FR25 amended; FR100-104)
+  epic-14: backlog
+  14-1-forms-data-model-admin-form-creation: backlog
+  14-2-multi-form-public-route-form-keyed-submission: backlog
+  14-3-publish-toggle-share-surface: backlog
+  14-4-choose-target-table-per-form: backlog
+  14-5-per-field-public-customization: backlog
+  14-6-branded-public-form: backlog
+  14-7-abuse-protection-on-public-intake: backlog
+  epic-14-retrospective: optional
 action_items:
   - id: "epic-1-retro-item-1-reconcile-the-gemini-model-in-architectu"
     epic: 1

@@ -58,6 +58,7 @@
   evidence: RecordsView's `useQuery({ queryKey:['records',slug,tableKey], initialData })` destructures `data` only and ignores `error`/`isError`; after a mutation's `onSettled` invalidate, a failed refetch keeps the last-good cache with no `loadFailed` message. Non-destructive (initialData seeds first paint and optimistic writes already applied), so it degrades to stale-but-plausible data. Settling it needs surfacing the query error via the existing `resolveError`/`StatusMessage` path (and optionally a retry affordance). Also tracks the node-testable-but-untested client wrappers (`records-client.ts`) and optimistic hooks (`useRecordMutations.ts`), separate from the jsdom-blocked interactive-DOM gap already logged for 3.1.
 
 - source_spec: none
+  status: PARTIALLY ADDRESSED - Epic 14 Story 14.6 surfaces operating_name + logo on public forms (reusing Epic 12 business_profiles); a general Settings org-rename control remains deferred (sprint-change-proposal-2026-10-02-intake-forms).
   summary: No first-class way to capture or edit an organization's business/display name — the app only ever derives it (now title-cased from the trade+city slug base at claim); there is no business-name field at intake and no rename control in Settings.
   evidence: The generate intake (`/`) asks only trade, city, and what-you-track — never a business name; `provision.ts` seeds `name: "Scheza Session <id>"`; `finalizeClaim` now promotes `name` to the title-cased slug base (e.g. "Plumbing Laval"), which is a sensible default but not the real business name; the Settings page (Epic 2) is invites/RBAC only. No epic/FR covers naming or renaming the org (the epics' "rename" stories are all about AI-generated schema fields/tables, FR47/1.7/5.x). A proper fix is a small story: let an Admin set/edit the organization name (and optionally the slug) in Settings, and/or capture a business name during claim. Until then claimed orgs show the derived trade+city title.
 
@@ -166,10 +167,12 @@
   evidence: Story 5.6 settled that a view is REMOVED (true array delete), not hidden — "no view visibility flag" (spec Design Notes, prompt + validator comments). But `src/lib/schema/overrides.ts` `visibleViews` still filters `!view.hidden` against a `ViewDefinition.hidden?` field that no code ever sets. The 5.6 `removeView` transform correctly does a true removal, so this is harmless dead code, but it contradicts the design narrative and should be dropped in a cleanup (verify no other reader depends on the field first). Flagged by the 5.6 review (verification-gap + blind-hunter); not fixed in-story because it is pre-existing and out of 5.6's scope.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-6-2-no-auth-external-submission.md`
+  status: SCHEDULED - Epic 14 Story 14.7 (sprint-change-proposal-2026-10-02-intake-forms).
   summary: Add abuse protection (rate-limiting / CAPTCHA / honeypot) to the public no-auth intake endpoint POST /api/intake/[slug].
   evidence: Story 6.2 (frozen Never) deliberately deferred anti-abuse. The endpoint is an unauthenticated write that runs two DB reads (org lookup + getSchema) per POST and inserts a record with no ceiling, so it is the surface where spam/abuse will first bite; flagged by review BH9.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-6-2-no-auth-external-submission.md`
+  status: SCHEDULED - Epic 14 Stories 14.1-14.6 (sprint-change-proposal-2026-10-02-intake-forms).
   summary: Owner-driven public intake form management on the dashboard — surface/share the link, let the owner pick the target table the data saves into, and customize the form (per-field "show on public form" control, labels/help text, ordering).
   evidence: >
     Epic 6 (stories 6.1-6.5) generates the form URL (FR25) and handles submission/real-time/email,

@@ -673,6 +673,41 @@ automation).
 
 ---
 
+### Owner-Controlled Intake Forms (MVP — Epic 14)
+
+Epic 6 derives one public form per org from a heuristic. Epic 14 makes a form a first-class, owner-managed entity: multiple per org, each with a title, an org-scoped slug, an explicit target table, a per-field public config, branding, and a publish flag. Added via sprint-change-proposal-2026-10-02-intake-forms.
+
+New shared **platform** table (not per-tenant; one migration — consistent with the no-runtime-DDL / no-per-tenant-table rule):
+
+```
+forms
+  id               uuid pk
+  organization_id  uuid fk -> organizations(id) ON DELETE CASCADE
+  title            text not null
+  slug             text not null              -- slugified from title, editable
+  target_table_key text not null              -- logical table_key in org_schemas
+  published        boolean not null default false
+  intro_text       text                       -- optional per-form info message
+  field_config     jsonb not null default '[]'-- [{field_key, visible, public_label?, help_text?, order}]
+  created_at / updated_at  timestamptz
+  UNIQUE (organization_id, slug)
+  INDEX (organization_id)
+```
+
+| Decision | Choice | Rationale |
+|---|---|---|
+| Config storage | A `forms` row per form; per-field public settings in `field_config` JSONB | Keeps the schema (`org_schemas`) untouched; a form is additive metadata, not a schema change |
+| RLS | Org members read/write their org's `forms` rows (same posture as `org_schemas`); the public resolver reads via the **service-role admin client** only | Mirrors the existing `/forms/[slug]` and `/i/[token]` narrow public surfaces |
+| Public resolution | `/forms/{orgSlug}/{formSlug}` resolves org-by-slug then form-by-`(org_id, slug)` where `published = true`; `force-dynamic`, `runtime="nodejs"`, data-free failure. POST re-resolves server-side and writes via guarded `mutate.ts` under `INTAKE_ACTOR_ID`, allowlisted to the form's visible non-relation fields | Client never chooses the table or fields; FR78 invariant enforced in render and payload |
+| `selectIntakeTable` | Demoted from runtime authority to a creation-time suggested default; the form row's `target_table_key` is authoritative thereafter | Owner override (FR101) |
+| Logo on a no-auth page | **Option B — server-proxied, published-gated image route** (e.g. `/forms/{orgSlug}/{formSlug}/logo`): fetches the private `business_profiles.logo_path` object with the admin client and streams it with a long `Cache-Control`, only when the form is published | Keeps Epic 12's private-bucket posture; no storage fork, no world-readable logos, no expiring signed URL baked into a shareable page (alternatives A public-bucket and C signed-URL rejected) |
+| Abuse protection | Honeypot field + per-IP / per-slug rate limiting on the public POST, extending the existing Edge-Middleware IP rate limit used for generation endpoints (see §API & Communication Patterns); non-blocking of capture | FR104; the `src/middleware.ts` rate-limit seam is already reserved |
+| Offboarding (Epic 8) | `forms` rows ARE included in the self-service cascade delete | No statutory retention (unlike invoices); do NOT add `forms` to the Epic 12 invoice retention-exclusion list |
+
+Data residency unchanged (Supabase ca-central-1, PIPEDA). New client dependency to confirm at build: a QR renderer (`qrcode.react`). New i18n namespace `Forms` (en + fr) plus extensions to `IntakeForm`.
+
+---
+
 ### Schema Explainability & Override (MVP)
 
 Every AI-generated table and field carries a one-line, plain-language reason surfaced at

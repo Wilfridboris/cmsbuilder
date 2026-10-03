@@ -1287,6 +1287,8 @@ So that I can declutter safely.
 Lead capture with zero extra tooling. Every claimed dashboard auto-generates a public, no-auth, mobile-optimized intake form at `scheza.com/forms/{slug}` whose fields derive from the schema. External submissions push into the owner's data table in real time, and the Admin gets an email notification (Resend; web push deferred to Growth). Depends only on Epics 1–3.
 
 > **Scope: single form for MVP.** One auto-generated, customer-facing lead-capture form per dashboard, mapped to one designated target table. **Multiple use-case forms** (e.g., an employee-leave form, a separate new-client form, each with its own URL like `/forms/{slug}/{formKey}`) are a **Growth enhancement** — purely additive on the existing data model (a form = a `table_key` + a public route), so deferring boxes nothing in. Revisit when a paying customer requests a second form.
+>
+> **Update (2026-10-02):** this single-form scope describes the original Epic 6 delivery only. Owner-managed, multiple named forms were pulled into MVP as **Epic 14** (sprint-change-proposal-2026-10-02-intake-forms).
 
 *(Covers FR25, FR26, FR27, FR28. NFRs woven in: NFR-A2, NFR-A4, NFR-P5. UX: UX-DR16.)*
 
@@ -1921,3 +1923,153 @@ So that picklists are consistent across every entry point.
 **Given** this story's scope
 **When** import mapping runs
 **Then** mapping onto an *existing* `select` field is in scope; **creating a new `select` field during import is out of scope** and remains with the deferred "map an import column to a brand-NEW field" work (`deferred-work.md`, spec-4-3 and spec-4-4)
+
+---
+
+## Epic 14: Owner-Controlled Intake Forms *(MVP — added via sprint-change-proposal-2026-10-02-intake-forms)*
+
+Turn the auto-generated MVP form (Epic 6) into an owner-managed, multi-form lead-capture tool. An Admin can create one or more public forms per dashboard, each with a title (which generates an editable, org-scoped slug), an explicitly chosen target table, per-field public customization, business branding, and a publish toggle (off by default). Serves real campaign use (for example a plumber sharing a branded "Job Request" link with a client so the request lands straight in the Jobs table). Builds on Epic 6's public-form foundation; reuses Epic 12 branding (`business_profiles` operating name + logo) and Epic 3 Realtime / guarded `mutate.ts`.
+
+> **Pulls "multiple named forms" out of Growth into MVP.** A form = {title, slug, target table, field config, branding, published}. Depends on Epic 6 (6.1-6.5) and Epic 12 (`business_profiles`). The FR78 invariant (relationship/lookup fields never reach a public form) is upheld throughout.
+
+*(Covers FR25 (amended), FR100, FR101, FR102, FR103, FR104. NFRs woven in: NFR-A2, NFR-A4, NFR-P5, PIPEDA data-minimization.)*
+
+### Story 14.1: Forms Data Model & Admin Form Creation
+
+As an Admin,
+I want to create a named intake form,
+So that I can run more than one campaign, each capturing into the right table.
+
+**Acceptance Criteria:**
+
+**Given** the new `forms` platform table (org-scoped, RLS-enforced) and guarded create/list/rename/delete mutators
+**When** an Admin creates a form with a title
+**Then** a form row is persisted with a slug generated from the title (slugified, unique within the org, with a `-2` style suffix on collision) and a target table pre-filled by the intake-term heuristic
+
+**Given** a created form
+**When** the Admin edits its slug before publishing
+**Then** the edited slug is accepted if still org-unique, otherwise it is rejected with an inline, non-technical message
+
+**Given** the dashboard
+**When** an Admin opens the Forms area
+**Then** their org's forms are listed; no public behavior changes in this story (publishing arrives in 14.3)
+
+**Given** a Member
+**When** they use the dashboard
+**Then** the Forms management controls are not available to them (Epic 2 RBAC)
+
+### Story 14.2: Multi-Form Public Route & Form-Keyed Submission
+
+As an external visitor,
+I want a form at a clean per-form URL,
+So that I can submit my request without an account.
+
+**Acceptance Criteria:**
+
+**Given** a published form
+**When** a visitor opens `scheza.com/forms/{orgSlug}/{formSlug}`
+**Then** the page resolves the form server-side (service-role admin client), renders its target table's eligible non-relation fields, and never exposes another table's data
+
+**Given** a submission
+**When** the visitor posts the form
+**Then** the server re-resolves the form (never trusting the client for table/fields), writes through guarded `mutate.ts` under `INTAKE_ACTOR_ID` to the form's target table, allowlisted to the form's visible fields
+
+**Given** an unknown or unpublished URL (including the legacy `/forms/{slug}` when no primary published form exists)
+**When** it is requested
+**Then** the same data-free "form not available" state is returned, with no provider internals exposed
+
+**Given** the legacy single `/forms/{slug}` route
+**When** the org has a primary published form
+**Then** it resolves to that form (6.1/6.2 behavior migrated onto the form entity, not rewritten)
+
+### Story 14.3: Publish Toggle & Share Surface
+
+As an Admin,
+I want to publish a form and share its link,
+So that I can send it to clients and post it in my Google Business bio.
+
+**Acceptance Criteria:**
+
+**Given** a draft form (unpublished by default)
+**When** the Admin toggles Publish on
+**Then** the form becomes publicly reachable; toggling off returns it to "not available" without deleting the form or its submissions
+
+**Given** a published form
+**When** the Admin opens its share surface
+**Then** they can copy the live link (with confirmation feedback), see a scannable QR code, and open a preview of the form as a visitor sees it
+
+**Given** publishing
+**When** no valid target table is set
+**Then** the Publish control is disabled with a clear reason
+
+### Story 14.4: Choose Target Table Per Form
+
+As an Admin,
+I want to choose which table a form saves into,
+So that each form captures into the right place regardless of the heuristic.
+
+**Acceptance Criteria:**
+
+**Given** a form
+**When** the Admin opens its target-table selector
+**Then** the intake-term heuristic choice is pre-selected as a suggestion and any visible table can be chosen instead; the explicit choice is authoritative at runtime
+
+**Given** a change of target table
+**When** it is saved
+**Then** the per-field config is revalidated against the new table's fields (fields that no longer exist are dropped from the config)
+
+### Story 14.5: Per-Field Public Customization
+
+As an Admin,
+I want to control which fields appear on a form and how they read,
+So that the public form asks exactly what I want, in my words.
+
+**Acceptance Criteria:**
+
+**Given** a form's target table
+**When** the Admin edits the field config
+**Then** they can toggle each field's visibility on the public form independent of the dashboard column-hide flag, set a public label and optional help text, and reorder fields
+
+**Given** any relationship/lookup field
+**When** the field config is edited or the form is rendered
+**Then** the field is never shown and never accepted in the payload, regardless of any toggle (FR78 invariant)
+
+**Given** a saved field config
+**When** the public form renders and when a submission is written
+**Then** both honor the visibility, labels, help text, and order from the config
+
+### Story 14.6: Branded Public Form
+
+As an Admin,
+I want my form to carry my branding,
+So that clients recognize it as mine.
+
+**Acceptance Criteria:**
+
+**Given** a business profile with an operating name and logo (Epic 12)
+**When** a published form renders
+**Then** it shows the operating name and logo, with the logo served through a published-gated, server-proxied public route (the private storage bucket posture is unchanged)
+
+**Given** a form with an owner-authored intro/info message
+**When** it renders
+**Then** the intro text appears above the fields; copy is mobile-first, accessible, and uses no em-dash
+
+**Given** no logo or no operating name is set
+**When** the form renders
+**Then** it degrades gracefully to the organization name alone, with no broken image
+
+### Story 14.7: Abuse Protection on Public Intake
+
+As the platform,
+I want the public intake endpoint protected from automated abuse,
+So that a widely shared link does not become a spam funnel.
+
+**Acceptance Criteria:**
+
+**Given** the public intake POST
+**When** a submission arrives
+**Then** a honeypot field and per-IP / per-slug rate limiting are applied, extending the existing Edge-Middleware IP rate-limit pattern used for generation endpoints
+
+**Given** rate limiting or honeypot logic
+**When** it runs
+**Then** it never blocks or drops a legitimate submission's data capture (non-blocking, consistent with Epic 6's non-blocking-email rule)
