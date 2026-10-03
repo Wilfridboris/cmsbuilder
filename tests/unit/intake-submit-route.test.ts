@@ -28,14 +28,32 @@ const getIntakeTarget = vi.fn();
 const mutate = vi.fn();
 const createAdminClient = vi.fn(() => ({ __admin: true }));
 const INTAKE_ACTOR_ID = "00000000-0000-0000-0000-0000000000b0";
+// Story 6.4 notification seams — mocked so the handler's best-effort notification
+// behavior (who is emailed, when, and that a failure never blocks the 200) is
+// asserted here, while the email content itself is unit-tested in
+// `intake-notification-email.test.ts`.
+const resolveAdminEmails = vi.fn();
+const resolveOrgLanguage = vi.fn();
+const sendIntakeSubmissionEmail = vi.fn();
+const reportError = vi.fn();
 
 vi.mock("@/lib/data/intake", () => ({ getIntakeTarget }));
 vi.mock("@/lib/data/mutate", () => ({ mutate, INTAKE_ACTOR_ID }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient }));
-vi.mock("@/lib/observability/report", () => ({ reportError: vi.fn() }));
+vi.mock("@/lib/orgs/org-recipients", () => ({
+  resolveAdminEmails,
+  resolveOrgLanguage,
+}));
+vi.mock("@/lib/resend/intake-notification", () => ({ sendIntakeSubmissionEmail }));
+vi.mock("@/lib/observability/report", () => ({ reportError }));
 
 function postReq(body: unknown): NextRequest {
-  return { json: async () => body } as unknown as NextRequest;
+  // `nextUrl.origin` is read by the 6.4 notification path to build the absolute
+  // dashboard CTA; the 6.2 rows ignore it.
+  return {
+    json: async () => body,
+    nextUrl: { origin: "https://app.example.com" },
+  } as unknown as NextRequest;
 }
 
 function paramsFor(slug: string) {
@@ -63,7 +81,16 @@ beforeEach(() => {
   createAdminClient.mockReturnValue({ __admin: true });
   getIntakeTarget.mockResolvedValue(TARGET);
   mutate.mockResolvedValue({ data: { id: "rec-1", version: 1 }, error: null });
+  // Notification defaults: one resolvable admin, EN, a successful send.
+  resolveAdminEmails.mockResolvedValue(["owner@example.com"]);
+  resolveOrgLanguage.mockResolvedValue("en");
+  sendIntakeSubmissionEmail.mockResolvedValue(undefined);
 });
+
+const VALID_BODY = {
+  values: { full_name: "Ada Lovelace", email: "ada@example.ca", subscribe: true },
+  idempotencyKey: "k",
+};
 
 describe("POST /api/intake/[slug] — happy path", () => {
   it("inserts allowlisted + coerced data under INTAKE_ACTOR_ID, scoped to the resolved org/table", async () => {
@@ -266,6 +293,9 @@ describe("POST /api/intake/[slug] — write failure is masked", () => {
     const body = await res.json();
     expect(body.data).toBeNull();
     expect(body.error).toBe("genericError");
+    // A failed write never triggers the notification path.
+    expect(resolveAdminEmails).not.toHaveBeenCalled();
+    expect(sendIntakeSubmissionEmail).not.toHaveBeenCalled();
   });
 
   it("treats a retried submit as the same logical write (stable idempotency key passed through)", async () => {
@@ -282,5 +312,104 @@ describe("POST /api/intake/[slug] — write failure is masked", () => {
 
     expect(mutate.mock.calls[0][4]).toEqual({ idempotencyKey: "stable-instance-key" });
     expect(mutate.mock.calls[1][4]).toEqual({ idempotencyKey: "stable-instance-key" });
+  });
+});
+
+describe("POST /api/intake/[slug] — owner notification (Story 6.4)", () => {
+  it("emails the single resolved admin with the submission context, returns 200", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/route");
+
+    const res = await POST(postReq(VALID_BODY), paramsFor("acme"));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).data).toEqual({ ok: true });
+    // Resolution ran against the resolved org via the hoisted admin client.
+    expect(resolveAdminEmails).toHaveBeenCalledWith({ __admin: true }, "org-1");
+    expect(sendIntakeSubmissionEmail).toHaveBeenCalledTimes(1);
+    const arg = sendIntakeSubmissionEmail.mock.calls[0]![0];
+    expect(arg).toMatchObject({
+      to: "owner@example.com",
+      language: "en",
+      orgName: "Acme Plumbing",
+      tableLabel: "Leads",
+      slug: "acme",
+      fields: FIELDS,
+      appOrigin: "https://app.example.com",
+    });
+    // The written payload is handed to the summary builder.
+    expect(arg.data).toMatchObject({ email: "ada@example.ca", subscribe: true });
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it("emails every resolved admin on the success path (one send per admin)", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/route");
+    resolveAdminEmails.mockResolvedValue(["a@x.com", "b@x.com", "c@x.com"]);
+
+    const res = await POST(postReq(VALID_BODY), paramsFor("acme"));
+
+    expect(res.status).toBe(200);
+    expect(sendIntakeSubmissionEmail).toHaveBeenCalledTimes(3);
+    expect(sendIntakeSubmissionEmail.mock.calls.map((c) => c![0].to)).toEqual([
+      "a@x.com",
+      "b@x.com",
+      "c@x.com",
+    ]);
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it("emails every resolved admin; a failing send aborts the batch, logs once, still 200", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/route");
+    resolveAdminEmails.mockResolvedValue(["a@x.com", "b@x.com", "c@x.com"]);
+    sendIntakeSubmissionEmail
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("resend 500"))
+      .mockResolvedValue(undefined);
+
+    const res = await POST(postReq(VALID_BODY), paramsFor("acme"));
+
+    expect(res.status).toBe(200);
+    // Second send throws, so the third is never attempted (batch aborts).
+    expect(sendIntakeSubmissionEmail).toHaveBeenCalledTimes(2);
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(reportError.mock.calls[0]![1]).toEqual({ route: "/api/intake/[slug]" });
+  });
+
+  it("writes the record and sends no email when the org has no resolvable admin", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/route");
+    resolveAdminEmails.mockResolvedValue([]);
+
+    const res = await POST(postReq(VALID_BODY), paramsFor("acme"));
+
+    expect(res.status).toBe(200);
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(resolveOrgLanguage).not.toHaveBeenCalled();
+    expect(sendIntakeSubmissionEmail).not.toHaveBeenCalled();
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it("still returns 200 and logs when the notification send fails (data capture never blocked)", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/route");
+    sendIntakeSubmissionEmail.mockRejectedValue(new Error("resend down"));
+
+    const res = await POST(postReq(VALID_BODY), paramsFor("acme"));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).data).toEqual({ ok: true });
+    // The record was still written before the failing notification.
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(reportError).toHaveBeenCalledTimes(1);
+    expect(reportError.mock.calls[0]![1]).toEqual({ route: "/api/intake/[slug]" });
+  });
+
+  it("still returns 200 when admin resolution itself throws, never attempting a send", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/route");
+    resolveAdminEmails.mockRejectedValue(new Error("org_members query failed"));
+
+    const res = await POST(postReq(VALID_BODY), paramsFor("acme"));
+
+    expect(res.status).toBe(200);
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(sendIntakeSubmissionEmail).not.toHaveBeenCalled();
+    expect(reportError).toHaveBeenCalledTimes(1);
   });
 });

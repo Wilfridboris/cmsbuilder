@@ -813,6 +813,14 @@
     "confirmationHeading": "Message envoyé",
     "confirmationBody": "Merci, {owner} vous contactera sous peu.",
     "unavailableHeading": "Formulaire indisponible",
-    "unavailableBody": "Ce formulaire n'est pas disponible pour le moment. Vérifiez le lien et réessayez plus tard."
+    "unavailableBody": "Ce formulaire n'est pas disponible pour le moment. Vérifiez le lien et réessayez plus tard.",
+    "email": {
+      "subject": "Nouvelle soumission pour {orgName}",
+      "greeting": "Bonjour,",
+      "intro": "Vous avez une nouvelle soumission depuis votre formulaire d'accueil pour {tableLabel}. Voici ce qui a été soumis :",
+      "detailsHeading": "Détails de la soumission",
+      "cta": "Consultez-la sur votre tableau de bord :",
+      "signature": "Merci,\nL'équipe Scheza"
+    }
   }
 }

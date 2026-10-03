@@ -813,6 +813,14 @@
     "confirmationHeading": "Message sent",
     "confirmationBody": "Thanks, {owner} will be in touch shortly.",
     "unavailableHeading": "Form not available",
-    "unavailableBody": "This form is not available right now. Please check the link and try again later."
+    "unavailableBody": "This form is not available right now. Please check the link and try again later.",
+    "email": {
+      "subject": "New submission for {orgName}",
+      "greeting": "Hello,",
+      "intro": "You have a new submission from your intake form for {tableLabel}. Here is what was submitted:",
+      "detailsHeading": "Submission details",
+      "cta": "View it on your dashboard:",
+      "signature": "Thank you,\nThe Scheza team"
+    }
   }
 }

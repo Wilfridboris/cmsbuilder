@@ -4,9 +4,12 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
-import type { BusinessProfileLanguage } from "@/types/db";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendTrialReminderEmail } from "@/lib/resend/trial-reminder";
+import {
+  resolveAdminEmails,
+  resolveOrgLanguage,
+} from "@/lib/orgs/org-recipients";
 import { json, handleError, authorizeCron } from "@/lib/api/route-helpers";
 import { reportError } from "@/lib/observability/report";
 
@@ -72,50 +75,6 @@ export type TrialLifecycleSummary = {
   /** How many long-overdue past_due orgs were escalated to read_only [F1]. */
   escalated: number;
 };
-
-/**
- * Resolve the org's reminder recipients: every admin member's email. Uses the
- * service-role GoTrue admin API to map `org_members` (role 'admin') user ids to
- * emails. A member with no resolvable email is skipped (never a crash).
- */
-async function resolveAdminEmails(
-  adminClient: ReturnType<typeof createAdminClient>,
-  orgId: string,
-): Promise<string[]> {
-  const { data: admins, error } = await adminClient
-    .from("org_members")
-    .select("user_id")
-    .eq("organization_id", orgId)
-    .eq("role", "admin");
-  if (error) {
-    throw new AppError(500, "genericError", error.message);
-  }
-
-  const emails: string[] = [];
-  for (const row of (admins ?? []) as { user_id: string }[]) {
-    const { data, error: userError } =
-      await adminClient.auth.admin.getUserById(row.user_id);
-    if (userError || !data?.user?.email) {
-      continue;
-    }
-    emails.push(data.user.email);
-  }
-  return emails;
-}
-
-/** Resolve the org's default language (its business profile), defaulting to 'en'. */
-async function resolveOrgLanguage(
-  adminClient: ReturnType<typeof createAdminClient>,
-  orgId: string,
-): Promise<BusinessProfileLanguage> {
-  const { data } = await adminClient
-    .from("business_profiles")
-    .select("default_language")
-    .eq("organization_id", orgId)
-    .maybeSingle();
-  const lang = (data as { default_language?: string } | null)?.default_language;
-  return lang === "fr" ? "fr" : "en";
-}
 
 export async function GET(
   req: NextRequest,

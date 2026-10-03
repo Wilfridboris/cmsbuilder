@@ -8,6 +8,12 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getIntakeTarget } from "@/lib/data/intake";
 import { mutate, INTAKE_ACTOR_ID } from "@/lib/data/mutate";
 import { coerceAddValue } from "@/lib/forms/field-input";
+import {
+  resolveAdminEmails,
+  resolveOrgLanguage,
+} from "@/lib/orgs/org-recipients";
+import { sendIntakeSubmissionEmail } from "@/lib/resend/intake-notification";
+import { reportError } from "@/lib/observability/report";
 import { json, handleError } from "@/lib/api/route-helpers";
 import { intakeBodySchema } from "./schemas";
 
@@ -109,8 +115,12 @@ export async function POST(
       throw new AppError(400, "genericError");
     }
 
+    // Hoist the admin client so the write and the downstream notification share one
+    // service-role instance (both are platform-ops reads/writes, no user session).
+    const adminClient = createAdminClient();
+
     const result = await mutate(
-      { client: createAdminClient(), actorId: INTAKE_ACTOR_ID, orgId: target.orgId },
+      { client: adminClient, actorId: INTAKE_ACTOR_ID, orgId: target.orgId },
       "insert",
       target.table.key,
       data,
@@ -118,6 +128,35 @@ export async function POST(
     );
     if (result.error || !result.data) {
       throw new AppError(500, "genericError");
+    }
+
+    // Best-effort notification (Story 6.4, FR28): AFTER the write succeeds, email
+    // every resolvable Admin a summary of the submission. This is downstream of
+    // persistence and NEVER a precondition — any failure (no admins, no resolvable
+    // email, missing Resend env, a provider error) is logged and swallowed so the
+    // submitter always gets 200 and the record is always saved. Awaited in-handler
+    // because serverless can kill post-response work; the one Resend round-trip of
+    // latency is accepted. FR78: the summary iterates only `target.fields` (which
+    // excludes relation fields), so no relationship/lookup data can appear.
+    try {
+      const recipients = await resolveAdminEmails(adminClient, target.orgId);
+      if (recipients.length > 0) {
+        const language = await resolveOrgLanguage(adminClient, target.orgId);
+        for (const to of recipients) {
+          await sendIntakeSubmissionEmail({
+            to,
+            language,
+            orgName: target.orgName,
+            tableLabel: target.table.label,
+            slug,
+            fields: target.fields,
+            data,
+            appOrigin: req.nextUrl.origin,
+          });
+        }
+      }
+    } catch (notifyErr) {
+      reportError(notifyErr, { route: "/api/intake/[slug]" });
     }
 
     return json({ data: { ok: true as const }, error: null }, 200);
