@@ -453,6 +453,8 @@
     "relationPickerError": "We couldn't search just now. Please try again.",
     "relationClear": "Clear selection",
     "relationArchived": "Archived",
+    "selectPlaceholder": "Choose a value",
+    "selectClear": "Clear selection",
     "addRelationField": "Add link field",
     "addRelationTargetLabel": "Links to",
     "addRelationTargetPlaceholder": "Choose a table",

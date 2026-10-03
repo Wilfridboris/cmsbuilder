@@ -11,6 +11,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { coerceAddValue, inputModeFor } from "@/lib/forms/field-input";
 import { RelationPicker } from "@/components/dashboard/RelationPicker";
+import { SelectDropdown } from "@/components/dashboard/SelectDropdown";
+import { resolveSelectCommit } from "@/lib/forms/select-input";
 import type { RelationResolution } from "@/components/dashboard/useRelationLabels";
 
 /**
@@ -194,6 +196,7 @@ export function InlineEditCell({
         value={value}
         type={field.type}
         strings={cellStrings}
+        options={field.options}
         className="min-w-0 break-words text-pretty"
       />
     );
@@ -219,6 +222,7 @@ export function InlineEditCell({
           value={value}
           type={field.type}
           strings={cellStrings}
+          options={field.options}
           className="min-w-0 break-words text-pretty"
         />
       </button>
@@ -310,6 +314,32 @@ function InlineEditor({
           );
         })}
       </div>
+    );
+  }
+
+  // `select` commits immediately on pick, mirroring boolean/relation discipline:
+  // picking a (non-archived) option writes it; clearing omits the key; reselecting
+  // the already-current value is a no-op that just closes the editor. The pick →
+  // outcome decision is the pure `resolveSelectCommit` (unit-tested).
+  if (field.type === "select") {
+    const currentValue =
+      value === null || value === undefined ? null : String(value);
+    return (
+      <SelectDropdown
+        options={field.options ?? []}
+        value={currentValue}
+        ariaLabel={accessibleName}
+        onChange={(next) => {
+          const outcome = resolveSelectCommit(next, currentValue);
+          if (outcome.kind === "noop") {
+            onCancel();
+          } else if (outcome.kind === "omit") {
+            onCommit({ kind: "omit" });
+          } else {
+            onCommit({ kind: "ok", value: outcome.value });
+          }
+        }}
+      />
     );
   }
 

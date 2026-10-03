@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { formatCell, type CellStrings } from "@/lib/format";
+import type { SelectOption } from "@/types/db";
 
 /**
  * Unit coverage for the shared typed cell formatter (Story 1.6). Pure logic, no
@@ -97,6 +98,43 @@ describe("formatCell", () => {
       expect(formatCell("613-555-0142", "phone", STRINGS)).toBe(
         "613-555-0142",
       );
+    });
+  });
+
+  // Story 13.2: a `select` cell stores an option `value` token; the formatter
+  // resolves it to the matching option's human `label` (the single source of
+  // truth for select display across every authenticated read surface). The
+  // label lookup searches ALL options — archived included — so existing rows
+  // keep resolving, and degrades to the raw stored value (never throwing) when
+  // no option matches.
+  describe("select → option label", () => {
+    const OPTIONS: SelectOption[] = [
+      { value: "paid", label: "Paid" },
+      { value: "unpaid", label: "Unpaid" },
+      { value: "rejected", label: "Rejected", archived: true },
+    ];
+
+    it("renders the matching active option's label", () => {
+      expect(formatCell("unpaid", "select", STRINGS, OPTIONS)).toBe("Unpaid");
+    });
+
+    it("renders an archived option's label so existing rows still resolve", () => {
+      expect(formatCell("rejected", "select", STRINGS, OPTIONS)).toBe(
+        "Rejected",
+      );
+    });
+
+    it("falls back to the raw value when no option matches", () => {
+      expect(formatCell("foo", "select", STRINGS, OPTIONS)).toBe("foo");
+    });
+
+    it("falls back to the raw value when no options are provided", () => {
+      expect(formatCell("paid", "select", STRINGS)).toBe("paid");
+    });
+
+    it("renders a blank select cell as an empty string", () => {
+      expect(formatCell(null, "select", STRINGS, OPTIONS)).toBe("");
+      expect(formatCell("", "select", STRINGS, OPTIONS)).toBe("");
     });
   });
 });

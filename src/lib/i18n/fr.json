@@ -453,6 +453,8 @@
     "relationPickerError": "Nous n'avons pas pu effectuer la recherche pour le moment. Veuillez réessayer.",
     "relationClear": "Effacer la sélection",
     "relationArchived": "Archivé",
+    "selectPlaceholder": "Choisir une valeur",
+    "selectClear": "Effacer la sélection",
     "addRelationField": "Ajouter un champ de lien",
     "addRelationTargetLabel": "Lié à",
     "addRelationTargetPlaceholder": "Choisir un tableau",

@@ -15,6 +15,8 @@ import {
   type Draft,
 } from "@/lib/forms/field-input";
 import { RelationPicker } from "@/components/dashboard/RelationPicker";
+import { SelectDropdown } from "@/components/dashboard/SelectDropdown";
+import { selectDraftToData } from "@/lib/forms/select-input";
 
 /**
  * AddRecordForm (Story 3.2) — the presentation-agnostic, schema-typed form body
@@ -104,6 +106,16 @@ export function AddRecordForm({
         }
         continue;
       }
+      if (field.type === "select") {
+        // A select draft value is the option `value` token; blank → omitted
+        // (the schema has no `required` concept, exactly like relation/scalar).
+        // The map is the pure, unit-tested `selectDraftToData`.
+        const outcome = selectDraftToData(draft[field.key]);
+        if (outcome.kind === "ok") {
+          data[field.key] = outcome.value;
+        }
+        continue;
+      }
       const result = coerceAddValue(field.type, draft[field.key] ?? "");
       if (result.kind === "error") {
         nextErrors[field.key] = true;
@@ -162,6 +174,15 @@ export function AddRecordForm({
                 id={fieldId}
                 slug={slug}
                 targetTable={field.relationConfig.targetTable}
+                value={draft[field.key] ? draft[field.key] : null}
+                onChange={(next) => setValue(field.key, next ?? "")}
+                ariaLabel={field.label}
+                disabled={pending}
+              />
+            ) : field.type === "select" ? (
+              <SelectDropdown
+                id={fieldId}
+                options={field.options ?? []}
                 value={draft[field.key] ? draft[field.key] : null}
                 onChange={(next) => setValue(field.key, next ?? "")}
                 ariaLabel={field.label}

@@ -188,3 +188,27 @@
     Net-new scope beyond Epic 6 (overlaps the Growth-phase "multiple named forms" idea in epics.md); needs product
     sign-off and its own planning (PRD/epic) before building. Keep the FR78 invariant: relation/lookup fields stay
     excluded from the public surface regardless of any per-field toggle.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-13-2-render-edit-single-select-across-views-forms.md`
+  summary: Admin-only "+ Add value" affordance in the select dropdown (inline value creation from the open dropdown), calling the validated add_select_option path.
+  evidence: AC3 of Story 13.2 requires the affordance, but the add_select_option backend (route handler + mutator + non-chat client caller) does not exist — /api/schema/edit is chat-only and the op is allowlisted with no handler. That backend is Story 13.4's deliverable, so 13.2 ships render + dropdown edit (ACs 1 & 2) with SelectDropdown reserving an unused add-value slot; 13.4 wires the affordance.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-13-2-render-edit-single-select-across-views-forms.md`
+  summary: SelectDropdown edit control does not surface a stored select value that matches no option (orphaned/unknown, non-archived) — the trigger shows the placeholder as if empty.
+  evidence: partitionSelectOptions only surfaces a disabled item for an archived current value; an off-list token produces no matching Radix SelectItem. Read mode is guarded (formatCell raw fallback). Unreachable in 13.2 (options are only added), but becomes reachable once 13.4 hard-removes an unused option or 13.6 imports an off-list value — that story should mirror the archivedCurrent handling for unknown-current values.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-13-2-render-edit-single-select-across-views-forms.md`
+  summary: Public intake form renders a select field as an unvalidated free-text Input, letting an external submitter store an arbitrary off-list token into a select cell.
+  evidence: intakeFields (src/lib/intake/target.ts) excludes only relation, and IntakeForm has no select branch, so select falls through to a plain Input coerced via coerceAddValue("select") (accepts any string). Explicitly owned by Story 13.6 (Single-Select on Intake Forms & CSV Import); latent until a select field exists (13.3/13.5). Render the dropdown and validate against the option set when 13.6 is built.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-13-2-render-edit-single-select-across-views-forms.md`
+  summary: No server-side validation that a written select value is one of the field's options (add-record, inline edit, intake), unlike relation's referential-integrity guard.
+  evidence: src/lib/data/mutate.ts enforces relation integrity (Story 3.8, throws invalidReference) but has no select-option membership check; coerceAddValue and the record-write schema pass select tokens through unchecked. A crafted/API-direct write can persist an off-list or archived-as-new token. Net-new hardening beyond 13.2's UI render/edit intent; analog to the relation guard. Consider a dedicated guard when select fields become writable in bulk (13.6) or as a hardening pass.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-13-2-render-edit-single-select-across-views-forms.md`
+  summary: Filter and sort have no single-select support — a select column sorts by the raw stored token (not the resolved label) and offers no filter operators.
+  evidence: operatorsForType (src/lib/data/filter-sort.ts) has no select case (default: []) so a select column cannot be filtered; applyFilterSort special-cases only relation for label-ordered sort, so select orders by token. Deliberately excluded by 13.2's frozen intent ("only display is addressed here"). Future work once select fields exist: add an "is" (token-matched) filter operator and label-ordered sort for select, mirroring the relation treatment.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-13-2-render-edit-single-select-across-views-forms.md`
+  summary: No component-level tests for the select render/edit wiring — CellText options pass-through at the 4 read sites, SelectDropdown archived/clear rendering, and the InlineEditCell/AddRecordForm commit dispatch are untested end-to-end.
+  evidence: The pure decision logic is covered (format.test.ts, select-input.test.ts), but a silent regression (e.g. a call site dropping options={field.options}, or a swapped omit/noop dispatch arm) would keep CI green. The repo has no component-render harness for these authenticated read/edit surfaces and no Radix Select portal-interaction tests; adding one is a broader testing-infrastructure investment. Add a jsdom component harness (with the standard Radix Select pointer/scrollIntoView mocks) and cover these behaviors when that harness is introduced.

@@ -1,5 +1,5 @@
 import { formatCell, isBlankCellValue, type CellStrings } from "@/lib/format";
-import type { FieldDefinition } from "@/types/db";
+import type { FieldDefinition, SelectOption } from "@/types/db";
 
 /**
  * Renders one scalar cell's display value.
@@ -15,14 +15,20 @@ export function CellText({
   type,
   strings,
   className,
+  options,
 }: {
   value: unknown;
   type: FieldDefinition["type"];
   strings: CellStrings;
   className?: string;
+  /** A `select` field's option list — forwarded to `formatCell` so the cell
+   * renders the matching option's label instead of the raw stored token. */
+  options?: SelectOption[];
 }) {
   if (isBlankCellValue(value)) {
     return <span className="sr-only">{strings.empty}</span>;
   }
-  return <span className={className}>{formatCell(value, type, strings)}</span>;
+  return (
+    <span className={className}>{formatCell(value, type, strings, options)}</span>
+  );
 }

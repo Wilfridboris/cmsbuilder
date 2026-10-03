@@ -15,7 +15,7 @@
  * degrades to `String(value)` (a raw id) rather than mis-formatting it.
  */
 
-import type { FieldDefinition } from "@/types/db";
+import type { FieldDefinition, SelectOption } from "@/types/db";
 
 /** The three locale-dependent strings the formatter needs, keyed by intent. */
 export type CellStrings = {
@@ -83,6 +83,7 @@ export function formatCell(
   value: unknown,
   type: FieldDefinition["type"],
   strings: CellStrings,
+  options?: SelectOption[],
 ): string {
   if (isBlankCellValue(value)) {
     return "";
@@ -90,6 +91,16 @@ export function formatCell(
 
   if (type === "boolean") {
     return value ? strings.yes : strings.no;
+  }
+
+  // A `select` cell stores an option `value` token; resolve it to that option's
+  // human `label` for display. Search ALL options including archived ones, so
+  // existing rows that reference an archived option still render their label
+  // (Story 13.2). Defensive (mirrors `relation`): a value matching no option —
+  // or a missing options list — degrades to `String(value)` rather than throwing.
+  if (type === "select") {
+    const match = options?.find((opt) => opt.value === value);
+    return match ? match.label : String(value);
   }
 
   // Defensive: a relation should be label-resolved upstream. If a raw relation

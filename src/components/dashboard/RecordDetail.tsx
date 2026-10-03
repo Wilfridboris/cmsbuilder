@@ -210,6 +210,7 @@ function FieldRow({
               value={value}
               type={field.type}
               strings={cellStrings}
+              options={field.options}
               className="min-w-0 break-words text-pretty"
             />
             <Button

@@ -237,6 +237,7 @@ function OwnFieldsSummary({
                 value={record.data[field.key]}
                 type={field.type}
                 strings={cellStrings}
+                options={field.options}
                 className="min-w-0 break-words text-pretty"
               />
             )}
