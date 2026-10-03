@@ -9,9 +9,12 @@ import { getSchema } from "@/lib/data/records";
 import { canHideTable, visibleTables, visibleViews } from "@/lib/schema/overrides";
 import {
   addField,
+  addSelectOption,
   addTable,
   addView,
+  archiveSelectOption,
   removeView,
+  renameSelectOption,
   setFieldVisibility,
 } from "@/lib/data/schema-mutate";
 import { assertEditorOperationAllowed } from "@/lib/schema/validator";
@@ -139,10 +142,19 @@ type GeminiEditorOutput = {
     | "hide_field"
     | "remove_view"
     | "hide_table"
+    | "add_select_option"
+    | "rename_select_option"
+    | "archive_select_option"
     | "needs_clarification"
     | "out_of_scope";
   tableKey?: unknown;
   fieldKey?: unknown;
+  /**
+   * Present when `kind` is `rename_select_option` or `archive_select_option`
+   * (Story 13.4): the stored `value` token of the existing select option to
+   * rename/archive. The route resolves it against the stored schema in the mutator.
+   */
+  optionValue?: unknown;
   viewKey?: unknown;
   sourceTableKey?: unknown;
   label?: unknown;
@@ -225,11 +237,22 @@ export async function POST(
         // filters/sort against real, filterable keys (relations are chat-excluded).
         fields: table.fields
           .filter((field) => !field.hidden && field.type !== "relation")
-          .map((field) => ({
-            key: field.key,
-            label: field.label,
-            type: field.type,
-          })),
+          .map((field) =>
+            // A select field carries its current options so the model can target
+            // one by its stored value for a rename/archive op (Story 13.4).
+            field.type === "select"
+              ? {
+                  key: field.key,
+                  label: field.label,
+                  type: field.type,
+                  options: field.options ?? [],
+                }
+              : {
+                  key: field.key,
+                  label: field.label,
+                  type: field.type,
+                },
+          ),
       }),
     );
     // The existing views the model may be asked to REMOVE (Story 5.6) — exact
@@ -321,6 +344,12 @@ export async function POST(
         return handleRemoveView(ctx);
       case "hide_table":
         return handleHideTable(ctx);
+      case "add_select_option":
+        return handleAddSelectOption(ctx);
+      case "rename_select_option":
+        return handleRenameSelectOption(ctx);
+      case "archive_select_option":
+        return handleArchiveSelectOption(ctx);
     }
 
     // out_of_scope → friendly, non-technical decline. (The 8b fence above already
@@ -833,6 +862,213 @@ async function handleHideTable(
 }
 
 /**
+ * `add_select_option` → guarded append-only select-value add (Story 13.4). A
+ * shapeless output (missing table/field/label) is a rejection. The target is
+ * enforced against the select field shown in the summary (so a non-select /
+ * hallucinated field → reassuring `rejected` via the validator's 400, never trusted).
+ * On success → `applied` naming the value + field.
+ */
+async function handleAddSelectOption(
+  ctx: EditorContext,
+): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
+  const { output, identity, tables, t } = ctx;
+  if (
+    !isNonEmptyString(output.tableKey) ||
+    !isNonEmptyString(output.fieldKey) ||
+    !isNonEmptyString(output.label)
+  ) {
+    return json(
+      { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+      200,
+    );
+  }
+
+  const tableKey = output.tableKey.trim();
+  const fieldKey = output.fieldKey.trim();
+  const label = output.label.trim();
+
+  try {
+    const result = await addSelectOption(
+      identity,
+      tableKey,
+      fieldKey,
+      { label },
+      { rawOutput: output },
+    );
+
+    if (!result.data) {
+      return json(
+        { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+        200,
+      );
+    }
+
+    const targetTable = tables.find((table) => table.key === result.data!.tableKey);
+    const targetField = targetTable?.fields?.find(
+      (field) => field.key === result.data!.fieldKey,
+    );
+    return json(
+      {
+        data: {
+          kind: "applied",
+          tableKey: result.data.tableKey,
+          fieldKey: result.data.fieldKey,
+          label: result.data.label,
+          assistantText: t("successValueAdded", {
+            value: result.data.label,
+            field: targetField?.label ?? result.data.fieldKey,
+          }),
+        },
+        error: null,
+      },
+      200,
+    );
+  } catch (mutateErr) {
+    return handleMutateError(mutateErr, t, "mutate-select-option");
+  }
+}
+
+/**
+ * `rename_select_option` → guarded label-only rename of an existing select value
+ * (Story 13.4). A shapeless output (missing table/field/optionValue/label) is a
+ * rejection. The stored value is never changed, so existing records are untouched.
+ * On success → `applied` naming the new label + field.
+ */
+async function handleRenameSelectOption(
+  ctx: EditorContext,
+): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
+  const { output, identity, tables, t } = ctx;
+  if (
+    !isNonEmptyString(output.tableKey) ||
+    !isNonEmptyString(output.fieldKey) ||
+    !isNonEmptyString(output.optionValue) ||
+    !isNonEmptyString(output.label)
+  ) {
+    return json(
+      { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+      200,
+    );
+  }
+
+  const tableKey = output.tableKey.trim();
+  const fieldKey = output.fieldKey.trim();
+  const value = output.optionValue.trim();
+  const label = output.label.trim();
+
+  try {
+    const result = await renameSelectOption(
+      identity,
+      tableKey,
+      fieldKey,
+      { value, label },
+      { rawOutput: output },
+    );
+
+    if (!result.data) {
+      return json(
+        { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+        200,
+      );
+    }
+
+    const targetTable = tables.find((table) => table.key === result.data!.tableKey);
+    const targetField = targetTable?.fields?.find(
+      (field) => field.key === result.data!.fieldKey,
+    );
+    return json(
+      {
+        data: {
+          kind: "applied",
+          tableKey: result.data.tableKey,
+          fieldKey: result.data.fieldKey,
+          label: result.data.label,
+          assistantText: t("successValueRenamed", {
+            value: result.data.label,
+            field: targetField?.label ?? result.data.fieldKey,
+          }),
+        },
+        error: null,
+      },
+      200,
+    );
+  } catch (mutateErr) {
+    return handleMutateError(mutateErr, t, "mutate-select-option");
+  }
+}
+
+/**
+ * `archive_select_option` → guarded archive (soft-hide) of an existing select
+ * value (Story 13.4). A shapeless output (missing table/field/optionValue) is a
+ * rejection. The option is never removed (existing records still render its
+ * label); the last-active / already-archived guards live in the validator (400 →
+ * `rejected`). On success → `applied` naming the archived value's field.
+ */
+async function handleArchiveSelectOption(
+  ctx: EditorContext,
+): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
+  const { output, identity, tables, t } = ctx;
+  if (
+    !isNonEmptyString(output.tableKey) ||
+    !isNonEmptyString(output.fieldKey) ||
+    !isNonEmptyString(output.optionValue)
+  ) {
+    return json(
+      { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+      200,
+    );
+  }
+
+  const tableKey = output.tableKey.trim();
+  const fieldKey = output.fieldKey.trim();
+  const value = output.optionValue.trim();
+
+  try {
+    const result = await archiveSelectOption(
+      identity,
+      tableKey,
+      fieldKey,
+      { value },
+      { rawOutput: output },
+    );
+
+    if (!result.data) {
+      return json(
+        { data: { kind: "rejected", assistantText: t("rejection") }, error: null },
+        200,
+      );
+    }
+
+    // Resolve the archived option's human label (for the message) from the
+    // summary the model was shown — never echo a raw value token.
+    const targetTable = tables.find((table) => table.key === result.data!.tableKey);
+    const targetField = targetTable?.fields?.find(
+      (field) => field.key === result.data!.fieldKey,
+    );
+    const optionLabel =
+      targetField?.options?.find((o) => o.value === result.data!.value)?.label ??
+      result.data.value;
+    return json(
+      {
+        data: {
+          kind: "applied",
+          tableKey: result.data.tableKey,
+          fieldKey: result.data.fieldKey,
+          label: optionLabel,
+          assistantText: t("successValueArchived", {
+            value: optionLabel,
+            field: targetField?.label ?? result.data.fieldKey,
+          }),
+        },
+        error: null,
+      },
+      200,
+    );
+  } catch (mutateErr) {
+    return handleMutateError(mutateErr, t, "mutate-select-option");
+  }
+}
+
+/**
  * Map a guarded-write failure to a safe chat result. A validator rejection
  * (`AppError(400, ...)` — reserved/blocked/colliding key, non-scalar type, unknown
  * table) was already logged with the org id + raw output by the validator; show the
@@ -842,7 +1078,7 @@ async function handleHideTable(
 function handleMutateError(
   err: unknown,
   t: Awaited<ReturnType<typeof getTranslations>>,
-  stage: "mutate" | "mutate-table" | "mutate-view",
+  stage: "mutate" | "mutate-table" | "mutate-view" | "mutate-select-option",
 ): NextResponse<ApiResponse<EditorChatResult>> {
   if (err instanceof AppError && err.statusCode === 400) {
     return json(

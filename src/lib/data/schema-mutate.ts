@@ -9,9 +9,12 @@ import { getSchema } from "@/lib/data/records";
 import {
   addField as addFieldTransform,
   addRelationField as addRelationFieldTransform,
+  addSelectOption as addSelectOptionTransform,
   addTable as addTableTransform,
   addView as addViewTransform,
+  archiveSelectOption as archiveSelectOptionTransform,
   removeView as removeViewTransform,
+  renameSelectOption as renameSelectOptionTransform,
   canHideTable,
   hideField,
   hideTable,
@@ -20,9 +23,12 @@ import {
 } from "@/lib/schema/overrides";
 import {
   validateAddField,
+  validateAddSelectOption,
   validateAddTable,
   validateAddView,
+  validateArchiveSelectOption,
   validateRelationField,
+  validateRenameSelectOption,
   type AddFieldInput,
   type AddTableInput,
   type AddViewInput,
@@ -355,5 +361,152 @@ export async function setTableVisibility(
       : showTable(schema, tableKey);
 
     return { next, result: { tableKey, hidden } };
+  });
+}
+
+/**
+ * Append a new option to an existing `select` field (Story 13.4 —
+ * `add_select_option`). Runs the focused `validateAddSelectOption` against the
+ * stored schema → a rejection is `AppError(400, "selectOptionOpFailed")` with NO
+ * write, logged with the org id + raw LLM output; then the pure `addSelectOption`
+ * transform (append-only; existing options and every `records` row are untouched).
+ * Returns the created option's `{ tableKey, fieldKey, value, label }`; raw SQL is
+ * never leaked.
+ */
+export async function addSelectOption(
+  identity: SchemaMutateIdentity,
+  tableKey: string,
+  fieldKey: string,
+  input: { label: string },
+  context: { rawOutput?: unknown } = {},
+): Promise<
+  ApiResponse<{ tableKey: string; fieldKey: string; value: string; label: string }>
+> {
+  return withSchemaWrite(identity, (schema) => {
+    const normalizedTableKey = normalizeTableName(tableKey);
+
+    const result = validateAddSelectOption(
+      schema,
+      normalizedTableKey,
+      fieldKey,
+      input,
+      { id: identity.orgId, rawOutput: context.rawOutput },
+    );
+    if (!result.valid) {
+      throw new AppError(400, result.reason);
+    }
+
+    const next = addSelectOptionTransform(
+      schema,
+      normalizedTableKey,
+      fieldKey,
+      result.option,
+    );
+
+    return {
+      next,
+      result: {
+        tableKey: normalizedTableKey,
+        fieldKey,
+        value: result.option.value,
+        label: result.option.label,
+      },
+    };
+  });
+}
+
+/**
+ * Rename an existing `select` option's LABEL only (Story 13.4 —
+ * `rename_select_option`). Runs the focused `validateRenameSelectOption` against
+ * the stored schema → a rejection is `AppError(400, "selectOptionOpFailed")` with
+ * NO write, logged with the org id + raw LLM output; then the pure
+ * `renameSelectOption` transform (the stored `value` is never changed, so existing
+ * records are untouched). Returns `{ tableKey, fieldKey, value, label }`; raw SQL
+ * is never leaked.
+ */
+export async function renameSelectOption(
+  identity: SchemaMutateIdentity,
+  tableKey: string,
+  fieldKey: string,
+  input: { value: string; label: string },
+  context: { rawOutput?: unknown } = {},
+): Promise<
+  ApiResponse<{ tableKey: string; fieldKey: string; value: string; label: string }>
+> {
+  return withSchemaWrite(identity, (schema) => {
+    const normalizedTableKey = normalizeTableName(tableKey);
+
+    const result = validateRenameSelectOption(
+      schema,
+      normalizedTableKey,
+      fieldKey,
+      input,
+      { id: identity.orgId, rawOutput: context.rawOutput },
+    );
+    if (!result.valid) {
+      throw new AppError(400, result.reason);
+    }
+
+    const next = renameSelectOptionTransform(
+      schema,
+      normalizedTableKey,
+      fieldKey,
+      result.value,
+      result.label,
+    );
+
+    return {
+      next,
+      result: {
+        tableKey: normalizedTableKey,
+        fieldKey,
+        value: result.value,
+        label: result.label,
+      },
+    };
+  });
+}
+
+/**
+ * Archive (soft-hide) an existing `select` option (Story 13.4 —
+ * `archive_select_option`). Runs the focused `validateArchiveSelectOption` against
+ * the stored schema → a rejection is `AppError(400, "selectOptionOpFailed")` with
+ * NO write (duplicate/last-active/already-archived/unknown), logged with the org
+ * id + raw LLM output; then the pure `archiveSelectOption` transform (sets
+ * `archived:true`, never removes the option, so existing records still render its
+ * label). Returns `{ tableKey, fieldKey, value }`; raw SQL is never leaked.
+ */
+export async function archiveSelectOption(
+  identity: SchemaMutateIdentity,
+  tableKey: string,
+  fieldKey: string,
+  input: { value: string },
+  context: { rawOutput?: unknown } = {},
+): Promise<ApiResponse<{ tableKey: string; fieldKey: string; value: string }>> {
+  return withSchemaWrite(identity, (schema) => {
+    const normalizedTableKey = normalizeTableName(tableKey);
+
+    const result = validateArchiveSelectOption(
+      schema,
+      normalizedTableKey,
+      fieldKey,
+      input,
+      { id: identity.orgId, rawOutput: context.rawOutput },
+    );
+    if (!result.valid) {
+      throw new AppError(400, result.reason);
+    }
+
+    const next = archiveSelectOptionTransform(
+      schema,
+      normalizedTableKey,
+      fieldKey,
+      result.value,
+    );
+
+    return {
+      next,
+      result: { tableKey: normalizedTableKey, fieldKey, value: result.value },
+    };
   });
 }

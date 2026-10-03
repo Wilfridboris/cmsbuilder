@@ -274,3 +274,111 @@ export function removeView(
     views: (schema.views ?? []).filter((view) => view.key !== viewKey),
   };
 }
+
+// --- Story 13.4: append-only single-select value-management transforms --------
+//
+// Pure, immutable metadata edits over one `select` field's `options` list,
+// mirroring `addRelationField`/`hideField` (the table->fields nesting). Each
+// returns a NEW `SchemaDefinition` with a NEW options array for only the matched
+// field; the input schema and every other table/field are never mutated. Callers
+// MUST pre-validate (these do NO validation of their own). No row in `records` is
+// ever touched — the stored `value` tokens are untouched by all three.
+
+/**
+ * Append a (validated) option to a `select` field's `options` (Story 13.4 —
+ * `add_select_option`). The new option is appended last and never archived. No-op
+ * for an unknown table/field (returns an equivalent new schema).
+ */
+export function addSelectOption(
+  schema: SchemaDefinition,
+  tableKey: string,
+  fieldKey: string,
+  option: { value: string; label: string },
+): SchemaDefinition {
+  return {
+    ...schema,
+    tables: schema.tables.map((table) =>
+      table.key === tableKey
+        ? {
+            ...table,
+            fields: table.fields.map((field) =>
+              field.key === fieldKey
+                ? { ...field, options: [...(field.options ?? []), option] }
+                : field,
+            ),
+          }
+        : table,
+    ),
+  };
+}
+
+/**
+ * Set ONLY the matched option's `label` within a `select` field (Story 13.4 —
+ * `rename_select_option`). The option's stored `value` is never changed, so every
+ * existing `records.data` token stays valid. No-op for an unknown
+ * table/field/option (returns an equivalent new schema).
+ */
+export function renameSelectOption(
+  schema: SchemaDefinition,
+  tableKey: string,
+  fieldKey: string,
+  value: string,
+  label: string,
+): SchemaDefinition {
+  return {
+    ...schema,
+    tables: schema.tables.map((table) =>
+      table.key === tableKey
+        ? {
+            ...table,
+            fields: table.fields.map((field) =>
+              field.key === fieldKey
+                ? {
+                    ...field,
+                    options: (field.options ?? []).map((option) =>
+                      option.value === value ? { ...option, label } : option,
+                    ),
+                  }
+                : field,
+            ),
+          }
+        : table,
+    ),
+  };
+}
+
+/**
+ * Set `archived:true` on the matched option within a `select` field (Story 13.4 —
+ * `archive_select_option`). The option is NEVER removed, so existing
+ * `records.data` tokens still resolve to its label. No-op for an unknown
+ * table/field/option (returns an equivalent new schema).
+ */
+export function archiveSelectOption(
+  schema: SchemaDefinition,
+  tableKey: string,
+  fieldKey: string,
+  value: string,
+): SchemaDefinition {
+  return {
+    ...schema,
+    tables: schema.tables.map((table) =>
+      table.key === tableKey
+        ? {
+            ...table,
+            fields: table.fields.map((field) =>
+              field.key === fieldKey
+                ? {
+                    ...field,
+                    options: (field.options ?? []).map((option) =>
+                      option.value === value
+                        ? { ...option, archived: true }
+                        : option,
+                    ),
+                  }
+                : field,
+            ),
+          }
+        : table,
+    ),
+  };
+}

@@ -875,6 +875,206 @@ export function validateAddField(
   };
 }
 
+// --- Story 13.4: append-only single-select value-management validators --------
+//
+// The three focused gates for the value ops the chat may now drive. They mirror
+// `validateAddField` (focused, against the CURRENT stored schema; never
+// re-running the whole-schema generation validator, which strips `hidden`),
+// reuse the shared primitives (`normalizeTableName`, `isNonEmptyString`,
+// `reportRejection`), and enforce the governing APPEND-ONLY invariant:
+//   - add appends a new `{value,label}` whose normalized value is unique across
+//     ALL existing options (active OR archived); it NEVER touches an existing one;
+//   - rename edits ONLY the matched option's `label`; its stored `value` is never
+//     changed, so existing `records.data` tokens stay valid;
+//   - archive sets `archived:true` on the matched option and NEVER removes it, and
+//     refuses to archive the LAST non-archived option (mirrors `canHideTable`) or
+//     one already archived.
+// Each returns a reject CODE the caller maps to translated copy — never a raw
+// detail. Every rejection is logged via `reportRejection` with the org id + raw
+// output.
+
+/** The shared reject code for every value-management op. */
+export type SelectOptionOpReason = "selectOptionOpFailed";
+
+/** Resolve a visible table + a `select` field on it from the stored schema. */
+function findSelectField(
+  schema: SchemaDefinition,
+  tableKey: string,
+  fieldKey: string,
+): { key: string; label: string; type: "select"; options?: { value: string; label: string; archived?: boolean }[] } | null {
+  const tables = schema.tables ?? [];
+  const normalizedTableKey = normalizeTableName(tableKey);
+  const table = tables.find((t) => t.key === normalizedTableKey && !t.hidden);
+  if (!table) {
+    return null;
+  }
+  const field = table.fields.find((f) => f.key === fieldKey);
+  if (!field || field.type !== "select") {
+    return null;
+  }
+  return field as {
+    key: string;
+    label: string;
+    type: "select";
+    options?: { value: string; label: string; archived?: boolean }[];
+  };
+}
+
+export type AddSelectOptionInput = { label: string };
+export type ValidateAddSelectOptionResult =
+  | { valid: true; option: { value: string; label: string } }
+  | { valid: false; reason: SelectOptionOpReason };
+
+/**
+ * `add_select_option` gate (Story 13.4). Accepts only when `fieldKey` names a
+ * `select` field on a visible `tableKey`, `label` is non-empty, and its
+ * normalized `value` does NOT collide with ANY existing option value (active OR
+ * archived — append-only uniqueness). Returns the new `{value,label}` to append.
+ */
+export function validateAddSelectOption(
+  schema: SchemaDefinition,
+  tableKey: string,
+  fieldKey: string,
+  input: AddSelectOptionInput,
+  context: ValidationContext = {},
+): ValidateAddSelectOptionResult {
+  const reject = (detail: string): ValidateAddSelectOptionResult => {
+    reportRejection(detail, { id: context.id, rawOutput: context.rawOutput });
+    return { valid: false, reason: "selectOptionOpFailed" };
+  };
+
+  const field = findSelectField(schema, tableKey, fieldKey);
+  if (!field) {
+    return reject(
+      `add_select_option: no visible select field "${fieldKey}" on "${tableKey}"`,
+    );
+  }
+
+  if (!isNonEmptyString(input.label)) {
+    return reject("add_select_option: missing label");
+  }
+  const label = input.label.trim();
+  const value = normalizeTableName(label);
+  if (!value) {
+    return reject("add_select_option: value normalized to empty");
+  }
+
+  // Append-only uniqueness: unique against EVERY existing option value, archived
+  // included, so a reused token can never shadow an existing (or retired) choice.
+  const existing = field.options ?? [];
+  if (existing.some((o) => o.value === value)) {
+    return reject(`add_select_option: duplicate value "${value}"`);
+  }
+
+  return { valid: true, option: { value, label } };
+}
+
+export type RenameSelectOptionInput = { value: string; label: string };
+export type ValidateRenameSelectOptionResult =
+  | { valid: true; value: string; label: string }
+  | { valid: false; reason: SelectOptionOpReason };
+
+/**
+ * `rename_select_option` gate (Story 13.4). Accepts only when `fieldKey` names a
+ * `select` field on a visible `tableKey`, an option with the given stored `value`
+ * exists, and the new `label` is non-empty. The stored `value` is NEVER changed
+ * (existing records are untouched); only the label is edited. Returns the matched
+ * `value` + the sanitized (trimmed) new label.
+ */
+export function validateRenameSelectOption(
+  schema: SchemaDefinition,
+  tableKey: string,
+  fieldKey: string,
+  input: RenameSelectOptionInput,
+  context: ValidationContext = {},
+): ValidateRenameSelectOptionResult {
+  const reject = (detail: string): ValidateRenameSelectOptionResult => {
+    reportRejection(detail, { id: context.id, rawOutput: context.rawOutput });
+    return { valid: false, reason: "selectOptionOpFailed" };
+  };
+
+  const field = findSelectField(schema, tableKey, fieldKey);
+  if (!field) {
+    return reject(
+      `rename_select_option: no visible select field "${fieldKey}" on "${tableKey}"`,
+    );
+  }
+
+  if (!isNonEmptyString(input.value)) {
+    return reject("rename_select_option: missing option value");
+  }
+  const value = String(input.value).trim();
+  const option = (field.options ?? []).find((o) => o.value === value);
+  if (!option) {
+    return reject(`rename_select_option: unknown option value "${value}"`);
+  }
+
+  if (!isNonEmptyString(input.label)) {
+    return reject("rename_select_option: missing new label");
+  }
+  const label = input.label.trim();
+
+  return { valid: true, value, label };
+}
+
+export type ArchiveSelectOptionInput = { value: string };
+export type ValidateArchiveSelectOptionResult =
+  | { valid: true; value: string }
+  | { valid: false; reason: SelectOptionOpReason };
+
+/**
+ * `archive_select_option` gate (Story 13.4). Accepts only when `fieldKey` names a
+ * `select` field on a visible `tableKey`, an option with the given stored `value`
+ * exists and is NOT already archived, and archiving it would NOT leave the field
+ * with zero non-archived options (mirrors the `canHideTable` last-visible guard).
+ * The option is never removed — the caller sets `archived:true` — so existing
+ * `records.data` tokens stay valid and still render their label. Returns the
+ * matched `value`.
+ */
+export function validateArchiveSelectOption(
+  schema: SchemaDefinition,
+  tableKey: string,
+  fieldKey: string,
+  input: ArchiveSelectOptionInput,
+  context: ValidationContext = {},
+): ValidateArchiveSelectOptionResult {
+  const reject = (detail: string): ValidateArchiveSelectOptionResult => {
+    reportRejection(detail, { id: context.id, rawOutput: context.rawOutput });
+    return { valid: false, reason: "selectOptionOpFailed" };
+  };
+
+  const field = findSelectField(schema, tableKey, fieldKey);
+  if (!field) {
+    return reject(
+      `archive_select_option: no visible select field "${fieldKey}" on "${tableKey}"`,
+    );
+  }
+
+  if (!isNonEmptyString(input.value)) {
+    return reject("archive_select_option: missing option value");
+  }
+  const value = String(input.value).trim();
+  const options = field.options ?? [];
+  const option = options.find((o) => o.value === value);
+  if (!option) {
+    return reject(`archive_select_option: unknown option value "${value}"`);
+  }
+  if (option.archived === true) {
+    return reject(`archive_select_option: option "${value}" is already archived`);
+  }
+
+  // Never leave a select with zero selectable values: refuse to archive the LAST
+  // non-archived option (mirrors the Story 5.7 last-visible-table guard).
+  const activeCount = options.filter((o) => o.archived !== true).length;
+  if (activeCount <= 1) {
+    return reject(
+      `archive_select_option: "${value}" is the last non-archived option`,
+    );
+  }
+
+  return { valid: true, value };
+}
+
 /** One scalar field the conversational `add_table` path proposes. */
 export type AddTableFieldInput = {
   /** The human-facing label the model derived (e.g. "Employee name"). */

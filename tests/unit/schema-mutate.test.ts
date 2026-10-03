@@ -28,6 +28,9 @@ const {
   addTable,
   addView,
   removeView,
+  addSelectOption,
+  renameSelectOption,
+  archiveSelectOption,
 } = await import("@/lib/data/schema-mutate");
 
 function baseSchema(): SchemaDefinition {
@@ -71,6 +74,26 @@ function invoicesSchema(): SchemaDefinition {
         fields: [
           { key: "status", label: "Status", type: "text" },
           { key: "due_date", label: "Due date", type: "date" },
+        ],
+      },
+    ],
+  };
+}
+
+function selectFieldSchema(
+  options: { value: string; label: string; archived?: boolean }[] = [
+    { value: "paid", label: "Paid" },
+    { value: "unpaid", label: "Unpaid" },
+  ],
+): SchemaDefinition {
+  return {
+    tables: [
+      {
+        key: "invoices",
+        label: "Invoices",
+        fields: [
+          { key: "amount", label: "Amount", type: "currency" },
+          { key: "status", label: "Status", type: "select", options },
         ],
       },
     ],
@@ -744,5 +767,151 @@ describe("removeView (Story 5.6)", () => {
 
     expect(err).toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
     expect((err as { userMessage: string }).userMessage).not.toContain("boom");
+  });
+});
+
+describe("addSelectOption (Story 13.4)", () => {
+  it("appends a validated option and writes the re-derived definition scoped to the org", async () => {
+    getSchema.mockResolvedValue({ data: selectFieldSchema(), error: null });
+
+    const res = await addSelectOption(identity(), "invoices", "status", {
+      label: "Partial",
+    });
+
+    expect(res.error).toBeNull();
+    expect(res.data).toEqual({
+      tableKey: "invoices",
+      fieldKey: "status",
+      value: "partial",
+      label: "Partial",
+    });
+
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    expect(eqArgs).toEqual(["organization_id", "org-1"]);
+
+    const def = updatePayload?.definition as SchemaDefinition;
+    const status = def.tables[0].fields.find((f) => f.key === "status");
+    expect(status?.options).toEqual([
+      { value: "paid", label: "Paid" },
+      { value: "unpaid", label: "Unpaid" },
+      { value: "partial", label: "Partial" },
+    ]);
+    expect(updatePayload).toHaveProperty("updated_at");
+  });
+
+  it("400 selectOptionOpFailed with NO write on a duplicate value", async () => {
+    getSchema.mockResolvedValue({ data: selectFieldSchema(), error: null });
+
+    await expect(
+      addSelectOption(identity(), "invoices", "status", { label: "Paid" }),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "selectOptionOpFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("500 writeFailed with NO write when the schema read fails", async () => {
+    getSchema.mockResolvedValue({ data: null, error: "read boom" });
+
+    await expect(
+      addSelectOption(identity(), "invoices", "status", { label: "Partial" }),
+    ).rejects.toMatchObject({ statusCode: 500, userMessage: "writeFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("renameSelectOption (Story 13.4)", () => {
+  it("edits only the option label (value unchanged) and writes the re-derived definition scoped to the org", async () => {
+    getSchema.mockResolvedValue({ data: selectFieldSchema(), error: null });
+
+    const res = await renameSelectOption(identity(), "invoices", "status", {
+      value: "paid",
+      label: "Settled",
+    });
+
+    expect(res.error).toBeNull();
+    expect(res.data).toEqual({
+      tableKey: "invoices",
+      fieldKey: "status",
+      value: "paid",
+      label: "Settled",
+    });
+
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    expect(eqArgs).toEqual(["organization_id", "org-1"]);
+
+    const def = updatePayload?.definition as SchemaDefinition;
+    const status = def.tables[0].fields.find((f) => f.key === "status");
+    expect(status?.options).toEqual([
+      { value: "paid", label: "Settled" },
+      { value: "unpaid", label: "Unpaid" },
+    ]);
+  });
+
+  it("400 selectOptionOpFailed with NO write on an unknown option", async () => {
+    getSchema.mockResolvedValue({ data: selectFieldSchema(), error: null });
+
+    await expect(
+      renameSelectOption(identity(), "invoices", "status", {
+        value: "ghost",
+        label: "Settled",
+      }),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "selectOptionOpFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("archiveSelectOption (Story 13.4)", () => {
+  it("sets archived:true without removing the option and writes scoped to the org", async () => {
+    getSchema.mockResolvedValue({ data: selectFieldSchema(), error: null });
+
+    const res = await archiveSelectOption(identity(), "invoices", "status", {
+      value: "paid",
+    });
+
+    expect(res.error).toBeNull();
+    expect(res.data).toEqual({
+      tableKey: "invoices",
+      fieldKey: "status",
+      value: "paid",
+    });
+
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    expect(eqArgs).toEqual(["organization_id", "org-1"]);
+
+    const def = updatePayload?.definition as SchemaDefinition;
+    const status = def.tables[0].fields.find((f) => f.key === "status");
+    expect(status?.options).toEqual([
+      { value: "paid", label: "Paid", archived: true },
+      { value: "unpaid", label: "Unpaid" },
+    ]);
+  });
+
+  it("400 selectOptionOpFailed with NO write when archiving the last active option", async () => {
+    getSchema.mockResolvedValue({
+      data: selectFieldSchema([
+        { value: "paid", label: "Paid" },
+        { value: "unpaid", label: "Unpaid", archived: true },
+      ]),
+      error: null,
+    });
+
+    await expect(
+      archiveSelectOption(identity(), "invoices", "status", { value: "paid" }),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "selectOptionOpFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
+  });
+
+  it("400 selectOptionOpFailed with NO write on an already-archived option", async () => {
+    getSchema.mockResolvedValue({
+      data: selectFieldSchema([
+        { value: "paid", label: "Paid" },
+        { value: "draft", label: "Draft", archived: true },
+      ]),
+      error: null,
+    });
+
+    await expect(
+      archiveSelectOption(identity(), "invoices", "status", { value: "draft" }),
+    ).rejects.toMatchObject({ statusCode: 400, userMessage: "selectOptionOpFailed" });
+    expect(updateSpy).not.toHaveBeenCalled();
   });
 });

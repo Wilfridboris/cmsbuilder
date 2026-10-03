@@ -10,7 +10,10 @@ import {
   filterSeedRows,
   isPermittedOperation,
   validateAddField,
+  validateAddSelectOption,
+  validateArchiveSelectOption,
   validateGeneratedSchema,
+  validateRenameSelectOption,
 } from "@/lib/schema/validator";
 import { GENERATION_FIELD_TYPES } from "@/lib/gemini/prompts";
 import type { SchemaDefinition, TableDefinition } from "@/types/db";
@@ -1084,5 +1087,215 @@ describe("Story 13.1 — blocklist + whole-word key guard unchanged", () => {
     // response-schema enum nor the generation enum offers it to the model.
     expect([...SCALAR_FIELD_TYPES]).not.toContain("select");
     expect([...GENERATION_FIELD_TYPES]).not.toContain("select");
+  });
+});
+
+/**
+ * Story 13.4 — the three focused append-only value-management validators. Covers
+ * the write rows of the I/O & Edge-Case Matrix: accept + each rejection
+ * (duplicate, last-active archive, already-archived, unknown field/option,
+ * non-select field).
+ */
+describe("Story 13.4 — select value-management validators", () => {
+  function selectSchema(
+    options: { value: string; label: string; archived?: boolean }[],
+  ): SchemaDefinition {
+    return {
+      tables: [
+        {
+          key: "invoices",
+          label: "Invoices",
+          fields: [
+            { key: "amount", label: "Amount", type: "currency" },
+            { key: "status", label: "Status", type: "select", options },
+            { key: "notes", label: "Notes", type: "text" },
+          ],
+        },
+        {
+          key: "hidden_table",
+          label: "Hidden",
+          hidden: true,
+          fields: [
+            { key: "state", label: "State", type: "select", options: [{ value: "a", label: "A" }] },
+          ],
+        },
+      ],
+    };
+  }
+
+  const twoOptions = [
+    { value: "paid", label: "Paid" },
+    { value: "unpaid", label: "Unpaid" },
+  ];
+
+  describe("validateAddSelectOption", () => {
+    it("accepts a new value and normalizes its label to a unique value", () => {
+      const result = validateAddSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "status",
+        { label: "Partial" },
+      );
+      expect(result).toEqual({
+        valid: true,
+        option: { value: "partial", label: "Partial" },
+      });
+    });
+
+    it("rejects a value colliding with an existing ACTIVE option (not deduped)", () => {
+      const result = validateAddSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "status",
+        { label: "Paid" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("rejects a value colliding with an existing ARCHIVED option", () => {
+      const result = validateAddSelectOption(
+        selectSchema([
+          { value: "paid", label: "Paid" },
+          { value: "draft", label: "Draft", archived: true },
+        ]),
+        "invoices",
+        "status",
+        { label: "Draft" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("rejects an empty label", () => {
+      const result = validateAddSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "status",
+        { label: "   " },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("rejects a non-select field target", () => {
+      const result = validateAddSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "notes",
+        { label: "Partial" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("rejects an unknown field / hidden table", () => {
+      expect(
+        validateAddSelectOption(selectSchema(twoOptions), "invoices", "ghost", {
+          label: "Partial",
+        }),
+      ).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+      expect(
+        validateAddSelectOption(selectSchema(twoOptions), "hidden_table", "state", {
+          label: "B",
+        }),
+      ).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+  });
+
+  describe("validateRenameSelectOption", () => {
+    it("accepts a rename of an existing option; returns the matched value + new label", () => {
+      const result = validateRenameSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "status",
+        { value: "paid", label: "Settled" },
+      );
+      expect(result).toEqual({ valid: true, value: "paid", label: "Settled" });
+    });
+
+    it("rejects an unknown option value", () => {
+      const result = validateRenameSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "status",
+        { value: "ghost", label: "Settled" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("rejects an empty new label", () => {
+      const result = validateRenameSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "status",
+        { value: "paid", label: "" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("rejects a non-select field target", () => {
+      const result = validateRenameSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "notes",
+        { value: "paid", label: "Settled" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+  });
+
+  describe("validateArchiveSelectOption", () => {
+    it("accepts archiving a non-last active option", () => {
+      const result = validateArchiveSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "status",
+        { value: "paid" },
+      );
+      expect(result).toEqual({ valid: true, value: "paid" });
+    });
+
+    it("rejects archiving the LAST non-archived option", () => {
+      const result = validateArchiveSelectOption(
+        selectSchema([
+          { value: "paid", label: "Paid" },
+          { value: "unpaid", label: "Unpaid", archived: true },
+        ]),
+        "invoices",
+        "status",
+        { value: "paid" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("rejects archiving an already-archived option", () => {
+      const result = validateArchiveSelectOption(
+        selectSchema([
+          { value: "paid", label: "Paid" },
+          { value: "draft", label: "Draft", archived: true },
+        ]),
+        "invoices",
+        "status",
+        { value: "draft" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("rejects an unknown option value", () => {
+      const result = validateArchiveSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "status",
+        { value: "ghost" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("rejects a non-select field target", () => {
+      const result = validateArchiveSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "notes",
+        { value: "paid" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
   });
 });

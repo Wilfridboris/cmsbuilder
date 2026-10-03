@@ -31,8 +31,14 @@ const addTable = vi.fn();
 const addView = vi.fn();
 const removeView = vi.fn();
 const setFieldVisibility = vi.fn();
+const addSelectOption = vi.fn();
+const renameSelectOption = vi.fn();
+const archiveSelectOption = vi.fn();
 const getSchema = vi.fn();
 const callGeminiWithTimeout = vi.fn();
+// Default: echo the key (most assertions compare the bare key). Individual tests
+// override with `mockImplementationOnce` to observe the interpolation arguments.
+const getTranslations = vi.fn(async () => (key: string) => key);
 
 type MaybeSingle = { data: unknown; error: unknown };
 let membershipRead: MaybeSingle;
@@ -88,6 +94,9 @@ vi.mock("@/lib/data/schema-mutate", () => ({
   addView,
   removeView,
   setFieldVisibility,
+  addSelectOption,
+  renameSelectOption,
+  archiveSelectOption,
 }));
 vi.mock("@/lib/data/records", () => ({ getSchema }));
 vi.mock("@/lib/gemini/client", () => ({ callGeminiWithTimeout }));
@@ -95,9 +104,7 @@ vi.mock("@/lib/observability/report", () => ({
   reportError: vi.fn(),
   reportRejection: vi.fn(),
 }));
-vi.mock("next-intl/server", () => ({
-  getTranslations: async () => (key: string) => key,
-}));
+vi.mock("next-intl/server", () => ({ getTranslations }));
 
 function postReq(body: unknown): NextRequest {
   return { json: async () => body } as unknown as NextRequest;
@@ -173,6 +180,28 @@ beforeEach(() => {
   });
   setFieldVisibility.mockResolvedValue({
     data: { tableKey: "jobs", fieldKey: "notes", hidden: true },
+    error: null,
+  });
+  addSelectOption.mockResolvedValue({
+    data: {
+      tableKey: "invoices",
+      fieldKey: "status",
+      value: "partial",
+      label: "Partial",
+    },
+    error: null,
+  });
+  renameSelectOption.mockResolvedValue({
+    data: {
+      tableKey: "invoices",
+      fieldKey: "status",
+      value: "paid",
+      label: "Settled",
+    },
+    error: null,
+  });
+  archiveSelectOption.mockResolvedValue({
+    data: { tableKey: "invoices", fieldKey: "status", value: "paid" },
     error: null,
   });
 });
@@ -1102,5 +1131,333 @@ describe("POST /api/schema/edit", () => {
     const body = await res.json();
     expect(body.data.kind).toBe("degraded");
     expect(body.data.assistantText).not.toContain("boom");
+  });
+
+  // --- Story 13.4: the three select value-management chat handlers ------------
+  // A schema whose Invoices table carries a `select` status field so the route's
+  // summary surfaces its current options and a value op resolves to a real field.
+  function selectSchemaRead() {
+    return {
+      data: {
+        tables: [
+          {
+            key: "invoices",
+            label: "Invoices",
+            fields: [
+              {
+                key: "status",
+                label: "Status",
+                type: "select",
+                options: [
+                  { value: "paid", label: "Paid" },
+                  { value: "unpaid", label: "Unpaid" },
+                ],
+              },
+            ],
+          },
+        ],
+        views: [],
+      },
+      error: null,
+    };
+  }
+
+  it("surfaces a select field's options in the prompt's table summary (Story 13.4)", async () => {
+    getSchema.mockResolvedValue(selectSchemaRead());
+    const { buildEditorPrompt } = await import("@/lib/gemini/prompts");
+    const buildSpy = vi.spyOn(
+      await import("@/lib/gemini/prompts"),
+      "buildEditorPrompt",
+    );
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "needs_clarification",
+      question: "Which table?",
+    });
+
+    await POST(postReq({ slug: "acme", message: "add a value" }));
+
+    // The route built the prompt with the invoices select field carrying its
+    // current options, so the model can target one by value.
+    const call = buildSpy.mock.calls[0];
+    const invoices = call[1].tables.find((t) => t.key === "invoices");
+    const status = invoices?.fields?.find((f) => f.key === "status");
+    expect(status?.options).toEqual([
+      { value: "paid", label: "Paid" },
+      { value: "unpaid", label: "Unpaid" },
+    ]);
+    // And the serialized prompt string includes the value=Label rendering.
+    const prompt = buildEditorPrompt(call[0], call[1]);
+    expect(prompt).toContain("paid=Paid");
+    expect(prompt).toContain("unpaid=Unpaid");
+    buildSpy.mockRestore();
+  });
+
+  it("applied: add_select_option → 200 applied, addSelectOption ran, no other write", async () => {
+    getSchema.mockResolvedValue(selectSchemaRead());
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+      label: "Partial",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "add Partial to the Invoices status" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data.kind).toBe("applied");
+    expect(body.data.tableKey).toBe("invoices");
+    expect(body.data.fieldKey).toBe("status");
+    expect(body.data.assistantText).toBe("successValueAdded");
+    expect(addSelectOption).toHaveBeenCalledTimes(1);
+    const call = addSelectOption.mock.calls[0];
+    expect(call[0]).toEqual(
+      expect.objectContaining({ actorId: "user-1", orgId: "org-1" }),
+    );
+    expect(call[1]).toBe("invoices");
+    expect(call[2]).toBe("status");
+    expect(call[3]).toEqual({ label: "Partial" });
+    expect(addField).not.toHaveBeenCalled();
+    expect(renameSelectOption).not.toHaveBeenCalled();
+    expect(archiveSelectOption).not.toHaveBeenCalled();
+  });
+
+  it("rejected: a shapeless add_select_option (missing label) → 200 rejected, mutator NOT called", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+    });
+
+    const res = await POST(postReq({ slug: "acme", message: "add a value" }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.kind).toBe("rejected");
+    expect(addSelectOption).not.toHaveBeenCalled();
+  });
+
+  it("rejected: an add_select_option validator rejection → 200 rejected, fixed copy, no raw leak", async () => {
+    const { AppError } = await import("@/types/api");
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+      label: "Paid",
+    });
+    addSelectOption.mockRejectedValue(new AppError(400, "selectOptionOpFailed"));
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "add Paid to Invoices status" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+    expect(body.data.assistantText).not.toContain("selectOptionOpFailed");
+  });
+
+  it("applied: rename_select_option → 200 applied, renameSelectOption ran", async () => {
+    getSchema.mockResolvedValue(selectSchemaRead());
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "rename_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+      optionValue: "paid",
+      label: "Settled",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "rename Paid to Settled on Invoices status" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data.kind).toBe("applied");
+    expect(body.data.assistantText).toBe("successValueRenamed");
+    expect(renameSelectOption).toHaveBeenCalledTimes(1);
+    const call = renameSelectOption.mock.calls[0];
+    expect(call[1]).toBe("invoices");
+    expect(call[2]).toBe("status");
+    expect(call[3]).toEqual({ value: "paid", label: "Settled" });
+    expect(addSelectOption).not.toHaveBeenCalled();
+    expect(archiveSelectOption).not.toHaveBeenCalled();
+  });
+
+  it("rejected: a shapeless rename_select_option (missing optionValue) → 200 rejected, mutator NOT called", async () => {
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "rename_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+      label: "Settled",
+    });
+
+    const res = await POST(postReq({ slug: "acme", message: "rename a value" }));
+
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.kind).toBe("rejected");
+    expect(renameSelectOption).not.toHaveBeenCalled();
+  });
+
+  it("applied: archive_select_option → 200 applied, archiveSelectOption ran", async () => {
+    getSchema.mockResolvedValue(selectSchemaRead());
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "archive_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+      optionValue: "paid",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "remove the Paid status from Invoices" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.error).toBeNull();
+    expect(body.data.kind).toBe("applied");
+    expect(body.data.assistantText).toBe("successValueArchived");
+    expect(archiveSelectOption).toHaveBeenCalledTimes(1);
+    const call = archiveSelectOption.mock.calls[0];
+    expect(call[1]).toBe("invoices");
+    expect(call[2]).toBe("status");
+    expect(call[3]).toEqual({ value: "paid" });
+    expect(addSelectOption).not.toHaveBeenCalled();
+    expect(renameSelectOption).not.toHaveBeenCalled();
+  });
+
+  it("rejected: an archive_select_option validator rejection (last active) → 200 rejected, no raw leak", async () => {
+    const { AppError } = await import("@/types/api");
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "archive_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+      optionValue: "paid",
+    });
+    archiveSelectOption.mockRejectedValue(new AppError(400, "selectOptionOpFailed"));
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "remove the Paid status" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+    expect(body.data.assistantText).not.toContain("selectOptionOpFailed");
+  });
+
+  it("rejected: raw SQL in a select-value op output → 200 rejected, no write, reportRejection logged", async () => {
+    const { reportRejection } = await import("@/lib/observability/report");
+    vi.mocked(reportRejection).mockClear();
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+      label: "Partial",
+      smuggled: "DROP TABLE records;",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "add Partial to Invoices status" }),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.kind).toBe("rejected");
+    expect(body.data.assistantText).toBe("rejection");
+    expect(body.data.assistantText).not.toContain("DROP");
+    expect(addSelectOption).not.toHaveBeenCalled();
+    expect(reportRejection).toHaveBeenCalled();
+  });
+
+  // --- Story 13.4: success-message argument resolution -----------------------
+  // The handlers resolve human labels (never raw tokens/keys) into the owner-
+  // facing confirmation: the field's label from the summary, and — for archive —
+  // the option's label via a token->label lookup. The default translator mock
+  // echoes only the key, so these tests override it once to observe the actual
+  // {value, field} interpolation args and prove the resolution runs.
+  const interpolatingT = async () => (key: string, args?: Record<string, unknown>) =>
+    `${key}|value=${args?.value ?? ""}|field=${args?.field ?? ""}`;
+
+  it("add_select_option resolves the field LABEL (Status, not the raw key) into the success copy", async () => {
+    getSchema.mockResolvedValue(selectSchemaRead());
+    getTranslations.mockImplementationOnce(interpolatingT);
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "add_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+      label: "Partial",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "add Partial to the Invoices status" }),
+    );
+
+    const body = await res.json();
+    expect(body.data.kind).toBe("applied");
+    expect(body.data.assistantText).toBe("successValueAdded|value=Partial|field=Status");
+    expect(body.data.assistantText).not.toContain("field=status");
+  });
+
+  it("rename_select_option resolves the field LABEL into the success copy", async () => {
+    getSchema.mockResolvedValue(selectSchemaRead());
+    getTranslations.mockImplementationOnce(interpolatingT);
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "rename_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+      optionValue: "paid",
+      label: "Settled",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "rename Paid to Settled on Invoices status" }),
+    );
+
+    const body = await res.json();
+    expect(body.data.kind).toBe("applied");
+    expect(body.data.assistantText).toBe(
+      "successValueRenamed|value=Settled|field=Status",
+    );
+    expect(body.data.assistantText).not.toContain("field=status");
+  });
+
+  it("archive_select_option resolves the option LABEL (Paid, not the raw 'paid' token) and the field LABEL", async () => {
+    getSchema.mockResolvedValue(selectSchemaRead());
+    getTranslations.mockImplementationOnce(interpolatingT);
+    const { POST } = await import("@/app/api/schema/edit/route");
+    callGeminiWithTimeout.mockResolvedValue({
+      kind: "archive_select_option",
+      tableKey: "invoices",
+      fieldKey: "status",
+      optionValue: "paid",
+    });
+
+    const res = await POST(
+      postReq({ slug: "acme", message: "remove the Paid status from Invoices" }),
+    );
+
+    const body = await res.json();
+    expect(body.data.kind).toBe("applied");
+    // The archived value renders as its human label, never the stored token.
+    expect(body.data.assistantText).toBe("successValueArchived|value=Paid|field=Status");
+    expect(body.data.assistantText).not.toContain("value=paid");
+    expect(body.data.assistantText).not.toContain("field=status");
   });
 });

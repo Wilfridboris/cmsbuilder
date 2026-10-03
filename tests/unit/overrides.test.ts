@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   addRelationField,
+  addSelectOption,
+  archiveSelectOption,
   canHideTable,
   hideField,
   hideTable,
   removeView,
   renameField,
+  renameSelectOption,
   renameTable,
   showField,
   showTable,
@@ -363,5 +366,118 @@ describe("removeView (Story 5.6)", () => {
   it("is safe on a schema with no views", () => {
     const next = removeView(makeSchema(), "unpaid");
     expect(next.views).toEqual([]);
+  });
+});
+
+describe("Story 13.4 — select value-management transforms", () => {
+  function selectSchema(): SchemaDefinition {
+    return {
+      tables: [
+        {
+          key: "invoices",
+          label: "Invoices",
+          fields: [
+            { key: "amount", label: "Amount", type: "currency" },
+            {
+              key: "status",
+              label: "Status",
+              type: "select",
+              options: [
+                { value: "paid", label: "Paid" },
+                { value: "unpaid", label: "Unpaid" },
+              ],
+            },
+          ],
+        },
+        {
+          key: "clients",
+          label: "Clients",
+          fields: [{ key: "name", label: "Name", type: "text" }],
+        },
+      ],
+    };
+  }
+
+  describe("addSelectOption", () => {
+    it("appends the option to the matched field's options", () => {
+      const next = addSelectOption(selectSchema(), "invoices", "status", {
+        value: "partial",
+        label: "Partial",
+      });
+      const status = next.tables
+        .find((t) => t.key === "invoices")
+        ?.fields.find((f) => f.key === "status");
+      expect(status?.options).toEqual([
+        { value: "paid", label: "Paid" },
+        { value: "unpaid", label: "Unpaid" },
+        { value: "partial", label: "Partial" },
+      ]);
+    });
+
+    it("does not mutate the input schema and leaves other tables untouched", () => {
+      const schema = selectSchema();
+      const before = snapshot(schema);
+      const next = addSelectOption(schema, "invoices", "status", {
+        value: "partial",
+        label: "Partial",
+      });
+      expect(snapshot(schema)).toBe(before);
+      expect(next.tables.find((t) => t.key === "clients")).toEqual(
+        schema.tables.find((t) => t.key === "clients"),
+      );
+    });
+
+    it("is a no-op for an unknown table/field", () => {
+      const schema = selectSchema();
+      expect(
+        snapshot(addSelectOption(schema, "ghost", "status", { value: "x", label: "X" })),
+      ).toBe(snapshot(schema));
+    });
+  });
+
+  describe("renameSelectOption", () => {
+    it("edits ONLY the matched option's label, never its value", () => {
+      const next = renameSelectOption(
+        selectSchema(),
+        "invoices",
+        "status",
+        "paid",
+        "Settled",
+      );
+      const status = next.tables
+        .find((t) => t.key === "invoices")
+        ?.fields.find((f) => f.key === "status");
+      expect(status?.options).toEqual([
+        { value: "paid", label: "Settled" },
+        { value: "unpaid", label: "Unpaid" },
+      ]);
+    });
+
+    it("does not mutate the input schema", () => {
+      const schema = selectSchema();
+      const before = snapshot(schema);
+      renameSelectOption(schema, "invoices", "status", "paid", "Settled");
+      expect(snapshot(schema)).toBe(before);
+    });
+  });
+
+  describe("archiveSelectOption", () => {
+    it("sets archived:true on the matched option and never removes it", () => {
+      const next = archiveSelectOption(selectSchema(), "invoices", "status", "paid");
+      const status = next.tables
+        .find((t) => t.key === "invoices")
+        ?.fields.find((f) => f.key === "status");
+      expect(status?.options).toEqual([
+        { value: "paid", label: "Paid", archived: true },
+        { value: "unpaid", label: "Unpaid" },
+      ]);
+    });
+
+    it("does not mutate the input schema", () => {
+      const schema = selectSchema();
+      const before = snapshot(schema);
+      archiveSelectOption(schema, "invoices", "status", "paid");
+      expect(snapshot(schema)).toBe(before);
+    });
   });
 });
