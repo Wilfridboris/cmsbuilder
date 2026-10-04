@@ -1197,6 +1197,54 @@ describe("Story 13.4 — select value-management validators", () => {
         }),
       ).toEqual({ valid: false, reason: "selectOptionOpFailed" });
     });
+
+    it("rejects a new label colliding (case-insensitively) with an ACTIVE option's label even when the value token differs (retro F3)", () => {
+      // After a prior rename the stored value and label can diverge: value "paid"
+      // now shows label "Settled". Adding "settled" clears the value-uniqueness
+      // check (value "settled" != "paid") but must be rejected on label collision,
+      // or label-based CSV import would be ambiguous.
+      const result = validateAddSelectOption(
+        selectSchema([
+          { value: "paid", label: "Settled" },
+          { value: "unpaid", label: "Unpaid" },
+        ]),
+        "invoices",
+        "status",
+        { label: "settled" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("accepts a new label that matches only an ARCHIVED option's label (retro F3)", () => {
+      // Archived options never match on import, so they are not counted for label
+      // uniqueness — reusing an archived option's label for a new active one is ok.
+      const result = validateAddSelectOption(
+        selectSchema([
+          { value: "paid", label: "Paid" },
+          { value: "old", label: "Settled", archived: true },
+        ]),
+        "invoices",
+        "status",
+        { label: "Settled" },
+      );
+      expect(result).toEqual({
+        valid: true,
+        option: { value: "settled", label: "Settled" },
+      });
+    });
+
+    it("resolves a non-normalized field key (retro F4: 'Status' -> 'status')", () => {
+      const result = validateAddSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "Status",
+        { label: "Partial" },
+      );
+      expect(result).toEqual({
+        valid: true,
+        option: { value: "partial", label: "Partial" },
+      });
+    });
   });
 
   describe("validateRenameSelectOption", () => {
@@ -1238,6 +1286,40 @@ describe("Story 13.4 — select value-management validators", () => {
         { value: "paid", label: "Settled" },
       );
       expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("rejects renaming onto another ACTIVE option's label, case-insensitively (retro F3)", () => {
+      const result = validateRenameSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "status",
+        { value: "unpaid", label: "paid" },
+      );
+      expect(result).toEqual({ valid: false, reason: "selectOptionOpFailed" });
+    });
+
+    it("accepts renaming an option to its own current label (retro F3)", () => {
+      const result = validateRenameSelectOption(
+        selectSchema(twoOptions),
+        "invoices",
+        "status",
+        { value: "paid", label: "Paid" },
+      );
+      expect(result).toEqual({ valid: true, value: "paid", label: "Paid" });
+    });
+
+    it("accepts renaming onto an ARCHIVED option's label (retro F3)", () => {
+      const result = validateRenameSelectOption(
+        selectSchema([
+          { value: "paid", label: "Paid" },
+          { value: "unpaid", label: "Unpaid" },
+          { value: "old", label: "Draft", archived: true },
+        ]),
+        "invoices",
+        "status",
+        { value: "unpaid", label: "Draft" },
+      );
+      expect(result).toEqual({ valid: true, value: "unpaid", label: "Draft" });
     });
   });
 

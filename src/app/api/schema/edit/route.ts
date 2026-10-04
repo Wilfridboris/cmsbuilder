@@ -862,16 +862,54 @@ async function handleHideTable(
 }
 
 /**
+ * Shared `applied` response for the three select-option ops (Story 13.4). Resolves
+ * the target field's human label (from the summary the model was shown) for the
+ * success message and echoes the applied op. `value` is the human value shown to
+ * the owner — already resolved by the caller (archive resolves the option label
+ * from the pre-mutation options; add/rename use the new label). Keeps the three
+ * handlers to their distinct validation + mutator heads (Epic 13 retro F8).
+ */
+function appliedSelectOption(
+  ctx: EditorContext,
+  result: { tableKey: string; fieldKey: string },
+  successKey: "successValueAdded" | "successValueRenamed" | "successValueArchived",
+  value: string,
+): NextResponse<ApiResponse<EditorChatResult>> {
+  const { tables, t } = ctx;
+  const targetTable = tables.find((table) => table.key === result.tableKey);
+  const targetField = targetTable?.fields?.find(
+    (field) => field.key === result.fieldKey,
+  );
+  return json(
+    {
+      data: {
+        kind: "applied",
+        tableKey: result.tableKey,
+        fieldKey: result.fieldKey,
+        label: value,
+        assistantText: t(successKey, {
+          value,
+          field: targetField?.label ?? result.fieldKey,
+        }),
+      },
+      error: null,
+    },
+    200,
+  );
+}
+
+/**
  * `add_select_option` → guarded append-only select-value add (Story 13.4). A
  * shapeless output (missing table/field/label) is a rejection. The target is
- * enforced against the select field shown in the summary (so a non-select /
- * hallucinated field → reassuring `rejected` via the validator's 400, never trusted).
- * On success → `applied` naming the value + field.
+ * enforced inside the guarded mutator by `validateAddSelectOption`/`findSelectField`
+ * (a non-select / hallucinated / hidden field → `AppError(400)` → reassuring
+ * `rejected`, never trusted) — not by this handler. On success → `applied` naming
+ * the value + field.
  */
 async function handleAddSelectOption(
   ctx: EditorContext,
 ): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
-  const { output, identity, tables, t } = ctx;
+  const { output, identity, t } = ctx;
   if (
     !isNonEmptyString(output.tableKey) ||
     !isNonEmptyString(output.fieldKey) ||
@@ -903,26 +941,7 @@ async function handleAddSelectOption(
       );
     }
 
-    const targetTable = tables.find((table) => table.key === result.data!.tableKey);
-    const targetField = targetTable?.fields?.find(
-      (field) => field.key === result.data!.fieldKey,
-    );
-    return json(
-      {
-        data: {
-          kind: "applied",
-          tableKey: result.data.tableKey,
-          fieldKey: result.data.fieldKey,
-          label: result.data.label,
-          assistantText: t("successValueAdded", {
-            value: result.data.label,
-            field: targetField?.label ?? result.data.fieldKey,
-          }),
-        },
-        error: null,
-      },
-      200,
-    );
+    return appliedSelectOption(ctx, result.data, "successValueAdded", result.data.label);
   } catch (mutateErr) {
     return handleMutateError(mutateErr, t, "mutate-select-option");
   }
@@ -937,7 +956,7 @@ async function handleAddSelectOption(
 async function handleRenameSelectOption(
   ctx: EditorContext,
 ): Promise<NextResponse<ApiResponse<EditorChatResult>>> {
-  const { output, identity, tables, t } = ctx;
+  const { output, identity, t } = ctx;
   if (
     !isNonEmptyString(output.tableKey) ||
     !isNonEmptyString(output.fieldKey) ||
@@ -971,25 +990,11 @@ async function handleRenameSelectOption(
       );
     }
 
-    const targetTable = tables.find((table) => table.key === result.data!.tableKey);
-    const targetField = targetTable?.fields?.find(
-      (field) => field.key === result.data!.fieldKey,
-    );
-    return json(
-      {
-        data: {
-          kind: "applied",
-          tableKey: result.data.tableKey,
-          fieldKey: result.data.fieldKey,
-          label: result.data.label,
-          assistantText: t("successValueRenamed", {
-            value: result.data.label,
-            field: targetField?.label ?? result.data.fieldKey,
-          }),
-        },
-        error: null,
-      },
-      200,
+    return appliedSelectOption(
+      ctx,
+      result.data,
+      "successValueRenamed",
+      result.data.label,
     );
   } catch (mutateErr) {
     return handleMutateError(mutateErr, t, "mutate-select-option");
@@ -1040,28 +1045,17 @@ async function handleArchiveSelectOption(
 
     // Resolve the archived option's human label (for the message) from the
     // summary the model was shown — never echo a raw value token.
-    const targetTable = tables.find((table) => table.key === result.data!.tableKey);
-    const targetField = targetTable?.fields?.find(
-      (field) => field.key === result.data!.fieldKey,
-    );
+    const targetField = tables
+      .find((table) => table.key === result.data!.tableKey)
+      ?.fields?.find((field) => field.key === result.data!.fieldKey);
     const optionLabel =
       targetField?.options?.find((o) => o.value === result.data!.value)?.label ??
       result.data.value;
-    return json(
-      {
-        data: {
-          kind: "applied",
-          tableKey: result.data.tableKey,
-          fieldKey: result.data.fieldKey,
-          label: optionLabel,
-          assistantText: t("successValueArchived", {
-            value: optionLabel,
-            field: targetField?.label ?? result.data.fieldKey,
-          }),
-        },
-        error: null,
-      },
-      200,
+    return appliedSelectOption(
+      ctx,
+      result.data,
+      "successValueArchived",
+      optionLabel,
     );
   } catch (mutateErr) {
     return handleMutateError(mutateErr, t, "mutate-select-option");

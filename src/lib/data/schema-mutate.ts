@@ -384,11 +384,15 @@ export async function addSelectOption(
 > {
   return withSchemaWrite(identity, (schema) => {
     const normalizedTableKey = normalizeTableName(tableKey);
+    // Normalize the incoming field key on read, mirroring the table key and the
+    // add-field path, so a non-normalized key (e.g. "Status") both validates AND
+    // matches the stored field in the transform (never a validate-then-no-op).
+    const normalizedFieldKey = normalizeTableName(fieldKey);
 
     const result = validateAddSelectOption(
       schema,
       normalizedTableKey,
-      fieldKey,
+      normalizedFieldKey,
       input,
       { id: identity.orgId, rawOutput: context.rawOutput },
     );
@@ -399,7 +403,7 @@ export async function addSelectOption(
     const next = addSelectOptionTransform(
       schema,
       normalizedTableKey,
-      fieldKey,
+      normalizedFieldKey,
       result.option,
     );
 
@@ -407,7 +411,7 @@ export async function addSelectOption(
       next,
       result: {
         tableKey: normalizedTableKey,
-        fieldKey,
+        fieldKey: normalizedFieldKey,
         value: result.option.value,
         label: result.option.label,
       },
@@ -435,11 +439,12 @@ export async function renameSelectOption(
 > {
   return withSchemaWrite(identity, (schema) => {
     const normalizedTableKey = normalizeTableName(tableKey);
+    const normalizedFieldKey = normalizeTableName(fieldKey);
 
     const result = validateRenameSelectOption(
       schema,
       normalizedTableKey,
-      fieldKey,
+      normalizedFieldKey,
       input,
       { id: identity.orgId, rawOutput: context.rawOutput },
     );
@@ -450,7 +455,7 @@ export async function renameSelectOption(
     const next = renameSelectOptionTransform(
       schema,
       normalizedTableKey,
-      fieldKey,
+      normalizedFieldKey,
       result.value,
       result.label,
     );
@@ -459,7 +464,7 @@ export async function renameSelectOption(
       next,
       result: {
         tableKey: normalizedTableKey,
-        fieldKey,
+        fieldKey: normalizedFieldKey,
         value: result.value,
         label: result.label,
       },
@@ -485,11 +490,12 @@ export async function archiveSelectOption(
 ): Promise<ApiResponse<{ tableKey: string; fieldKey: string; value: string }>> {
   return withSchemaWrite(identity, (schema) => {
     const normalizedTableKey = normalizeTableName(tableKey);
+    const normalizedFieldKey = normalizeTableName(fieldKey);
 
     const result = validateArchiveSelectOption(
       schema,
       normalizedTableKey,
-      fieldKey,
+      normalizedFieldKey,
       input,
       { id: identity.orgId, rawOutput: context.rawOutput },
     );
@@ -500,13 +506,17 @@ export async function archiveSelectOption(
     const next = archiveSelectOptionTransform(
       schema,
       normalizedTableKey,
-      fieldKey,
+      normalizedFieldKey,
       result.value,
     );
 
     return {
       next,
-      result: { tableKey: normalizedTableKey, fieldKey, value: result.value },
+      result: {
+        tableKey: normalizedTableKey,
+        fieldKey: normalizedFieldKey,
+        value: result.value,
+      },
     };
   });
 }

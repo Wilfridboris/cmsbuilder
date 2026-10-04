@@ -1,5 +1,5 @@
 # generated: 2026-09-23
-# last_updated: 2026-10-03 (13-6 review)
+# last_updated: 2026-10-03 (13-6 done; epic-13 done)
 # project: Scheza
 # project_key: NOKEY
 # tracking_system: file-system
@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: '10-03-2026 22:00'
+last_updated: '10-03-2026 23:15'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -157,14 +157,14 @@ development_status:
 
   # ── Epic 13: List-of-Values (Single-Select) Field Type ───────────────────
   # Added via sprint-change-proposal-2026-10-02.md (MVP; FR96)
-  epic-13: in-progress
+  epic-13: done
   13-1-single-select-field-in-data-model-validator: done
   13-2-render-edit-single-select-across-views-forms: done
   13-3-create-single-select-field-with-values-via-chat: done
   13-4-manage-single-select-values-chat-and-inline: done
   13-5-generation-fallback-emit-select-fields: done
-  13-6-single-select-on-intake-forms-csv-import: review
-  epic-13-retrospective: optional
+  13-6-single-select-on-intake-forms-csv-import: done
+  epic-13-retrospective: done
 
   # ── Epic 14: Owner-Controlled Intake Forms ───────────────────────────────
   # Added via sprint-change-proposal-2026-10-02-intake-forms.md (FR25 amended; FR100-104)
@@ -761,3 +761,58 @@ action_items:
     owner: "Boris+Dev"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-6-retro-2026-10-03.md"
+  - id: "epic-13-retro-item-76-add-a-label-collision-guard-to-validater"
+    epic: 13
+    action: "Add a label-collision guard to validateRenameSelectOption (and validateAddSelectOption)
+      so two active select options cannot share a case-insensitive label; add rename->duplicate-label
+      and matchSelectValue ambiguity tests. [F3/VG1]"
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-13-retro-2026-10-03.md"
+  - id: "epic-13-retro-item-77-add-a-select-branch-to-the-recorddetail"
+    epic: 13
+    action: "Add a select branch to the RecordDetail FieldEditor so editing a select
+      on the demo-reveal surface uses the dropdown instead of a free-text input (RecordDetail.tsx:241-357),
+      or formally defer with tracking. [F2]"
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-13-retro-2026-10-03.md"
+  - id: "epic-13-retro-item-78-correct-the-handleaddselectoption-doc-co"
+    epic: 13
+    action: "Correct the handleAddSelectOption doc comment (edit/route.ts:867-869)
+      to match actual behavior (target enforced by validateAddSelectOption, not the
+      summary). [F6]"
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-13-retro-2026-10-03.md"
+  - id: "epic-13-retro-item-79-normalize-the-field-key-in-findselectfie"
+    epic: 13
+    action: "Normalize the field key in findSelectField (validator.ts:911) to match
+      the add-field path; add a non-normalized fieldKey test, or accept and document
+      the inconsistency. [F4/VG2]"
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-13-retro-2026-10-03.md"
+  - id: "epic-13-retro-item-80-watch-item-consider-splitting-validator"
+    epic: 13
+    action: "Watch item: consider splitting validator.ts (~1500 lines) and factoring
+      the three near-identical select-option route handlers (edit/route.ts) into a
+      table-driven helper. [F8]"
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-13-retro-2026-10-03.md"
+  - id: "epic-13-retro-item-81-replace-em-dashes-in-user-facing-generat"
+    epic: 13
+    action: "Replace em-dashes in user-facing generation/fallback.ts reason strings
+      (pre-existing) and reconcile prompts.ts copy, per the no-em-dash rule. [A2]"
+    owner: "Dev+Boris"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-13-retro-2026-10-03.md"
+  - id: "epic-13-retro-item-82-consider-a-server-side-select-option-mem"
+    epic: 13
+    action: "Consider a server-side select-option membership guard in mutate.ts for
+      the authed add/inline-edit write path (untrusted intake/import already guarded).
+      [A1]"
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-13-retro-2026-10-03.md"

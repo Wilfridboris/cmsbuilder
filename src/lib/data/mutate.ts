@@ -234,10 +234,18 @@ async function insertRecord(
 ): Promise<MutateResult> {
   const { client, actorId, orgId } = identity;
 
+  // Resolve the org schema once for both write guards (relation integrity +
+  // select-option membership), reusing a caller-supplied schema when present.
+  const schema = await resolveOrgSchema(identity, opts.schema);
+
   // Referential integrity (Story 3.8): every relation id in the payload must
   // point at a live row under the same org + target table. Rejects foreign,
   // dangling, or wrong-table ids before persisting.
-  await assertRelationReferencesExist(identity, tableKey, data, opts.schema);
+  await assertRelationReferencesExist(identity, tableKey, data, schema);
+
+  // Select-option membership (Epic 13 retro A1): a select value must be a known
+  // option token (off-list garbage is rejected before persisting).
+  assertSelectValuesValid(schema, tableKey, data);
 
   // Idempotency: if this key already produced a row for (org, table_key),
   // return that row rather than writing a duplicate.
@@ -300,10 +308,18 @@ async function updateRecord(
   const { client, actorId, orgId } = identity;
   const { recordId, expectedVersion } = requireVersioned(opts);
 
+  // Resolve the org schema once for both write guards (relation integrity +
+  // select-option membership), reusing a caller-supplied schema when present.
+  const schema = await resolveOrgSchema(identity, opts.schema);
+
   // Referential integrity (Story 3.8): an edit replaces `records.data` wholesale,
   // so every relation id in the merged payload must resolve to a live row under the
   // same org + target table. Rejects foreign / dangling / wrong-table ids first.
-  await assertRelationReferencesExist(identity, tableKey, data, opts.schema);
+  await assertRelationReferencesExist(identity, tableKey, data, schema);
+
+  // Select-option membership (Epic 13 retro A1): every select value in the merged
+  // payload must be a known option token (archived allowed; off-list rejected).
+  assertSelectValuesValid(schema, tableKey, data);
 
   const { data: updated, error } = await client
     .from("records")
@@ -457,6 +473,65 @@ async function assertRelationReferencesExist(
       // At least one referenced id does not resolve to a live row under this org
       // and target table — reject the whole write.
       throw new AppError(400, "invalidReference");
+    }
+  }
+}
+
+/**
+ * Resolve the org schema once per write, reusing a caller-supplied schema when
+ * present (epic-3 retro item 21) so the relation guard and the select guard share
+ * a single read. A read failure is a 500-class write failure (no detail leaked).
+ */
+async function resolveOrgSchema(
+  identity: MutateIdentity,
+  preResolvedSchema?: SchemaDefinition,
+): Promise<SchemaDefinition> {
+  if (preResolvedSchema) {
+    return preResolvedSchema;
+  }
+  const schemaResult = await getSchema(identity.client, identity.orgId);
+  if (schemaResult.error || !schemaResult.data) {
+    throw new AppError(500, "The write could not be completed.");
+  }
+  return schemaResult.data;
+}
+
+/**
+ * Select-option membership guard (Epic 13 retro A1). For every `select` field on
+ * the table, a non-blank value in the payload must be a known option `value`
+ * token. Archived tokens are permitted: an update replaces `records.data`
+ * wholesale, so an existing row legitimately carries an archived token (and the
+ * display layer resolves archived labels too). A token matching NO option
+ * (active or archived) is off-list garbage and rejects the whole write with a
+ * 400-class `invalidSelectValue`, mirroring the relation `invalidReference`
+ * guard. The untrusted intake/import surfaces already validate against ACTIVE
+ * options upstream (`matchSelectValue`); this closes the authed, API-direct
+ * add-record / inline-edit hole. Pure + synchronous — no DB round-trip.
+ */
+function assertSelectValuesValid(
+  schema: SchemaDefinition,
+  tableKey: string,
+  data: Record<string, unknown>,
+): void {
+  const table = schema.tables.find((t) => t.key === tableKey);
+  if (!table) {
+    return;
+  }
+  for (const field of table.fields) {
+    if (field.type !== "select") {
+      continue;
+    }
+    const raw = data[field.key];
+    if (raw === undefined || raw === null) {
+      continue;
+    }
+    const token = String(raw).trim();
+    if (token === "") {
+      continue;
+    }
+    const known = (field.options ?? []).some((option) => option.value === token);
+    if (!known) {
+      throw new AppError(400, "invalidSelectValue");
     }
   }
 }

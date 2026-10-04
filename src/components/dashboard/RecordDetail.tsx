@@ -8,6 +8,7 @@ import type { FieldDefinition, RecordData, TableDefinition } from "@/types/db";
 import type { ResolveRelation } from "@/components/dashboard/DemoDashboard";
 import type { CellStrings } from "@/lib/format";
 import { CellText } from "@/components/dashboard/CellText";
+import { SelectDropdown } from "@/components/dashboard/SelectDropdown";
 import {
   Dialog,
   DialogContent,
@@ -235,8 +236,10 @@ function FieldRow({
  * The inline editor for one scalar field. Client-side session edit only:
  * validates on confirm, shows a translated inline message on invalid/empty
  * input, and commits the coerced value (number/boolean/text) upward — never a
- * DB write. `boolean` uses a two-choice toggle; everything else uses a text
- * input with a type hint. There is no `relation` case (never generated).
+ * DB write. `boolean` uses a two-choice toggle; `select` uses the shared
+ * `SelectDropdown` (committing the chosen option token, or null when cleared);
+ * everything else uses a text input with a type hint. There is no `relation`
+ * case (relation editing is read-only in the demo, handled upstream).
  */
 function FieldEditor({
   field,
@@ -299,6 +302,37 @@ function FieldEditor({
           confirmLabel={t("save")}
           cancelLabel={t("cancel")}
         />
+      </div>
+    );
+  }
+
+  // A `select` field edits via the shared dropdown (the same control the
+  // authenticated dashboard uses): it commits the chosen option token on change,
+  // or null when cleared. The schema has no `required` flag, so a select is
+  // always clearable. There is no separate confirm step — picking commits.
+  if (field.type === "select") {
+    const currentToken =
+      value === null || value === undefined || value === ""
+        ? null
+        : String(value);
+    return (
+      <div className="flex items-center gap-2">
+        <SelectDropdown
+          value={currentToken}
+          options={field.options ?? []}
+          ariaLabel={t("editField", { field: field.label })}
+          onChange={(next) => onCommit(next)}
+        />
+        <Button
+          type="button"
+          size="icon"
+          variant="outline"
+          className="size-12 shrink-0"
+          onClick={onCancel}
+          aria-label={t("cancel")}
+        >
+          <X aria-hidden="true" className="size-4" />
+        </Button>
       </div>
     );
   }

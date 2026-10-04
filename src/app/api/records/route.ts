@@ -98,6 +98,11 @@ export async function POST(
       if (result.error === "invalidReference") {
         throw new AppError(400, "invalidReference");
       }
+      // A select-option membership rejection (Epic 13 retro A1) surfaces its own
+      // translated code rather than the generic write failure.
+      if (result.error === "invalidSelectValue") {
+        throw new AppError(400, "invalidSelectValue");
+      }
       throw new AppError(500, "writeFailed");
     }
 

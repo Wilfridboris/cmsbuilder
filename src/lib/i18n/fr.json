@@ -76,7 +76,8 @@
       "currency": "Devise",
       "email": "Courriel",
       "phone": "Téléphone",
-      "relation": "Lien"
+      "relation": "Lien",
+      "select": "Liste déroulante"
     }
   },
   "Explainability": {
@@ -470,6 +471,7 @@
     "deleteReferenceCounting": "Vérification des enregistrements liés…",
     "deleteReferenceUnavailable": "Nous n'avons pas pu vérifier les enregistrements liés, mais vous pouvez tout de même supprimer.",
     "invalidReference": "Cet enregistrement lié n'existe plus. Veuillez en choisir un autre.",
+    "invalidSelectValue": "Cette valeur ne fait pas partie des options de ce champ. Veuillez en choisir une dans la liste.",
     "openRecord": "Ouvrir l'enregistrement",
     "reverseListSubtitle": "Un résumé de cet enregistrement et de tout ce qui y est lié.",
     "reverseSectionHeading": "Enregistrements liés dans {table}",

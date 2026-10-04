@@ -908,7 +908,12 @@ function findSelectField(
   if (!table) {
     return null;
   }
-  const field = table.fields.find((f) => f.key === fieldKey);
+  // Normalize the incoming field key the same way stored keys are derived
+  // (`normalizeTableName(label)`), mirroring the add-field path. A model that
+  // returns a non-normalized key (e.g. "Status") still resolves to the stored
+  // "status" field instead of silently failing every value op.
+  const normalizedFieldKey = normalizeTableName(fieldKey);
+  const field = table.fields.find((f) => f.key === normalizedFieldKey);
   if (!field || field.type !== "select") {
     return null;
   }
@@ -966,6 +971,19 @@ export function validateAddSelectOption(
     return reject(`add_select_option: duplicate value "${value}"`);
   }
 
+  // Label uniqueness among ACTIVE options: two selectable options sharing a
+  // case-insensitive label make label-based CSV import (`matchSelectValue`)
+  // ambiguous — the first match would win. Archived options never match on
+  // import, so they are not counted here.
+  const labelLower = label.toLowerCase();
+  if (
+    existing.some(
+      (o) => o.archived !== true && o.label.toLowerCase() === labelLower,
+    )
+  ) {
+    return reject(`add_select_option: duplicate label "${label}"`);
+  }
+
   return { valid: true, option: { value, label } };
 }
 
@@ -1013,6 +1031,24 @@ export function validateRenameSelectOption(
     return reject("rename_select_option: missing new label");
   }
   const label = input.label.trim();
+
+  // Label uniqueness among ACTIVE options (excluding the one being renamed):
+  // renaming an option onto another selectable option's label would make
+  // label-based CSV import (`matchSelectValue`) ambiguous. Renaming to its own
+  // current label, or onto an archived option's label, is allowed.
+  const labelLower = label.toLowerCase();
+  if (
+    (field.options ?? []).some(
+      (o) =>
+        o.value !== value &&
+        o.archived !== true &&
+        o.label.toLowerCase() === labelLower,
+    )
+  ) {
+    return reject(
+      `rename_select_option: label "${label}" collides with another active option`,
+    );
+  }
 
   return { valid: true, value, label };
 }

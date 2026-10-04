@@ -75,6 +75,8 @@ export function useRecordActions({
         return t("versionConflict");
       case "invalidReference":
         return t("invalidReference");
+      case "invalidSelectValue":
+        return t("invalidSelectValue");
       default:
         return t("genericError");
     }

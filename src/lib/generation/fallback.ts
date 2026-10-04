@@ -39,7 +39,7 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
       key: "clients",
       label: "Clients",
       reason:
-        "The people and businesses you serve — the core list every field-service business keeps.",
+        "The people and businesses you serve: the core list every field-service business keeps.",
       displayField: "name",
       fields: [
         {
@@ -52,7 +52,7 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
           key: "city",
           label: "City",
           type: "text",
-          reason: "Where the work happens — helps with routing and scheduling.",
+          reason: "Where the work happens, which helps with routing and scheduling.",
         },
         {
           key: "phone",
@@ -85,7 +85,7 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
       key: "jobs",
       label: "Jobs",
       reason:
-        "The work you're booked to do — what keeps your schedule and revenue moving.",
+        "The work you're booked to do, and what keeps your schedule and revenue moving.",
       displayField: "service",
       fields: [
         {
@@ -111,7 +111,7 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
           key: "quoted",
           label: "Quoted",
           type: "currency",
-          reason: "The agreed price — the number that becomes revenue.",
+          reason: "The agreed price, the number that becomes revenue.",
         },
         {
           key: "status",
@@ -131,7 +131,7 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
       key: "invoices",
       label: "Invoices",
       reason:
-        "What you've billed and what's still owed — how you keep cash flowing.",
+        "What you've billed and what's still owed, so you can keep cash flowing.",
       displayField: "invoice_number",
       fields: [
         {
@@ -163,7 +163,7 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
           key: "due_date",
           label: "Due",
           type: "date",
-          reason: "When payment is expected — so you can chase what's overdue.",
+          reason: "When payment is expected, so you can chase what's overdue.",
         },
         {
           key: "paid",
