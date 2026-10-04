@@ -1,5 +1,5 @@
 # generated: 2026-09-23
-# last_updated: 2026-10-04 (14-6 review)
+# last_updated: 2026-10-04 (14-6 done, manual review passed)
 # project: Scheza
 # project_key: NOKEY
 # tracking_system: file-system
@@ -174,7 +174,7 @@ development_status:
   14-3-publish-toggle-share-surface: done
   14-4-choose-target-table-per-form: done
   14-5-per-field-public-customization: done
-  14-6-branded-public-form: review
+  14-6-branded-public-form: done
   14-7-abuse-protection-on-public-intake: backlog
   epic-14-retrospective: optional
 action_items:
