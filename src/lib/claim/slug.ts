@@ -2,6 +2,8 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { kebabCase } from "@/lib/utils";
+
 /**
  * Slug provisioning for the claim flow (Story 2.1).
  *
@@ -13,18 +15,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  */
 
 /**
- * Kebab-case a single segment: lowercase, strip diacritics, collapse any run of
- * non-alphanumerics to a single hyphen, and trim leading/trailing hyphens.
- * Returns "" for input with no usable characters (caller handles the fallback).
+ * Kebab-case a single segment. Thin alias over the shared {@link kebabCase} util so
+ * the claim flow and the Epic-14 form slug derivation share one normalizer (behavior
+ * is identical to the previous private implementation). Returns "" for input with no
+ * usable characters (caller handles the fallback).
  */
 function kebab(input: string): string {
-  return input
-    .normalize("NFKD")
-    // Drop combining marks left by NFKD (é → e).
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  return kebabCase(input);
 }
 
 /** A safe, non-empty base used when trade + city yield nothing usable. */

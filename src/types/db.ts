@@ -621,6 +621,49 @@ export type CreditNoteTaxLineRow = {
 };
 
 /**
+ * One per-form field customization entry (Epic 14 `forms.field_config`). The whole
+ * Epic-14 `forms` schema is created in Story 14.1's migration, but `field_config` is
+ * only POPULATED from Story 14.4 onward (per-form include/label/order overrides over
+ * the target table's generated fields). Story 14.1 always leaves it an empty array.
+ *
+ * Defined now so the mutator / reader / routes have a typed shape to carry; the exact
+ * override vocabulary is owned by 14.4 (hence the permissive optional shape here).
+ */
+export type FormFieldConfig = {
+  /** The target table field `key` this entry customizes. */
+  key: string;
+  /** Per-form label override; absent means inherit the table field's label. */
+  label?: string;
+  /** Whether this field is included on the public form (Story 14.4). */
+  included?: boolean;
+  /** Render/validation order on the public form (Story 14.4). */
+  order?: number;
+};
+
+/**
+ * A single owner-managed intake form (Epic 14) — a typed, org-scoped platform row
+ * (NOT the JSONB records store). Mirrors every column of
+ * `20261003120000_forms.sql`. Story 14.1 wires `title` / `slug` / `target_table_key`;
+ * `published` / `intro_text` / `field_config` exist for 14.2-14.6 and stay at their
+ * defaults (`false` / `null` / `[]`) until those stories. `target_table_key` is the
+ * logical `records.table_key` this form collects into, pre-filled by the intake
+ * heuristic at create (null when the org has no visible tables).
+ */
+export type FormRow = {
+  id: string;
+  organization_id: string;
+  title: string;
+  slug: string;
+  target_table_key: string | null;
+  published: boolean;
+  intro_text: string | null;
+  field_config: FormFieldConfig[];
+  actor_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/**
  * The closed vocabulary of out-of-band payment methods (Story 12.7) — matches the DB
  * CHECK on `invoice_payments.method`. Scheza never processes, holds, or moves money;
  * these only record HOW the owner received the payment out of band.

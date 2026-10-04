@@ -24,6 +24,27 @@ function stableHash(input: string): string {
 }
 
 /**
+ * Kebab-case a single string: lowercase, strip diacritics (NFKD-decompose then drop
+ * the combining marks, so `é`→`e`), collapse any run of non-alphanumerics to a single
+ * hyphen, and trim leading/trailing hyphens. Returns "" for input with no usable
+ * characters (the caller handles the fallback).
+ *
+ * This is the one shared slug normalizer. The claim flow (`lib/claim/slug.ts`) and the
+ * Epic-14 form slug derivation (`lib/forms/form-slug.ts`) both route through it so slug
+ * normalization behaves identically everywhere and lives in one place. Pure and
+ * dependency-free.
+ */
+export function kebabCase(input: string): string {
+  return input
+    .normalize("NFKD")
+    // Drop combining marks left by NFKD (é → e).
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
  * Normalize a user-provided table/field name into a safe `snake_case` key
  * before it is persisted as a `table_key` or field `key`.
  *
