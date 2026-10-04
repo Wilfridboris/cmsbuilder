@@ -1081,7 +1081,7 @@ describe("Story 13.1 — blocklist + whole-word key guard unchanged", () => {
     expect(ok.valid).toBe(true);
   });
 
-  it("keeps `select` OUT of the scalar + generation type sets (model can't emit it until 13.5)", () => {
+  it("keeps `select` OUT of the scalar + generation base type sets (Story 13.5 offers it only as an extra enum member, never via these constants)", () => {
     // Load-bearing boundary: `select` is accepted only via its own validator
     // branch, never by membership in these sets, so neither the editor
     // response-schema enum nor the generation enum offers it to the model.

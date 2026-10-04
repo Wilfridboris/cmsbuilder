@@ -42,6 +42,8 @@ const ALLOWED_TYPES = new Set([
   "phone",
   // Story 1.8: the fallback now demonstrates single-reference relations too.
   "relation",
+  // Story 13.5: the two Status fields are now single-select dropdowns.
+  "select",
 ]);
 
 describe("UNIVERSAL_FIELD_SERVICE_TEMPLATE — structure", () => {
@@ -89,6 +91,27 @@ describe("UNIVERSAL_FIELD_SERVICE_TEMPLATE — structure", () => {
       .get("invoices")
       ?.fields.find((f) => f.type === "relation");
     expect(invoiceJob?.relationConfig?.targetTable).toBe("jobs");
+  });
+
+  it("makes clients.status and jobs.status select fields whose seed values match an option value token (Story 13.5)", () => {
+    const byKey = new Map(
+      UNIVERSAL_FIELD_SERVICE_TEMPLATE.tables.map((t) => [t.key, t]),
+    );
+    for (const tableKey of ["clients", "jobs"] as const) {
+      const table = byKey.get(tableKey);
+      expect(table).toBeTruthy();
+      const statusField = table!.fields.find((f) => f.key === "status");
+      expect(statusField?.type).toBe("select");
+      expect(statusField?.options && statusField.options.length).toBeTruthy();
+      const allowedValues = new Set(
+        (statusField?.options ?? []).map((o) => o.value),
+      );
+      // Every seeded status cell equals one of that field's option value tokens
+      // so formatCell (Story 13.2) resolves it to its label.
+      for (const row of FALLBACK_SEED_ROWS[tableKey]) {
+        expect(allowedValues.has(row.status as string)).toBe(true);
+      }
+    }
   });
 
   it("has no reserved-column collisions and no blocked keywords in keys/labels", () => {

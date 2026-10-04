@@ -71,7 +71,12 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
         {
           key: "status",
           label: "Status",
-          type: "text",
+          type: "select",
+          options: [
+            { value: "active", label: "Active" },
+            { value: "prospective", label: "Prospective" },
+            { value: "past", label: "Past" },
+          ],
           reason: "Whether they're an active, prospective, or past client.",
         },
       ],
@@ -111,7 +116,13 @@ export const UNIVERSAL_FIELD_SERVICE_TEMPLATE: SchemaDefinition = {
         {
           key: "status",
           label: "Status",
-          type: "text",
+          type: "select",
+          options: [
+            { value: "scheduled", label: "Scheduled" },
+            { value: "in_progress", label: "In progress" },
+            { value: "quoted", label: "Quoted" },
+            { value: "complete", label: "Complete" },
+          ],
           reason: "Where the job stands so nothing falls through.",
         },
       ],
@@ -183,20 +194,20 @@ export const FALLBACK_SEED_ROWS: Record<
   Array<Record<string, unknown>>
 > = {
   clients: [
-    { name: "Maple Ridge Dental", city: "Ottawa", phone: "613-555-0142", email: "office@mapleridgedental.ca", status: "Active" },
-    { name: "Bytown Bakery", city: "Ottawa", phone: "613-555-0188", email: "hello@bytownbakery.ca", status: "Active" },
-    { name: "Rideau Auto Body", city: "Kanata", phone: "613-555-0119", email: "service@rideauautobody.ca", status: "Prospective" },
-    { name: "Glebe Family Clinic", city: "Ottawa", phone: "613-555-0173", email: "admin@glebeclinic.ca", status: "Active" },
-    { name: "Carleton Property Mgmt", city: "Nepean", phone: "613-555-0156", email: "ops@carletonpm.ca", status: "Active" },
-    { name: "Westboro Yoga Studio", city: "Ottawa", phone: "613-555-0127", email: "studio@westboroyoga.ca", status: "Past" },
+    { name: "Maple Ridge Dental", city: "Ottawa", phone: "613-555-0142", email: "office@mapleridgedental.ca", status: "active" },
+    { name: "Bytown Bakery", city: "Ottawa", phone: "613-555-0188", email: "hello@bytownbakery.ca", status: "active" },
+    { name: "Rideau Auto Body", city: "Kanata", phone: "613-555-0119", email: "service@rideauautobody.ca", status: "prospective" },
+    { name: "Glebe Family Clinic", city: "Ottawa", phone: "613-555-0173", email: "admin@glebeclinic.ca", status: "active" },
+    { name: "Carleton Property Mgmt", city: "Nepean", phone: "613-555-0156", email: "ops@carletonpm.ca", status: "active" },
+    { name: "Westboro Yoga Studio", city: "Ottawa", phone: "613-555-0127", email: "studio@westboroyoga.ca", status: "past" },
   ],
   jobs: [
-    { client: "Maple Ridge Dental", service: "Rooftop HVAC install", scheduled_date: "2026-10-06", quoted: 8400, status: "Scheduled" },
-    { client: "Bytown Bakery", service: "Walk-in cooler repair", scheduled_date: "2026-09-29", quoted: 1250, status: "In progress" },
-    { client: "Rideau Auto Body", service: "Furnace replacement", scheduled_date: "2026-10-13", quoted: 5600, status: "Quoted" },
-    { client: "Glebe Family Clinic", service: "Ductwork cleaning", scheduled_date: "2026-09-22", quoted: 980, status: "Complete" },
-    { client: "Carleton Property Mgmt", service: "Boiler annual service", scheduled_date: "2026-10-02", quoted: 2100, status: "Scheduled" },
-    { client: "Westboro Yoga Studio", service: "AC unit install", scheduled_date: "2026-10-20", quoted: 4300, status: "Quoted" },
+    { client: "Maple Ridge Dental", service: "Rooftop HVAC install", scheduled_date: "2026-10-06", quoted: 8400, status: "scheduled" },
+    { client: "Bytown Bakery", service: "Walk-in cooler repair", scheduled_date: "2026-09-29", quoted: 1250, status: "in_progress" },
+    { client: "Rideau Auto Body", service: "Furnace replacement", scheduled_date: "2026-10-13", quoted: 5600, status: "quoted" },
+    { client: "Glebe Family Clinic", service: "Ductwork cleaning", scheduled_date: "2026-09-22", quoted: 980, status: "complete" },
+    { client: "Carleton Property Mgmt", service: "Boiler annual service", scheduled_date: "2026-10-02", quoted: 2100, status: "scheduled" },
+    { client: "Westboro Yoga Studio", service: "AC unit install", scheduled_date: "2026-10-20", quoted: 4300, status: "quoted" },
   ],
   invoices: [
     { invoice_number: "INV-1001", job: "Ductwork cleaning", amount: 980, issued_date: "2026-09-23", due_date: "2026-10-23", paid: true },

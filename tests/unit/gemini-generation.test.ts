@@ -177,4 +177,43 @@ describe("prompt inflation + response schema shape", () => {
     expect(json).toContain("currency");
     expect(json).toContain("seedRows");
   });
+
+  it("offers select + an options array and guides status-like picklists (Story 13.5)", async () => {
+    const {
+      GENERATION_FIELD_TYPES,
+      GENERATION_FIELD_TYPES_WITH_RELATION,
+      GENERATION_RESPONSE_SCHEMA,
+      buildGenerationPrompt,
+    } = await import("@/lib/gemini/prompts");
+    // Frozen boundary: the base constants must still EXCLUDE select; it is
+    // offered only as an extra enum member composed onto the with-relation set.
+    expect(GENERATION_FIELD_TYPES).not.toContain("select");
+    expect(GENERATION_FIELD_TYPES_WITH_RELATION).not.toContain("select");
+
+    const json = JSON.stringify(GENERATION_RESPONSE_SCHEMA);
+    // The field type enum now offers select, and an options array (label/value)
+    // mirrors the editor schema's shape.
+    expect(json).toContain("select");
+    // The field-type enum lists select alongside the scalar/relation types.
+    const typeEnum =
+      GENERATION_RESPONSE_SCHEMA.properties.schema.properties.tables.items
+        .properties.fields.items.properties.type.enum;
+    expect(typeEnum).toContain("select");
+    expect(typeEnum).toContain("relation");
+    const optionsItems =
+      GENERATION_RESPONSE_SCHEMA.properties.schema.properties.tables.items
+        .properties.fields.items.properties.options.items;
+    expect(optionsItems.required).toEqual(["label", "value"]);
+
+    // The prompt guides the model to use select for a fixed set of choices.
+    const prompt = buildGenerationPrompt({
+      tradeType: "general_contracting",
+      city: "Ottawa",
+      whatYouTrack: "track jobs and whether each is quoted, scheduled, or done",
+      submittedLocale: "en",
+    });
+    expect(prompt.toLowerCase()).toContain("select");
+    expect(prompt.toLowerCase()).toContain("options");
+    expect(prompt.toLowerCase()).toContain("choices");
+  });
 });

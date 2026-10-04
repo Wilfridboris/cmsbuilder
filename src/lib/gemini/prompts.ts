@@ -101,6 +101,7 @@ Requirements:
 - Every table names a "displayField": the key of the one field whose value best identifies a row (e.g. a client's name, a job's service). It must be a real, visible field key of that same table.
 - Every field has a human-facing label, one of the allowed data types, and a one-sentence plain-language "reason". Mark obvious personal information (names, phone numbers, email addresses, home addresses) as sensitive.
 - LINK RELATED TABLES: when one table's rows belong to another table's rows, add a single "relation" field instead of re-typing an identifying name as text. A relation field has "type":"relation" and a "relationConfig" with "targetTable" (the key of the table it points to, which MUST be one of the tables you return) and "cardinality":"one". Give each relation a one-sentence "reason". Typical links for a field-service business: a job points to its client, an invoice points to its job. Do not use "cardinality":"many". A relation may point at the same table or form a cycle if that is genuinely the shape.
+- FIXED SET OF CHOICES: when a field is a fixed set of choices the owner implies (a status, a stage, or a category — e.g. a job's status, an invoice's payment state), use "type":"select" with an "options" list. Each option is an object with a human-facing "label" (in the owner's language) and a short lowercase "value" token of that label (e.g. {"label":"Scheduled","value":"scheduled"}). Only use "select" for a set of choices you can genuinely infer from what the owner said; never invent choices. A "select" field must NOT be a table's "displayField". In seed rows, a select field's value is one of its option "value" tokens (never a label and never a new choice).
 - Do NOT create fields named id, organization_id, table_key, data, created_at, updated_at, or deleted_at.
 - For each table, generate 5 to 8 realistic seed rows. Seed data must be specific to this trade and localized to Ontario (real ${intent.city} / Greater-Toronto-Area / Ottawa-region street names, standard Ontario pricing in Canadian dollars, and real trade terminology).
 - SEED RELATION VALUES BY DISPLAY VALUE: in seed rows, a relation field's value is the human-readable displayField value of the target row it references (e.g. a job's client field is the client's name exactly as it appears in that client's displayField). Do not invent ids. Reference only target rows you actually generated.
@@ -555,10 +556,24 @@ export const GENERATION_RESPONSE_SCHEMA = {
                     label: { type: Type.STRING },
                     type: {
                       type: Type.STRING,
-                      enum: [...GENERATION_FIELD_TYPES_WITH_RELATION],
+                      enum: [...GENERATION_FIELD_TYPES_WITH_RELATION, "select"],
                     },
                     reason: { type: Type.STRING },
                     sensitive: { type: Type.BOOLEAN },
+                    options: {
+                      type: Type.ARRAY,
+                      description:
+                        "Present ONLY when type is 'select': one entry per allowed choice. Each has a human 'label' (in the owner's language) and a short lowercase 'value' token of that label. Never invent choices; use only a fixed set the owner implies. A select field's seed values are these 'value' tokens.",
+                      items: {
+                        type: Type.OBJECT,
+                        properties: {
+                          label: { type: Type.STRING },
+                          value: { type: Type.STRING },
+                        },
+                        required: ["label", "value"],
+                        propertyOrdering: ["label", "value"],
+                      },
+                    },
                     relationConfig: {
                       type: Type.OBJECT,
                       description:
@@ -584,6 +599,7 @@ export const GENERATION_RESPONSE_SCHEMA = {
                     "type",
                     "reason",
                     "sensitive",
+                    "options",
                     "relationConfig",
                   ],
                 },
