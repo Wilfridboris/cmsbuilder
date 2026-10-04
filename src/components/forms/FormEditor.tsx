@@ -25,6 +25,10 @@ import {
 import { ConfirmActionDialog } from "@/components/invoices/ConfirmActionDialog";
 import { FormPublishShare } from "@/components/forms/FormPublishShare";
 import {
+  FormFieldsEditor,
+  type EditorField,
+} from "@/components/forms/FormFieldsEditor";
+import {
   renameForm,
   updateFormSlug,
   updateFormTarget,
@@ -32,6 +36,7 @@ import {
   FormApiError,
 } from "@/lib/data/forms-client";
 import type { PublishabilityReason } from "@/lib/forms/publishability";
+import type { FormFieldConfig } from "@/types/db";
 
 /**
  * FormEditor (Epic 14, Stories 14.1 + 14.3) — the Admin-only form editor. Independent
@@ -82,6 +87,8 @@ export function FormEditor({
   initialSlug,
   targetTableKey,
   tables,
+  editorFields,
+  initialFieldConfig,
   initialPublished,
   publishable,
   publishReason,
@@ -92,6 +99,8 @@ export function FormEditor({
   initialSlug: string;
   targetTableKey: string | null;
   tables: { key: string; label: string }[];
+  editorFields: EditorField[];
+  initialFieldConfig: FormFieldConfig[];
   initialPublished: boolean;
   publishable: boolean;
   publishReason: PublishabilityReason;
@@ -439,6 +448,14 @@ export function FormEditor({
           )}
         </CardContent>
       </Card>
+
+      {/* Per-field public customization (Story 14.5) */}
+      <FormFieldsEditor
+        slug={slug}
+        formId={formId}
+        editorFields={editorFields}
+        initialFieldConfig={initialFieldConfig}
+      />
 
       {/* Publish + Share (Story 14.3) */}
       <FormPublishShare

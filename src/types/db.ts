@@ -638,6 +638,11 @@ export type FormFieldConfig = {
   included?: boolean;
   /** Render/validation order on the public form (Story 14.4). */
   order?: number;
+  /**
+   * Optional per-form guidance shown beneath the field's input on the public form
+   * (Story 14.5). Additive JSONB property — no migration. Absent means no help text.
+   */
+  helpText?: string;
 };
 
 /**

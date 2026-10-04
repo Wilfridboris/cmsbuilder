@@ -55,6 +55,8 @@ export default async function FormEditorPage({
           initialSlug={form.slug}
           targetTableKey={form.target_table_key}
           tables={loaded?.tables ?? []}
+          editorFields={loaded?.editorFields ?? []}
+          initialFieldConfig={form.field_config}
           initialPublished={form.published}
           publishable={loaded?.publishable ?? false}
           publishReason={loaded?.reason ?? "no-target"}

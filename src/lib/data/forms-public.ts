@@ -1,17 +1,17 @@
 import "server-only";
 
-import type {
-  FieldDefinition,
-  SchemaDefinition,
-  TableDefinition,
-} from "@/types/db";
+import type { SchemaDefinition, TableDefinition } from "@/types/db";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSchema } from "@/lib/data/records";
 import {
   getPublishedFormBySlug,
   getPrimaryPublishedForm,
 } from "@/lib/data/forms";
-import { intakeFields } from "@/lib/intake/target";
+import {
+  applyFieldConfig,
+  intakeFields,
+  type PublicIntakeField,
+} from "@/lib/intake/target";
 import { visibleTables } from "@/lib/schema/overrides";
 import { reportError } from "@/lib/observability/report";
 
@@ -54,8 +54,13 @@ export type IntakeTarget = {
   orgName: string;
   /** The logical table the form collects into (`mutate` `tableKey`). */
   table: TableDefinition;
-  /** The eligible, non-relation fields: the server-side write allowlist. */
-  fields: FieldDefinition[];
+  /**
+   * The eligible, non-relation fields AFTER the form's per-field config is applied
+   * (Story 14.5): visibility/label/help/order resolved here, once. The sole server-side
+   * write allowlist — excluding a field in the config removes it from both render and
+   * accepted payload.
+   */
+  fields: PublicIntakeField[];
   /**
    * The org's full resolved schema, read once here. The write handler passes it into
    * `mutate` so the referential-integrity guard reuses it instead of reading
@@ -144,8 +149,12 @@ export async function resolvePublicFormTarget({
       return null;
     }
 
-    const fields = intakeFields(table);
-    // The target table's only fields are hidden/relation -> nothing to collect.
+    // Apply the form's per-field config (Story 14.5) over the base intake fields — the
+    // SINGLE resolution authority for visibility/label/help/order. An empty config
+    // passes the base through unchanged (pre-14.5 behavior).
+    const fields = applyFieldConfig(intakeFields(table), form.field_config);
+    // The target table's only fields are hidden/relation, or the config excludes them
+    // all -> nothing to collect (same "not available" state as zero-eligible).
     if (fields.length === 0) {
       return null;
     }

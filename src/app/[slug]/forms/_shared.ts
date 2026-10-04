@@ -11,6 +11,7 @@ import { resolveOrgIdentity } from "@/lib/api/route-helpers";
 import { getFormById } from "@/lib/data/forms";
 import { getSchema } from "@/lib/data/records";
 import { visibleTables } from "@/lib/schema/overrides";
+import { eligibleFields } from "@/lib/data/filter-sort";
 import {
   evaluateFormPublishability,
   type PublishabilityReason,
@@ -114,6 +115,12 @@ export async function loadFormForEditor(
   publishable: boolean;
   reason: PublishabilityReason;
   tables: { key: string; label: string }[];
+  editorFields: {
+    key: string;
+    label: string;
+    type: string;
+    isRelation: boolean;
+  }[];
 } | null> {
   const user = await getCurrentUser();
   if (!user) {
@@ -148,13 +155,26 @@ export async function loadFormForEditor(
     // labelled by their human `label`. A schema read failure degrades to an empty list
     // (the picker then shows its placeholder) rather than crashing the admin page.
     const schemaResult = await getSchema(client, orgId);
-    const tables = schemaResult.data
-      ? visibleTables(schemaResult.data).map((t) => ({
-          key: t.key,
-          label: t.label,
+    const visible = schemaResult.data ? visibleTables(schemaResult.data) : [];
+    const tables = visible.map((t) => ({ key: t.key, label: t.label }));
+
+    // The per-field editor (Story 14.5) lists the form's CURRENT target table's non-hidden
+    // fields, each flagged `isRelation` so the editor renders relation rows locked and never
+    // emits them into the saved config (FR78). A null/stale/hidden target or an unreadable
+    // schema degrades to an empty list (the card then shows its "no fields" state).
+    const targetTable = form.target_table_key
+      ? visible.find((t) => t.key === form.target_table_key)
+      : undefined;
+    const editorFields = targetTable
+      ? eligibleFields(targetTable.fields).map((field) => ({
+          key: field.key,
+          label: field.label,
+          type: field.type,
+          isRelation: field.type === "relation",
         }))
       : [];
-    return { form, publishable, reason, tables };
+
+    return { form, publishable, reason, tables, editorFields };
   } catch (err) {
     if (err instanceof AppError) {
       return null;

@@ -232,3 +232,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-14-2-multi-form-public-route-form-keyed-submission.md`
   summary: The public keyed form shows the visitor only the business name and a generic heading, never the form's own `title`, so on the multi-form surface a visitor cannot tell which form they are filling out.
   evidence: `IntakeForm` renders `orgName` as the card eyebrow plus the translated `IntakeForm.heading`; it has no per-form title/intro. Pre-existing component behavior (unchanged by 14.2) made salient now that one org hosts multiple named forms. The natural home is the Story 14.6 branded public form (operating name + logo + optional intro text); confirm 14.6 also surfaces the form's `title`/context, or add it there.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-14-5-per-field-public-customization.md`
+  summary: Stale doc attribution in `src/types/db.ts` — `FormFieldConfig`/`FormRow` comments credit "Story 14.4" with populating per-field include/label/order, but 14.5 is the first story to populate/read field_config.
+  evidence: The comments at db.ts:623-640,648-656 say field_config "is only POPULATED from Story 14.4 onward" and that the override vocabulary "is owned by 14.4"; the 14.5 spec Intent states field_config "is populated and read nowhere" before this story. Doc-only inaccuracy (pre-existing comment, not behavior); fix is a comment edit attributing the vocabulary to 14.5. Settling it needs no code change, just reconciling the two comment blocks.

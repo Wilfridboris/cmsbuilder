@@ -78,6 +78,31 @@ export const targetBodySchema = z.object({
 
 export type TargetBody = z.infer<typeof targetBodySchema>;
 
+/**
+ * The per-field customization body (Story 14.5): the org `slug` (the gate) plus the full
+ * ordered `fieldConfig` array for the form's non-relation fields. Discriminated in the
+ * PATCH handler AFTER the target branch and BEFORE slug/rename (its `fieldConfig` array
+ * key is unique to this shape). Each entry customizes one target-table field by `key`;
+ * `label`/`helpText` are optional public overrides, `included` is the visibility toggle,
+ * `order` the render position. The mutator re-validates every entry against the current
+ * target table (dropping relation/stale keys, FR78), so a forged key never persists —
+ * the Zod shape here is only a structural gate.
+ */
+export const fieldConfigBodySchema = z.object({
+  slug: z.string().trim().min(1),
+  fieldConfig: z.array(
+    z.object({
+      key: z.string().trim().min(1),
+      label: z.string().optional(),
+      helpText: z.string().optional(),
+      included: z.boolean().optional(),
+      order: z.number().int().optional(),
+    }),
+  ),
+});
+
+export type FieldConfigBody = z.infer<typeof fieldConfigBodySchema>;
+
 /** The DELETE query: just the org slug. */
 export const deleteQuerySchema = z.object({
   slug: z.string().trim().min(1),

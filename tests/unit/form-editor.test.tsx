@@ -38,6 +38,8 @@ function render(
     initialSlug: "job-request",
     targetTableKey: "leads",
     tables: TABLES,
+    editorFields: [],
+    initialFieldConfig: [],
     initialPublished: false,
     publishable: true,
     publishReason: "ok",

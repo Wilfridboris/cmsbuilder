@@ -4,10 +4,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
+import type { FormFieldConfig } from "@/types/db";
 import { kebabCase } from "@/lib/utils";
 import { getSchema } from "@/lib/data/records";
 import { visibleTables } from "@/lib/schema/overrides";
-import { selectIntakeTable } from "@/lib/intake/target";
+import { intakeFields, selectIntakeTable } from "@/lib/intake/target";
 import { deriveFormSlug, ensureUniqueFormSlug } from "@/lib/forms/form-slug";
 import { getFormById } from "@/lib/data/forms";
 import { evaluateFormPublishability } from "@/lib/forms/publishability";
@@ -402,6 +403,119 @@ export async function updateFormTarget(
       .from("forms")
       .update({
         target_table_key: input.targetTableKey,
+        field_config: filteredFieldConfig,
+        actor_id: actorId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("organization_id", orgId)
+      .eq("id", input.formId)
+      .select("id, slug")
+      .maybeSingle();
+
+    if (error) {
+      throw new AppError(500, "writeFailed", error.message);
+    }
+    if (!data) {
+      // Deleted between the read and the write (RLS-hidden) — same outcome, no write.
+      throw new AppError(404, "Forms.error.notFound");
+    }
+
+    return {
+      data: { id: data.id as string, slug: data.slug as string },
+      error: null,
+    };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/**
+ * Save a form's per-field public customization (Epic 14, Story 14.5) — the guarded write
+ * behind the per-field editor. Visibility / public label / help text / order for the
+ * target table's non-relation fields are stored in `field_config`; the public resolver
+ * ({@link resolvePublicFormTarget}) applies them once via `applyFieldConfig`.
+ *
+ * Server-authoritative, mirroring {@link updateFormTarget}'s guard order:
+ *   1. The form must exist in the caller's org (else 404, RLS-hidden) — read first so a
+ *      cross-org change cannot even probe the schema.
+ *   2. UNLIKE slug/target, field config is NOT locked while published (decision): refining
+ *      labels/help/order/visibility never changes WHERE responses land, so there is no
+ *      silent-redirect risk. No `published` rejection here.
+ *   3. The form's CURRENT target table is read from the org's schema. Every incoming entry
+ *      is validated against it: an entry whose `key` is not a current non-relation field of
+ *      the target table is DROPPED (FR78 for relation keys + drop-stale for removed keys).
+ *      A target that cannot be resolved (null key / unreadable schema / hidden-or-deleted
+ *      table) yields an EMPTY written config — fail-closed, so no unvalidated entry persists.
+ *
+ * The write bumps `actor_id` + `updated_at`, exactly like {@link renameForm}.
+ */
+export async function updateFormFieldConfig(
+  identity: FormMutateIdentity,
+  input: { formId: string; fieldConfig: FormFieldConfig[] },
+): Promise<ApiResponse<FormMutateResult>> {
+  try {
+    const { client, actorId, orgId } = identity;
+
+    // The form must exist in the caller's org first (else 404), so a cross-org config
+    // change cannot even probe the schema.
+    const existing = await getFormById(client, orgId, input.formId);
+    if (!existing) {
+      throw new AppError(404, "Forms.error.notFound");
+    }
+
+    // Resolve the form's CURRENT target table's non-relation field keys (FR78: relation
+    // fields are never storable). A target we cannot resolve (null key, unreadable schema,
+    // deleted/hidden table) yields an empty allowlist -> every entry is filtered out, so no
+    // unvalidated config can persist. This mirrors the public resolver's candidate set.
+    const allowedKeys = new Set<string>();
+    if (existing.target_table_key) {
+      const schemaResult = await getSchema(client, orgId);
+      if (schemaResult.error) {
+        throw new AppError(500, "writeFailed", schemaResult.error);
+      }
+      if (schemaResult.data) {
+        const table = visibleTables(schemaResult.data).find(
+          (t) => t.key === existing.target_table_key,
+        );
+        if (table) {
+          for (const field of intakeFields(table)) {
+            allowedKeys.add(field.key);
+          }
+        }
+      }
+    }
+
+    // Filter incoming entries to the current non-relation target-table fields. A relation
+    // or stale key is dropped (never written). De-dupe by key (last entry wins), keeping
+    // only the recognized override vocabulary.
+    const byKey = new Map<string, FormFieldConfig>();
+    for (const entry of input.fieldConfig) {
+      if (!allowedKeys.has(entry.key)) {
+        continue;
+      }
+      const clean: FormFieldConfig = { key: entry.key };
+      if (typeof entry.label === "string") {
+        clean.label = entry.label;
+      }
+      if (typeof entry.included === "boolean") {
+        clean.included = entry.included;
+      }
+      if (typeof entry.order === "number") {
+        clean.order = entry.order;
+      }
+      if (typeof entry.helpText === "string") {
+        clean.helpText = entry.helpText;
+      }
+      byKey.set(entry.key, clean);
+    }
+    const filteredFieldConfig = Array.from(byKey.values());
+
+    const { data, error } = await client
+      .from("forms")
+      .update({
         field_config: filteredFieldConfig,
         actor_id: actorId,
         updated_at: new Date().toISOString(),

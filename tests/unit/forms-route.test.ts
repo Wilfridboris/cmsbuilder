@@ -29,6 +29,7 @@ const {
   renameForm,
   updateFormSlug,
   updateFormTarget,
+  updateFormFieldConfig,
   publishForm,
   deleteForm,
 } = vi.hoisted(() => ({
@@ -41,6 +42,7 @@ const {
   renameForm: vi.fn(),
   updateFormSlug: vi.fn(),
   updateFormTarget: vi.fn(),
+  updateFormFieldConfig: vi.fn(),
   publishForm: vi.fn(),
   deleteForm: vi.fn(),
 }));
@@ -62,6 +64,7 @@ vi.mock("@/lib/data/form-mutate", () => ({
   renameForm,
   updateFormSlug,
   updateFormTarget,
+  updateFormFieldConfig,
   publishForm,
   deleteForm,
 }));
@@ -106,6 +109,7 @@ function expectNoDataAccess() {
   expect(renameForm).not.toHaveBeenCalled();
   expect(updateFormSlug).not.toHaveBeenCalled();
   expect(updateFormTarget).not.toHaveBeenCalled();
+  expect(updateFormFieldConfig).not.toHaveBeenCalled();
   expect(publishForm).not.toHaveBeenCalled();
   expect(deleteForm).not.toHaveBeenCalled();
 }
@@ -224,6 +228,7 @@ describe("/api/forms body dispatch (gate passing)", () => {
     expect(res.status).toBe(400);
     expect(updateFormSlug).not.toHaveBeenCalled();
     expect(updateFormTarget).not.toHaveBeenCalled();
+    expect(updateFormFieldConfig).not.toHaveBeenCalled();
     expect(renameForm).not.toHaveBeenCalled();
     expect(publishForm).not.toHaveBeenCalled();
   });
@@ -248,6 +253,64 @@ describe("/api/forms body dispatch (gate passing)", () => {
       targetTableKey: "leads",
     });
     expect(publishForm).not.toHaveBeenCalled();
+    expect(updateFormSlug).not.toHaveBeenCalled();
+    expect(renameForm).not.toHaveBeenCalled();
+  });
+
+  it("PATCH { slug, fieldConfig } dispatches to updateFormFieldConfig (not target/slug/rename/publish)", async () => {
+    updateFormFieldConfig.mockResolvedValue({
+      data: { id: "f1", slug: "job-request" },
+      error: null,
+    });
+
+    const fieldConfig = [{ key: "name", included: true, order: 0 }];
+    const res = await PATCH(
+      bodyReq({ slug: SLUG, fieldConfig }),
+      formParams(),
+    );
+    const body = (await res.json()) as { data: unknown; error: string | null };
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ data: { id: "f1", slug: "job-request" }, error: null });
+    expect(updateFormFieldConfig).toHaveBeenCalledTimes(1);
+    expect(updateFormFieldConfig).toHaveBeenCalledWith(IDENTITY, {
+      formId: "f1",
+      fieldConfig,
+    });
+    expect(updateFormTarget).not.toHaveBeenCalled();
+    expect(publishForm).not.toHaveBeenCalled();
+    expect(updateFormSlug).not.toHaveBeenCalled();
+    expect(renameForm).not.toHaveBeenCalled();
+  });
+
+  it("PATCH field-config branch ordering: target is checked BEFORE field-config, field-config BEFORE slug/rename", async () => {
+    // A body carrying BOTH targetTableKey and fieldConfig hits the target branch first
+    // (target is the earlier discriminator), so field-config never runs.
+    updateFormTarget.mockResolvedValue({
+      data: { id: "f1", slug: "job-request" },
+      error: null,
+    });
+    await PATCH(
+      bodyReq({ slug: SLUG, targetTableKey: "leads", fieldConfig: [] }),
+      formParams(),
+    );
+    expect(updateFormTarget).toHaveBeenCalledTimes(1);
+    expect(updateFormFieldConfig).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    requireUser.mockResolvedValue({ id: "user-1" });
+    resolveWritableAdminIdentity.mockResolvedValue(IDENTITY);
+
+    // A field-config body carries no title/newSlug, so it is reached before slug/rename.
+    updateFormFieldConfig.mockResolvedValue({
+      data: { id: "f1", slug: "job-request" },
+      error: null,
+    });
+    await PATCH(
+      bodyReq({ slug: SLUG, fieldConfig: [] }),
+      formParams(),
+    );
+    expect(updateFormFieldConfig).toHaveBeenCalledTimes(1);
     expect(updateFormSlug).not.toHaveBeenCalled();
     expect(renameForm).not.toHaveBeenCalled();
   });

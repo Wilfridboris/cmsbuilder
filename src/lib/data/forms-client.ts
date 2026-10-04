@@ -1,5 +1,5 @@
 import type { ApiResponse } from "@/types/api";
-import type { FormRow } from "@/types/db";
+import type { FormFieldConfig, FormRow } from "@/types/db";
 import type { CreatedFormPayload } from "@/app/api/forms/route";
 import type { FormMutateResult } from "@/lib/data/form-mutate";
 
@@ -103,6 +103,25 @@ export async function updateFormTarget(
     method: "PATCH",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ slug, targetTableKey }),
+  });
+  return parseEnvelope<FormMutateResult>(res);
+}
+
+/**
+ * Save a form's per-field public customization (Story 14.5): visibility, public labels,
+ * help text, and order for the target table's non-relation fields. The server re-validates
+ * every entry against the current target table (relation/stale keys are dropped, FR78) and
+ * is NOT locked while published. Returns the form's id + slug.
+ */
+export async function updateFormFieldConfig(
+  slug: string,
+  formId: string,
+  fieldConfig: FormFieldConfig[],
+): Promise<FormMutateResult> {
+  const res = await fetch(`/api/forms/${encodeURIComponent(formId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ slug, fieldConfig }),
   });
   return parseEnvelope<FormMutateResult>(res);
 }

@@ -300,3 +300,74 @@ describe("resolvePublicFormTarget — bare-org route picks the primary published
     expect(target?.orgName).toBe("");
   });
 });
+
+describe("resolvePublicFormTarget — per-field config is applied (Story 14.5)", () => {
+  it("applies the form's field_config: excludes a field, overrides a label, attaches helpText, reorders", async () => {
+    // Hide `email`, relabel `name` + add help text, and put `name` after... well,
+    // only `name` survives here, but exercise order + label + help through the resolver.
+    getPublishedFormBySlug.mockResolvedValue(
+      formRow({
+        field_config: [
+          {
+            key: "email",
+            included: false,
+            order: 0,
+          },
+          {
+            key: "name",
+            included: true,
+            label: "Your full name",
+            helpText: "First and last",
+            order: 1,
+          },
+        ],
+      }),
+    );
+
+    const target = await resolvePublicFormTarget({
+      orgSlug: "acme",
+      formSlug: "contact",
+    });
+
+    expect(target).not.toBeNull();
+    // `email` excluded; relation `client` never a candidate; only `name` renders.
+    expect(target?.fields.map((f) => f.key)).toEqual(["name"]);
+    const name = target?.fields.find((f) => f.key === "name");
+    expect(name?.label).toBe("Your full name");
+    expect(name?.helpText).toBe("First and last");
+  });
+
+  it("reorders included fields by the config `order`", async () => {
+    getPublishedFormBySlug.mockResolvedValue(
+      formRow({
+        field_config: [
+          { key: "name", included: true, order: 1 },
+          { key: "email", included: true, order: 0 },
+        ],
+      }),
+    );
+
+    const target = await resolvePublicFormTarget({
+      orgSlug: "acme",
+      formSlug: "contact",
+    });
+
+    // `email` (order 0) before `name` (order 1); relation `client` still excluded.
+    expect(target?.fields.map((f) => f.key)).toEqual(["email", "name"]);
+  });
+
+  it("returns null when the config excludes every field (same as zero-eligible)", async () => {
+    getPublishedFormBySlug.mockResolvedValue(
+      formRow({
+        field_config: [
+          { key: "name", included: false },
+          { key: "email", included: false },
+        ],
+      }),
+    );
+
+    expect(
+      await resolvePublicFormTarget({ orgSlug: "acme", formSlug: "contact" }),
+    ).toBeNull();
+  });
+});

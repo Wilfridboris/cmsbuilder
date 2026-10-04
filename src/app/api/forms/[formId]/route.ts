@@ -14,6 +14,7 @@ import {
   renameForm,
   updateFormSlug,
   updateFormTarget,
+  updateFormFieldConfig,
   publishForm,
   deleteForm,
   type FormMutateResult,
@@ -22,6 +23,7 @@ import {
   renameBodySchema,
   slugBodySchema,
   targetBodySchema,
+  fieldConfigBodySchema,
   publishBodySchema,
   deleteQuerySchema,
   listQuerySchema,
@@ -99,6 +101,22 @@ export async function PATCH(
       const result = await updateFormTarget(identity, {
         formId,
         targetTableKey: targetParse.data.targetTableKey,
+      });
+      if (result.error || !result.data) {
+        throw new AppError(500, "writeFailed");
+      }
+      return json<FormMutateResult>({ data: result.data, error: null }, 200);
+    }
+
+    // A `fieldConfig` array is a per-field customization save (Story 14.5): checked after
+    // target and before slug/rename. The mutator re-validates every entry against the
+    // form's current target table (relation/stale keys dropped, FR78); not locked while
+    // published (field config never changes where responses land).
+    const fieldConfigParse = fieldConfigBodySchema.safeParse(raw);
+    if (fieldConfigParse.success) {
+      const result = await updateFormFieldConfig(identity, {
+        formId,
+        fieldConfig: fieldConfigParse.data.fieldConfig,
       });
       if (result.error || !result.data) {
         throw new AppError(500, "writeFailed");

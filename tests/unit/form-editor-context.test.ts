@@ -55,11 +55,28 @@ function form(): FormRow {
   };
 }
 
-/** Two visible tables + one hidden, to prove the visibility filter runs for real. */
+/**
+ * Two visible tables + one hidden, to prove the visibility filter runs for real. The
+ * `leads` (form target) table carries a scalar, a hidden field, and a relation so the
+ * editor-field assembly (`eligibleFields` + `isRelation`) is exercised end-to-end.
+ */
 function schema(): SchemaDefinition {
   return {
     tables: [
-      { key: "leads", label: "Leads", fields: [{ key: "name", label: "Name", type: "text" }] },
+      {
+        key: "leads",
+        label: "Leads",
+        fields: [
+          { key: "name", label: "Name", type: "text" },
+          { key: "secret", label: "Secret", type: "text", hidden: true },
+          {
+            key: "client",
+            label: "Client",
+            type: "relation",
+            relationConfig: { targetTable: "clients", cardinality: "one" },
+          },
+        ],
+      },
       { key: "clients", label: "Clients", fields: [{ key: "co", label: "Company", type: "text" }] },
       { key: "archive", label: "Archive", hidden: true, fields: [{ key: "note", label: "Note", type: "text" }] },
     ],
@@ -90,6 +107,28 @@ describe("loadFormForEditor — target-table list", () => {
     expect(result?.form.id).toBe("f1");
     expect(result?.publishable).toBe(true);
     expect(result?.reason).toBe("ok");
+  });
+
+  it("returns the target table's non-hidden fields as editorFields, flagging relations (Story 14.5)", async () => {
+    getSchema.mockResolvedValue({ data: schema(), error: null });
+
+    const result = await loadFormForEditor(SLUG, "f1");
+
+    // Hidden `secret` is excluded; `name` is a non-relation field, `client` is flagged.
+    expect(result?.editorFields).toEqual([
+      { key: "name", label: "Name", type: "text", isRelation: false },
+      { key: "client", label: "Client", type: "relation", isRelation: true },
+    ]);
+  });
+
+  it("degrades editorFields to [] when the stored target is not a visible table", async () => {
+    getSchema.mockResolvedValue({ data: schema(), error: null });
+    getFormById.mockResolvedValue({ ...form(), target_table_key: "archive" });
+
+    const result = await loadFormForEditor(SLUG, "f1");
+
+    // `archive` is hidden -> not a visible table -> no editor fields.
+    expect(result?.editorFields).toEqual([]);
   });
 
   it("degrades the tables list to [] when the schema cannot be read (no crash)", async () => {

@@ -5,6 +5,7 @@ import { CheckCircle2, ChevronDown, Inbox, Loader2, Send } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import type { FieldDefinition } from "@/types/db";
+import type { PublicIntakeField } from "@/lib/intake/target";
 import type { ApiResponse } from "@/types/api";
 import { coerceAddValue, inputModeFor } from "@/lib/forms/field-input";
 import { cn } from "@/lib/utils";
@@ -65,8 +66,12 @@ type IntakeFormProps = {
   submitPath: string;
   /** The business name, shown as the card eyebrow and named in the confirmation. */
   orgName: string;
-  /** The eligible, non-relation fields to render as inputs, in definition order. */
-  fields: FieldDefinition[];
+  /**
+   * The eligible, non-relation fields to render as inputs — already resolved through the
+   * form's per-field config (visibility/label/help/order applied upstream in
+   * `resolvePublicFormTarget`). Carries the optional `helpText` rider per field.
+   */
+  fields: PublicIntakeField[];
 };
 
 /** A per-field draft map: scalars hold the raw string, booleans "true"/"false". */
@@ -249,7 +254,7 @@ function IntakeField({
   disabled,
   boolLabels,
 }: {
-  field: FieldDefinition;
+  field: PublicIntakeField;
   value: string;
   hasError: boolean;
   errorMessage: string;
@@ -259,12 +264,27 @@ function IntakeField({
 }) {
   const id = `intake-${field.key}`;
   const errorId = `${id}-error`;
+  const helpId = `${id}-help`;
+  const hasHelp =
+    typeof field.helpText === "string" && field.helpText.trim() !== "";
+
+  // Associate the input with its help text and, when present, its error (both ids,
+  // space-separated) so assistive tech announces guidance alongside any validation error.
+  const describedBy =
+    [hasHelp ? helpId : null, hasError ? errorId : null]
+      .filter(Boolean)
+      .join(" ") || undefined;
 
   return (
     <div className="flex flex-col gap-2">
       <Label htmlFor={id} className="text-sm font-medium">
         {field.label}
       </Label>
+      {hasHelp ? (
+        <p id={helpId} className="text-xs text-muted-foreground text-pretty">
+          {field.helpText}
+        </p>
+      ) : null}
       {field.type === "boolean" ? (
         <BooleanChoice
           id={id}
@@ -283,7 +303,7 @@ function IntakeField({
             value={value}
             disabled={disabled}
             aria-invalid={hasError}
-            aria-describedby={hasError ? errorId : undefined}
+            aria-describedby={describedBy}
             onChange={(event) => onChange(event.target.value)}
             className={cn(
               "min-h-12 w-full appearance-none rounded-md border border-input bg-background px-3 pe-10 text-sm",
@@ -314,7 +334,7 @@ function IntakeField({
           value={value}
           disabled={disabled}
           aria-invalid={hasError}
-          aria-describedby={hasError ? errorId : undefined}
+          aria-describedby={describedBy}
           onChange={(event) => onChange(event.target.value)}
           className="min-h-12"
         />
