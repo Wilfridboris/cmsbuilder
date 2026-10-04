@@ -42,6 +42,9 @@ export default async function IntakeFormPage({
       submitPath={`/api/intake/${encodeURIComponent(slug)}`}
       orgName={target.orgName}
       fields={target.fields}
+      operatingName={target.operatingName}
+      logoUrl={target.logoUrl}
+      introText={target.introText}
     />
   );
 }

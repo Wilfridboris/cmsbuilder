@@ -124,6 +124,65 @@ describe("IntakeForm — boolean field", () => {
   });
 });
 
+describe("IntakeForm — branding (Story 14.6)", () => {
+  // Matrix row "Full branding": logo, operating name, and intro all render above the fields.
+  it("renders the logo (with brand alt), the operating name eyebrow, and the intro", () => {
+    const html = render(
+      <IntakeForm
+        submitPath="/api/intake/acme/contact"
+        orgName="Acme Plumbing"
+        operatingName="Acme Co."
+        logoUrl="/api/forms/logo/acme"
+        introText={"Welcome!\nTell us about your job."}
+        fields={HAPPY_FIELDS}
+      />,
+    );
+    // The logo <img> points at the proxy and carries the brand name as alt text.
+    expect(html).toMatch(/<img[^>]*src="\/api\/forms\/logo\/acme"/);
+    expect(html).toContain('alt="Acme Co. logo"');
+    // The operating name is the preferred brand name (not the raw org name).
+    expect(html).toContain("Acme Co.");
+    // The intro renders; a newline survives via whitespace-pre-line (plain text in markup).
+    expect(html).toContain("Tell us about your job.");
+  });
+
+  // Matrix row "No logo": no <img> at all — no broken image, no empty box.
+  it("renders no logo image when logoUrl is absent", () => {
+    const html = render(
+      <IntakeForm
+        submitPath="/api/intake/acme/contact"
+        orgName="Acme Plumbing"
+        operatingName="Acme Co."
+        logoUrl={null}
+        introText="Hello there"
+        fields={HAPPY_FIELDS}
+      />,
+    );
+    expect(html).not.toContain("<img");
+    expect(html).toContain("Acme Co.");
+    expect(html).toContain("Hello there");
+  });
+
+  // Matrix row "No operating name": brand name falls back to the org name; logo/intro honored.
+  it("falls back to the org name when the operating name is blank/absent", () => {
+    const html = render(
+      <IntakeForm
+        submitPath="/api/intake/acme/contact"
+        orgName="Acme Plumbing"
+        operatingName={null}
+        logoUrl="/api/forms/logo/acme"
+        introText={null}
+        fields={HAPPY_FIELDS}
+      />,
+    );
+    // Eyebrow + logo alt both fall back to the org name.
+    expect(html).toContain("Acme Plumbing");
+    expect(html).toContain('alt="Acme Plumbing logo"');
+    // A null intro renders nothing extra (no stray empty paragraph breaking layout).
+    expect(html).toMatch(/<img[^>]*src="\/api\/forms\/logo\/acme"/);
+  });
+});
+
 describe("IntakeForm — French locale", () => {
   it("renders French chrome copy while field labels stay as authored", () => {
     const html = render(

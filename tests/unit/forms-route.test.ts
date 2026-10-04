@@ -30,6 +30,7 @@ const {
   updateFormSlug,
   updateFormTarget,
   updateFormFieldConfig,
+  updateFormIntroText,
   publishForm,
   deleteForm,
 } = vi.hoisted(() => ({
@@ -43,6 +44,7 @@ const {
   updateFormSlug: vi.fn(),
   updateFormTarget: vi.fn(),
   updateFormFieldConfig: vi.fn(),
+  updateFormIntroText: vi.fn(),
   publishForm: vi.fn(),
   deleteForm: vi.fn(),
 }));
@@ -65,6 +67,7 @@ vi.mock("@/lib/data/form-mutate", () => ({
   updateFormSlug,
   updateFormTarget,
   updateFormFieldConfig,
+  updateFormIntroText,
   publishForm,
   deleteForm,
 }));
@@ -110,6 +113,7 @@ function expectNoDataAccess() {
   expect(updateFormSlug).not.toHaveBeenCalled();
   expect(updateFormTarget).not.toHaveBeenCalled();
   expect(updateFormFieldConfig).not.toHaveBeenCalled();
+  expect(updateFormIntroText).not.toHaveBeenCalled();
   expect(publishForm).not.toHaveBeenCalled();
   expect(deleteForm).not.toHaveBeenCalled();
 }
@@ -281,6 +285,59 @@ describe("/api/forms body dispatch (gate passing)", () => {
     expect(publishForm).not.toHaveBeenCalled();
     expect(updateFormSlug).not.toHaveBeenCalled();
     expect(renameForm).not.toHaveBeenCalled();
+  });
+
+  it("PATCH { slug, introText } dispatches to updateFormIntroText (not fieldConfig/target/slug/rename/publish)", async () => {
+    updateFormIntroText.mockResolvedValue({
+      data: { id: "f1", slug: "job-request" },
+      error: null,
+    });
+
+    const res = await PATCH(
+      bodyReq({ slug: SLUG, introText: "Welcome to our form" }),
+      formParams(),
+    );
+    const body = (await res.json()) as { data: unknown; error: string | null };
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ data: { id: "f1", slug: "job-request" }, error: null });
+    expect(updateFormIntroText).toHaveBeenCalledTimes(1);
+    expect(updateFormIntroText).toHaveBeenCalledWith(IDENTITY, {
+      formId: "f1",
+      introText: "Welcome to our form",
+    });
+    expect(updateFormFieldConfig).not.toHaveBeenCalled();
+    expect(updateFormTarget).not.toHaveBeenCalled();
+    expect(publishForm).not.toHaveBeenCalled();
+    expect(updateFormSlug).not.toHaveBeenCalled();
+    expect(renameForm).not.toHaveBeenCalled();
+  });
+
+  it("PATCH { slug, introText: '' } (clear) still dispatches to updateFormIntroText", async () => {
+    updateFormIntroText.mockResolvedValue({
+      data: { id: "f1", slug: "job-request" },
+      error: null,
+    });
+
+    const res = await PATCH(bodyReq({ slug: SLUG, introText: "" }), formParams());
+
+    expect(res.status).toBe(200);
+    expect(updateFormIntroText).toHaveBeenCalledWith(IDENTITY, {
+      formId: "f1",
+      introText: "",
+    });
+  });
+
+  it("PATCH { slug, introText } over 500 chars → 400 introTooLong, no mutator runs", async () => {
+    const res = await PATCH(
+      bodyReq({ slug: SLUG, introText: "x".repeat(501) }),
+      formParams(),
+    );
+    const body = (await res.json()) as { data: unknown; error: string | null };
+
+    expect(res.status).toBe(400);
+    expect(body).toEqual({ data: null, error: "Forms.error.introTooLong" });
+    expect(updateFormIntroText).not.toHaveBeenCalled();
   });
 
   it("PATCH field-config branch ordering: target is checked BEFORE field-config, field-config BEFORE slug/rename", async () => {

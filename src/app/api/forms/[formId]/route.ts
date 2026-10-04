@@ -15,6 +15,7 @@ import {
   updateFormSlug,
   updateFormTarget,
   updateFormFieldConfig,
+  updateFormIntroText,
   publishForm,
   deleteForm,
   type FormMutateResult,
@@ -24,6 +25,7 @@ import {
   slugBodySchema,
   targetBodySchema,
   fieldConfigBodySchema,
+  introTextBodySchema,
   publishBodySchema,
   deleteQuerySchema,
   listQuerySchema,
@@ -122,6 +124,31 @@ export async function PATCH(
         throw new AppError(500, "writeFailed");
       }
       return json<FormMutateResult>({ data: result.data, error: null }, 200);
+    }
+
+    // An `introText` string is an intro-text save (Story 14.6): checked after field-config
+    // and before slug/rename. The mutator trims and stores null when blank; the schema caps
+    // length at 500. A body that carries `introText` but fails validation (over-length)
+    // surfaces `introTooLong` immediately rather than falling through to slug/rename.
+    const introParse = introTextBodySchema.safeParse(raw);
+    if (introParse.success) {
+      const result = await updateFormIntroText(identity, {
+        formId,
+        introText: introParse.data.introText,
+      });
+      if (result.error || !result.data) {
+        throw new AppError(500, "writeFailed");
+      }
+      return json<FormMutateResult>({ data: result.data, error: null }, 200);
+    }
+    if (
+      raw !== null &&
+      typeof raw === "object" &&
+      "introText" in raw
+    ) {
+      // The body is an intro-text save that failed validation (over-length) — surface its
+      // specific key instead of falling through to the slug/rename dispatch.
+      throw new AppError(400, firstFormErrorKey(introParse.error));
     }
 
     const slugParse = slugBodySchema.safeParse(raw);

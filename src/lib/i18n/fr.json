@@ -884,6 +884,11 @@
     "fieldsLockedTitle": "Champs liés",
     "fieldsLockedExplanation": "Les champs liés sont exclus des formulaires publics et ne peuvent pas être affichés.",
     "saveFields": "Enregistrer les champs",
+    "introTitle": "Message d'introduction",
+    "introHelp": "Un court message de bienvenue ou des instructions affichés au-dessus des champs de votre formulaire public. Laissez vide pour ne rien afficher.",
+    "introLabel": "Message d'introduction",
+    "introPlaceholder": "Indiquez à vos clients l'objet de ce formulaire ou ce à quoi s'attendre.",
+    "saveIntro": "Enregistrer le message",
     "error": {
       "titleRequired": "Veuillez saisir un nom pour ce formulaire.",
       "slugTaken": "Ce lien est déjà utilisé par un autre formulaire. Veuillez en choisir un autre.",
@@ -891,6 +896,7 @@
       "slugLocked": "Le lien ne peut pas être modifié tant que ce formulaire est publié. Désactivez d'abord la publication.",
       "targetInvalid": "Cette table n'est pas disponible. Veuillez choisir une table dans la liste.",
       "targetLocked": "La table ne peut pas être modifiée tant que ce formulaire est publié. Désactivez d'abord la publication.",
+      "introTooLong": "Le message d'introduction est trop long. Veuillez le limiter à 500 caractères ou moins.",
       "publishBlocked": "Ce formulaire ne peut pas encore être publié. Assurez-vous qu'il possède une table avec des champs à collecter.",
       "notFound": "Ce formulaire est introuvable.",
       "forbidden": "Vous n'avez pas accès à la gestion des formulaires.",
@@ -904,6 +910,7 @@
   "IntakeForm": {
     "heading": "Contactez-nous",
     "subtitle": "Remplissez le formulaire ci-dessous et nous vous répondrons sous peu.",
+    "logoAlt": "Logo de {name}",
     "yes": "Oui",
     "no": "Non",
     "submit": "Envoyer",

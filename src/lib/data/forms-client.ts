@@ -127,6 +127,25 @@ export async function updateFormFieldConfig(
 }
 
 /**
+ * Save a form's owner-authored intro text (Story 14.6). The server trims it and stores
+ * `null` when blank (clearing the intro); an over-length value throws
+ * `FormApiError("Forms.error.introTooLong")`. Not locked while published (the intro never
+ * changes where responses land). Returns the form's id + slug.
+ */
+export async function updateFormIntroText(
+  slug: string,
+  formId: string,
+  introText: string,
+): Promise<FormMutateResult> {
+  const res = await fetch(`/api/forms/${encodeURIComponent(formId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ slug, introText }),
+  });
+  return parseEnvelope<FormMutateResult>(res);
+}
+
+/**
  * Publish or unpublish a form (Story 14.3). Publishing a form with no valid target table
  * throws `FormApiError("Forms.error.publishBlocked")`; everything else maps as usual.
  * Returns the form's id + slug.

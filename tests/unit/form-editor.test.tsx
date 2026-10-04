@@ -40,6 +40,7 @@ function render(
     tables: TABLES,
     editorFields: [],
     initialFieldConfig: [],
+    initialIntroText: null,
     initialPublished: false,
     publishable: true,
     publishReason: "ok",

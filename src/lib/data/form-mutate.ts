@@ -546,6 +546,72 @@ export async function updateFormFieldConfig(
 }
 
 /**
+ * Save a form's owner-authored intro/info text (Epic 14, Story 14.6) — the guarded write
+ * behind the editor's intro card. The intro is rendered above the public form's fields by
+ * the 14.2 resolver; this write lets the Admin author it.
+ *
+ * Server-authoritative, mirroring {@link updateFormSlug}'s guard order minus the published
+ * lock:
+ *   1. The form must exist in the caller's org (else 404, RLS-hidden) — read first so a
+ *      cross-org write cannot touch another org's row.
+ *   2. UNLIKE slug/target, intro text is NOT locked while published: it never changes WHERE
+ *      responses land (like field config), so editing it on a live form is safe.
+ *
+ * The incoming value is trimmed; a blank value is stored as `null` (clears the intro). The
+ * route's zod schema caps length at 500 chars, so no length check is needed here. The write
+ * bumps `actor_id` + `updated_at`, exactly like {@link renameForm}.
+ */
+export async function updateFormIntroText(
+  identity: FormMutateIdentity,
+  input: { formId: string; introText: string },
+): Promise<ApiResponse<FormMutateResult>> {
+  try {
+    const { client, actorId, orgId } = identity;
+
+    // The form must exist in the caller's org first (else 404), so a cross-org intro
+    // change cannot even touch another org's row.
+    const existing = await getFormById(client, orgId, input.formId);
+    if (!existing) {
+      throw new AppError(404, "Forms.error.notFound");
+    }
+
+    // Trim; a blank value clears the intro (stored as null).
+    const trimmed = input.introText.trim();
+    const value = trimmed === "" ? null : trimmed;
+
+    const { data, error } = await client
+      .from("forms")
+      .update({
+        intro_text: value,
+        actor_id: actorId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("organization_id", orgId)
+      .eq("id", input.formId)
+      .select("id, slug")
+      .maybeSingle();
+
+    if (error) {
+      throw new AppError(500, "writeFailed", error.message);
+    }
+    if (!data) {
+      // Deleted between the read and the write (RLS-hidden) — same outcome, no write.
+      throw new AppError(404, "Forms.error.notFound");
+    }
+
+    return {
+      data: { id: data.id as string, slug: data.slug as string },
+      error: null,
+    };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/**
  * Hard-delete a form. Scoped `id + org` under the caller's RLS client; a form id not in
  * the caller's org is a 404 (nothing deleted). Returns the deleted id.
  */

@@ -884,6 +884,11 @@
     "fieldsLockedTitle": "Linked fields",
     "fieldsLockedExplanation": "Linked fields are excluded from public forms and cannot be shown.",
     "saveFields": "Save fields",
+    "introTitle": "Intro message",
+    "introHelp": "A short welcome or instructions shown above the fields on your public form. Leave it blank to show nothing.",
+    "introLabel": "Intro message",
+    "introPlaceholder": "Tell your customers what this form is for or what to expect.",
+    "saveIntro": "Save message",
     "error": {
       "titleRequired": "Please enter a name for this form.",
       "slugTaken": "That link is already used by another form. Please choose a different one.",
@@ -891,6 +896,7 @@
       "slugLocked": "The link cannot be changed while this form is published. Turn off publishing first.",
       "targetInvalid": "That table is not available. Please choose a table from the list.",
       "targetLocked": "The table cannot be changed while this form is published. Turn off publishing first.",
+      "introTooLong": "The intro message is too long. Please keep it to 500 characters or fewer.",
       "publishBlocked": "This form cannot be published yet. Make sure it has a table with fields to collect.",
       "notFound": "This form could not be found.",
       "forbidden": "You do not have access to manage forms.",
@@ -904,6 +910,7 @@
   "IntakeForm": {
     "heading": "Get in touch",
     "subtitle": "Fill out the form below and we will get back to you shortly.",
+    "logoAlt": "{name} logo",
     "yes": "Yes",
     "no": "No",
     "submit": "Send",

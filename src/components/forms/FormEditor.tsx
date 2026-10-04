@@ -8,6 +8,7 @@ import { Check, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Card,
   CardContent,
@@ -32,6 +33,7 @@ import {
   renameForm,
   updateFormSlug,
   updateFormTarget,
+  updateFormIntroText,
   deleteForm,
   FormApiError,
 } from "@/lib/data/forms-client";
@@ -67,6 +69,7 @@ const ERROR_KEYS = new Set([
   "slugLocked",
   "targetInvalid",
   "targetLocked",
+  "introTooLong",
   "notFound",
   "forbidden",
   "unauthorized",
@@ -89,6 +92,7 @@ export function FormEditor({
   tables,
   editorFields,
   initialFieldConfig,
+  initialIntroText,
   initialPublished,
   publishable,
   publishReason,
@@ -101,6 +105,7 @@ export function FormEditor({
   tables: { key: string; label: string }[];
   editorFields: EditorField[];
   initialFieldConfig: FormFieldConfig[];
+  initialIntroText: string | null;
   initialPublished: boolean;
   publishable: boolean;
   publishReason: PublishabilityReason;
@@ -126,18 +131,26 @@ export function FormEditor({
   const [targetKey, setTargetKey] = useState(initialTarget);
   const [savedTarget, setSavedTarget] = useState(initialTarget);
 
+  // The intro text draft and the value actually PERSISTED on the server. Save is enabled
+  // only when the draft differs from what's persisted (clearing counts as a change).
+  const [introText, setIntroText] = useState(initialIntroText ?? "");
+  const [savedIntro, setSavedIntro] = useState(initialIntroText ?? "");
+
   const [titleError, setTitleError] = useState<string | null>(null);
   const [slugError, setSlugError] = useState<string | null>(null);
   const [targetError, setTargetError] = useState<string | null>(null);
+  const [introError, setIntroError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [titleSaved, setTitleSaved] = useState(false);
   const [slugSaved, setSlugSaved] = useState(false);
   const [targetSaved, setTargetSaved] = useState(false);
+  const [introSaved, setIntroSaved] = useState(false);
 
   const [renaming, startRename] = useTransition();
   const [savingSlug, startSlugSave] = useTransition();
   const [savingTarget, startTargetSave] = useTransition();
+  const [savingIntro, startIntroSave] = useTransition();
   const [deleting, startDelete] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -147,6 +160,8 @@ export function FormEditor({
   const targetSelectId = useId();
   const targetErrorId = useId();
   const targetLockId = useId();
+  const introFieldId = useId();
+  const introErrorId = useId();
 
   function handleRename(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -224,6 +239,27 @@ export function FormEditor({
       } catch (err) {
         const code = err instanceof FormApiError ? err.code : "genericError";
         setTargetError(resolveError(t, code));
+      }
+    });
+  }
+
+  function handleIntro(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIntroSaved(false);
+    // Trim for the no-op check so re-saving unchanged whitespace doesn't write. The server
+    // is authoritative on the trim-and-null-if-blank rule; this only gates the request.
+    if (introText.trim() === savedIntro.trim()) {
+      return;
+    }
+    setIntroError(null);
+    startIntroSave(async () => {
+      try {
+        await updateFormIntroText(slug, formId, introText);
+        setSavedIntro(introText);
+        setIntroSaved(true);
+      } catch (err) {
+        const code = err instanceof FormApiError ? err.code : "genericError";
+        setIntroError(resolveError(t, code));
       }
     });
   }
@@ -456,6 +492,64 @@ export function FormEditor({
         editorFields={editorFields}
         initialFieldConfig={initialFieldConfig}
       />
+
+      {/* Intro / info message (Story 14.6) — authored above the public form's fields. */}
+      <Card>
+        <CardHeader>
+          <CardTitle>{t("introTitle")}</CardTitle>
+          <CardDescription>{t("introHelp")}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleIntro} className="flex flex-col gap-3">
+            <Label htmlFor={introFieldId} className="sr-only">
+              {t("introLabel")}
+            </Label>
+            <Textarea
+              id={introFieldId}
+              value={introText}
+              disabled={savingIntro}
+              maxLength={500}
+              rows={4}
+              placeholder={t("introPlaceholder")}
+              aria-invalid={introError ? true : undefined}
+              aria-describedby={introError ? introErrorId : undefined}
+              onChange={(event) => {
+                setIntroText(event.target.value);
+                setIntroSaved(false);
+              }}
+            />
+            <div className="flex">
+              <Button
+                type="submit"
+                className="min-h-12 gap-2"
+                disabled={savingIntro || introText.trim() === savedIntro.trim()}
+              >
+                {savingIntro ? (
+                  <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                ) : null}
+                {savingIntro ? t("saving") : t("saveIntro")}
+              </Button>
+            </div>
+            {introError ? (
+              <p
+                id={introErrorId}
+                role="alert"
+                className="text-sm text-destructive"
+              >
+                {introError}
+              </p>
+            ) : introSaved ? (
+              <p
+                role="status"
+                className="flex items-center gap-1 text-sm text-muted-foreground"
+              >
+                <Check aria-hidden="true" className="size-4" />
+                {t("saved")}
+              </p>
+            ) : null}
+          </form>
+        </CardContent>
+      </Card>
 
       {/* Publish + Share (Story 14.3) */}
       <FormPublishShare

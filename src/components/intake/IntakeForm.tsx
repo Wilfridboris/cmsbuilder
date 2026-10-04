@@ -72,6 +72,22 @@ type IntakeFormProps = {
    * `resolvePublicFormTarget`). Carries the optional `helpText` rider per field.
    */
   fields: PublicIntakeField[];
+  /**
+   * The owner's business operating name (Story 14.6), the preferred brand name shown as
+   * the card eyebrow. Falls back to {@link orgName} when null/blank.
+   */
+  operatingName?: string | null;
+  /**
+   * A stable URL to the published-gated logo proxy, or null/absent when there is no logo.
+   * When present, a bounded `<img>` renders above the brand name; when absent, nothing is
+   * rendered (no broken image, no empty box, no layout jump).
+   */
+  logoUrl?: string | null;
+  /**
+   * The owner-authored intro/info message (Story 14.6), rendered above the fields. A
+   * null/blank value renders nothing in its place.
+   */
+  introText?: string | null;
 };
 
 /** A per-field draft map: scalars hold the raw string, booleans "true"/"false". */
@@ -86,9 +102,20 @@ function blankDraft(fields: FieldDefinition[]): Draft {
   return draft;
 }
 
-export function IntakeForm({ submitPath, orgName, fields }: IntakeFormProps) {
+export function IntakeForm({
+  submitPath,
+  orgName,
+  fields,
+  operatingName,
+  logoUrl,
+  introText,
+}: IntakeFormProps) {
   const t = useTranslations("IntakeForm");
   const idBase = useId();
+
+  // The operating name is the preferred public brand name; fall back to the org name when
+  // it is null/blank. Used for the eyebrow, the logo alt text, and the confirmation copy.
+  const brandName = operatingName?.trim() || orgName;
 
   const [draft, setDraft] = useState<Draft>(() => blankDraft(fields));
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
@@ -180,19 +207,34 @@ export function IntakeForm({ submitPath, orgName, fields }: IntakeFormProps) {
   };
 
   if (confirmed) {
-    return <Confirmation owner={orgName} />;
+    return <Confirmation owner={brandName} />;
   }
 
   return (
     <FormShell>
       <CardHeader>
-        <p className="text-sm font-medium text-muted-foreground">{orgName}</p>
+        {logoUrl ? (
+          // A plain <img> (spec): the proxied logo is served from a dynamic, published-gated
+          // API route, not run through next/image (12.1/12.5 keep the bucket private).
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={logoUrl}
+            alt={t("logoAlt", { name: brandName })}
+            className="mb-1 max-h-14 w-auto object-contain"
+          />
+        ) : null}
+        <p className="text-sm font-medium text-muted-foreground">{brandName}</p>
         <h1 className="text-2xl font-semibold tracking-tight text-balance">
           {t("heading")}
         </h1>
         <p className="text-sm text-muted-foreground text-pretty">
           {t("subtitle")}
         </p>
+        {introText?.trim() ? (
+          <p className="text-sm text-foreground/80 whitespace-pre-line text-pretty">
+            {introText}
+          </p>
+        ) : null}
       </CardHeader>
 
       <CardContent>

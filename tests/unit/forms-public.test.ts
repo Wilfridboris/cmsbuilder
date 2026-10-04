@@ -301,6 +301,118 @@ describe("resolvePublicFormTarget — bare-org route picks the primary published
   });
 });
 
+/**
+ * A richer admin stub that distinguishes the two table queries the resolver issues:
+ *   organizations:      .select("id, name").eq("slug", …).maybeSingle()
+ *   business_profiles:  .select("operating_name, logo_path").eq("organization_id", …).maybeSingle()
+ * Returns `org` for the organizations table and `profile` for business_profiles.
+ */
+function adminWithProfile(org: OrgResult, profile: OrgResult) {
+  return {
+    from: vi.fn((table: string) => ({
+      select: vi.fn(() => ({
+        eq: vi.fn(() => ({
+          maybeSingle: vi.fn(async () =>
+            table === "business_profiles" ? profile : org,
+          ),
+        })),
+      })),
+    })),
+  };
+}
+
+describe("resolvePublicFormTarget — branding (Story 14.6)", () => {
+  it("populates operatingName, logoUrl (org-keyed), and introText when the profile has them", async () => {
+    createAdminClient.mockReturnValue(
+      adminWithProfile(
+        { data: { id: "org-1", name: "Acme Plumbing" }, error: null },
+        {
+          data: { operating_name: "Acme Co.", logo_path: "org-1/logo.png" },
+          error: null,
+        },
+      ),
+    );
+    getPublishedFormBySlug.mockResolvedValue(
+      formRow({ intro_text: "Welcome! Tell us about your job." }),
+    );
+
+    const target = await resolvePublicFormTarget({
+      orgSlug: "acme",
+      formSlug: "contact",
+    });
+
+    expect(target).not.toBeNull();
+    expect(target?.operatingName).toBe("Acme Co.");
+    // The logo URL is the stable org-keyed proxy route — never the storage key.
+    expect(target?.logoUrl).toBe("/api/forms/logo/acme");
+    expect(target?.introText).toBe("Welcome! Tell us about your job.");
+  });
+
+  it("leaves logoUrl null when logo_path is null (operatingName + intro still resolved)", async () => {
+    createAdminClient.mockReturnValue(
+      adminWithProfile(
+        { data: { id: "org-1", name: "Acme Plumbing" }, error: null },
+        { data: { operating_name: "Acme Co.", logo_path: null }, error: null },
+      ),
+    );
+    getPublishedFormBySlug.mockResolvedValue(formRow({ intro_text: "Hi there" }));
+
+    const target = await resolvePublicFormTarget({
+      orgSlug: "acme",
+      formSlug: "contact",
+    });
+
+    expect(target?.operatingName).toBe("Acme Co.");
+    expect(target?.logoUrl).toBeNull();
+    expect(target?.introText).toBe("Hi there");
+  });
+
+  it("degrades to null branding (name falls back) when there is no business profile row", async () => {
+    createAdminClient.mockReturnValue(
+      adminWithProfile(
+        { data: { id: "org-1", name: "Acme Plumbing" }, error: null },
+        { data: null, error: null },
+      ),
+    );
+    getPublishedFormBySlug.mockResolvedValue(formRow({ intro_text: null }));
+
+    const target = await resolvePublicFormTarget({
+      orgSlug: "acme",
+      formSlug: "contact",
+    });
+
+    expect(target).not.toBeNull();
+    // No profile row -> operatingName + logoUrl null; the form still renders. The header
+    // falls back to orgName (asserted here as the resolved name).
+    expect(target?.operatingName).toBeNull();
+    expect(target?.logoUrl).toBeNull();
+    expect(target?.introText).toBeNull();
+    expect(target?.orgName).toBe("Acme Plumbing");
+    // A best-effort profile miss never reports an error.
+    expect(reportError).not.toHaveBeenCalled();
+  });
+
+  it("degrades to null branding when the profile read errors (best-effort)", async () => {
+    createAdminClient.mockReturnValue(
+      adminWithProfile(
+        { data: { id: "org-1", name: "Acme Plumbing" }, error: null },
+        { data: null, error: { message: "boom" } },
+      ),
+    );
+    getPublishedFormBySlug.mockResolvedValue(formRow());
+
+    const target = await resolvePublicFormTarget({
+      orgSlug: "acme",
+      formSlug: "contact",
+    });
+
+    expect(target).not.toBeNull();
+    expect(target?.operatingName).toBeNull();
+    expect(target?.logoUrl).toBeNull();
+    expect(reportError).not.toHaveBeenCalled();
+  });
+});
+
 describe("resolvePublicFormTarget — per-field config is applied (Story 14.5)", () => {
   it("applies the form's field_config: excludes a field, overrides a label, attaches helpText, reorders", async () => {
     // Hide `email`, relabel `name` + add help text, and put `name` after... well,

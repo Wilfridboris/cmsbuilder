@@ -42,6 +42,9 @@ export default async function KeyedIntakeFormPage({
       )}`}
       orgName={target.orgName}
       fields={target.fields}
+      operatingName={target.operatingName}
+      logoUrl={target.logoUrl}
+      introText={target.introText}
     />
   );
 }

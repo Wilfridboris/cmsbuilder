@@ -103,6 +103,21 @@ export const fieldConfigBodySchema = z.object({
 
 export type FieldConfigBody = z.infer<typeof fieldConfigBodySchema>;
 
+/**
+ * The intro-text body (Story 14.6): the org `slug` (the gate) plus the owner-authored
+ * `introText`. An empty string is allowed (it clears the intro — the mutator trims and
+ * stores `null` when blank). Capped at 500 characters server-side; an over-length value
+ * is rejected with `Forms.error.introTooLong`. Discriminated in the PATCH handler AFTER
+ * the field-config branch and BEFORE slug/rename (its `introText` string key is unique to
+ * this shape).
+ */
+export const introTextBodySchema = z.object({
+  slug: z.string().trim().min(1),
+  introText: z.string().max(500, "Forms.error.introTooLong"),
+});
+
+export type IntroTextBody = z.infer<typeof introTextBodySchema>;
+
 /** The DELETE query: just the org slug. */
 export const deleteQuerySchema = z.object({
   slug: z.string().trim().min(1),

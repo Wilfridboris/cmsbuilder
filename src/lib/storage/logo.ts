@@ -138,6 +138,50 @@ export async function downloadLogoDataUrl(
 }
 
 /**
+ * Download a private logo as raw bytes plus the content type derived from the
+ * object-key extension we control (`{org}/logo.{png|jpg}`), restricted to the
+ * PNG/JPEG this app stores. Used by the published-gated public logo proxy
+ * (Story 14.6) to STREAM the bytes with the service-role admin client — the
+ * private-bucket posture is unchanged (no public bucket, no signed URL on the
+ * public surface). Best-effort: returns `null` on a missing key, an unsupported
+ * extension, a download error, or an empty/oversize object, so a logo problem
+ * degrades to a 404 rather than leaking internals.
+ */
+export async function downloadLogoBytes(
+  client: SupabaseClient,
+  logoPath: string | null,
+): Promise<{ bytes: Buffer; contentType: string } | null> {
+  if (!logoPath) {
+    return null;
+  }
+  const ext = logoPath.split(".").pop()?.toLowerCase();
+  const contentType =
+    ext === "png"
+      ? "image/png"
+      : ext === "jpg" || ext === "jpeg"
+        ? "image/jpeg"
+        : null;
+  if (!contentType) {
+    return null;
+  }
+  try {
+    const { data, error } = await client.storage
+      .from(LOGO_BUCKET)
+      .download(logoPath);
+    if (error || !data) {
+      return null;
+    }
+    const bytes = Buffer.from(await data.arrayBuffer());
+    if (bytes.byteLength === 0 || bytes.byteLength > MAX_LOGO_BYTES) {
+      return null;
+    }
+    return { bytes, contentType };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Mint a short-lived signed URL to read a private logo back for display. Returns
  * `null` when there is no key or the sign fails (a missing preview is non-fatal —
  * the form still renders). Never a public URL; the URL expires after

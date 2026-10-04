@@ -67,6 +67,25 @@ export type IntakeTarget = {
    * `org_schemas` a second time per POST (epic-3 retro item 21).
    */
   schema: SchemaDefinition;
+  /**
+   * The owner's business operating name (Story 14.6), the preferred public brand name.
+   * `null` when there is no business profile row or the operating name is blank — the
+   * public header falls back to {@link orgName}. Best-effort: a profile read error
+   * leaves this `null`.
+   */
+  operatingName: string | null;
+  /**
+   * A stable, org-keyed URL to the published-gated logo proxy
+   * (`/api/forms/logo/{orgSlug}`), or `null` when the org has no stored logo. The route
+   * streams the private logo with the admin client (no public bucket, no signed URL) and
+   * re-checks the published gate per request. Best-effort: `null` on any profile error.
+   */
+  logoUrl: string | null;
+  /**
+   * The owner-authored intro/info message (Story 14.6), rendered above the fields. `null`
+   * or blank renders nothing. Mirrors the form's `intro_text` column.
+   */
+  introText: string | null;
 };
 
 /**
@@ -159,6 +178,32 @@ export async function resolvePublicFormTarget({
       return null;
     }
 
+    // Resolve the owner's branding once (Story 14.6): operating name + logo from the
+    // business profile, plus the form's intro text. BEST-EFFORT — any error leaves
+    // branding null and the form still renders (never throws to the public surface).
+    let operatingName: string | null = null;
+    let logoUrl: string | null = null;
+    try {
+      const { data: profile, error: profileError } = await admin
+        .from("business_profiles")
+        .select("operating_name, logo_path")
+        .eq("organization_id", orgId)
+        .maybeSingle();
+      if (!profileError && profile) {
+        // Normalize a blank/whitespace operating name to null so the resolved value matches
+        // IntakeTarget.operatingName's documented contract (the public header falls back to
+        // orgName either way).
+        operatingName = (profile.operating_name as string | null)?.trim() || null;
+        logoUrl = profile.logo_path
+          ? `/api/forms/logo/${encodeURIComponent(orgSlug)}`
+          : null;
+      }
+    } catch {
+      // A profile read failure degrades to no branding — the form still renders.
+      operatingName = null;
+      logoUrl = null;
+    }
+
     return {
       orgId,
       orgSlug,
@@ -166,6 +211,9 @@ export async function resolvePublicFormTarget({
       table,
       fields,
       schema: schemaResult.data,
+      operatingName,
+      logoUrl,
+      introText: form.intro_text,
     };
   } catch (err) {
     // Never leak provider/DB output to the public surface. Report and degrade to the
