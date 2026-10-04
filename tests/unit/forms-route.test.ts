@@ -28,6 +28,7 @@ const {
   createForm,
   renameForm,
   updateFormSlug,
+  publishForm,
   deleteForm,
 } = vi.hoisted(() => ({
   requireUser: vi.fn(),
@@ -38,6 +39,7 @@ const {
   createForm: vi.fn(),
   renameForm: vi.fn(),
   updateFormSlug: vi.fn(),
+  publishForm: vi.fn(),
   deleteForm: vi.fn(),
 }));
 
@@ -57,6 +59,7 @@ vi.mock("@/lib/data/form-mutate", () => ({
   createForm,
   renameForm,
   updateFormSlug,
+  publishForm,
   deleteForm,
 }));
 
@@ -99,6 +102,7 @@ function expectNoDataAccess() {
   expect(createForm).not.toHaveBeenCalled();
   expect(renameForm).not.toHaveBeenCalled();
   expect(updateFormSlug).not.toHaveBeenCalled();
+  expect(publishForm).not.toHaveBeenCalled();
   expect(deleteForm).not.toHaveBeenCalled();
 }
 
@@ -216,5 +220,43 @@ describe("/api/forms body dispatch (gate passing)", () => {
     expect(res.status).toBe(400);
     expect(updateFormSlug).not.toHaveBeenCalled();
     expect(renameForm).not.toHaveBeenCalled();
+    expect(publishForm).not.toHaveBeenCalled();
+  });
+
+  it("PATCH { slug, published } dispatches to publishForm (not slug/rename) and returns its result", async () => {
+    publishForm.mockResolvedValue({
+      data: { id: "f1", slug: "job-request" },
+      error: null,
+    });
+
+    const res = await PATCH(
+      bodyReq({ slug: SLUG, published: true }),
+      formParams(),
+    );
+    const body = (await res.json()) as { data: unknown; error: string | null };
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ data: { id: "f1", slug: "job-request" }, error: null });
+    expect(publishForm).toHaveBeenCalledTimes(1);
+    expect(publishForm).toHaveBeenCalledWith(IDENTITY, {
+      formId: "f1",
+      published: true,
+    });
+    expect(updateFormSlug).not.toHaveBeenCalled();
+    expect(renameForm).not.toHaveBeenCalled();
+  });
+
+  it("PATCH publish branch is checked FIRST: { slug, title } does NOT reach publishForm", async () => {
+    renameForm.mockResolvedValue({
+      data: { id: "f1", slug: "job-request" },
+      error: null,
+    });
+
+    await PATCH(bodyReq({ slug: SLUG, title: "Renamed" }), formParams());
+
+    // A rename body carries no `published` boolean, so the publish branch is skipped
+    // and the body falls through to the rename dispatch.
+    expect(publishForm).not.toHaveBeenCalled();
+    expect(renameForm).toHaveBeenCalledTimes(1);
   });
 });

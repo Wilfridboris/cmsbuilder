@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: '10-04-2026 00:00'
+last_updated: '10-04-2026 12:30'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -169,9 +169,9 @@ development_status:
   # ── Epic 14: Owner-Controlled Intake Forms ───────────────────────────────
   # Added via sprint-change-proposal-2026-10-02-intake-forms.md (FR25 amended; FR100-104)
   epic-14: in-progress
-  14-1-forms-data-model-admin-form-creation: review
-  14-2-multi-form-public-route-form-keyed-submission: review
-  14-3-publish-toggle-share-surface: backlog
+  14-1-forms-data-model-admin-form-creation: done
+  14-2-multi-form-public-route-form-keyed-submission: done
+  14-3-publish-toggle-share-surface: review
   14-4-choose-target-table-per-form: backlog
   14-5-per-field-public-customization: backlog
   14-6-branded-public-form: backlog

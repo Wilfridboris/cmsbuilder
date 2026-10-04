@@ -51,6 +51,19 @@ export const slugBodySchema = z.object({
 
 export type SlugBody = z.infer<typeof slugBodySchema>;
 
+/**
+ * The publish-toggle body (Story 14.3): the org `slug` (the gate) plus a `published`
+ * boolean. Checked FIRST in the PATCH handler (a `published` boolean discriminates the
+ * publish branch from slug-edit / rename). The mutator re-evaluates the publish gate and
+ * rejects a blocked publish with `Forms.error.publishBlocked`.
+ */
+export const publishBodySchema = z.object({
+  slug: z.string().trim().min(1),
+  published: z.boolean(),
+});
+
+export type PublishBody = z.infer<typeof publishBodySchema>;
+
 /** The DELETE query: just the org slug. */
 export const deleteQuerySchema = z.object({
   slug: z.string().trim().min(1),

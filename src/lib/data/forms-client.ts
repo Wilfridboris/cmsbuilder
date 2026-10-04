@@ -88,6 +88,24 @@ export async function updateFormSlug(
   return parseEnvelope<FormMutateResult>(res);
 }
 
+/**
+ * Publish or unpublish a form (Story 14.3). Publishing a form with no valid target table
+ * throws `FormApiError("Forms.error.publishBlocked")`; everything else maps as usual.
+ * Returns the form's id + slug.
+ */
+export async function setFormPublished(
+  slug: string,
+  formId: string,
+  published: boolean,
+): Promise<FormMutateResult> {
+  const res = await fetch(`/api/forms/${encodeURIComponent(formId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ slug, published }),
+  });
+  return parseEnvelope<FormMutateResult>(res);
+}
+
 /** Delete a form. Throws `FormApiError(code)` on failure. */
 export async function deleteForm(
   slug: string,

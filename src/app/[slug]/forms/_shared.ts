@@ -9,6 +9,10 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { resolveOrgIdentity } from "@/lib/api/route-helpers";
 import { getFormById } from "@/lib/data/forms";
+import {
+  evaluateFormPublishability,
+  type PublishabilityReason,
+} from "@/lib/forms/publishability";
 
 /**
  * Shared server-side gate + context loader for the Admin-gated `/{slug}/forms` pages
@@ -80,6 +84,62 @@ export async function loadFormForPage(
   try {
     const { client, orgId } = await resolveOrgIdentity(slug, user.id);
     return await getFormById(client, orgId, formId);
+  } catch (err) {
+    if (err instanceof AppError) {
+      return null;
+    }
+    throw err;
+  }
+}
+
+/**
+ * The editor loader for `/{slug}/forms/[formId]` (Epic 14, Story 14.3). Runs the SAME
+ * Admin gate as {@link loadFormForPage}, reads the form under the caller's RLS client,
+ * and additionally evaluates the server-side publish gate
+ * ({@link evaluateFormPublishability}) so the editor can render the publish toggle
+ * disabled with a reason — frontend disabling is never the only gate (the mutation
+ * re-runs the same predicate). Returns `null` when the form does not exist under this org
+ * (RLS-hidden / unknown id). The publishability evaluation never throws; a form that
+ * cannot be read is simply `null`.
+ */
+export async function loadFormForEditor(
+  slug: string,
+  formId: string,
+): Promise<{
+  form: FormRow;
+  publishable: boolean;
+  reason: PublishabilityReason;
+} | null> {
+  const user = await getCurrentUser();
+  if (!user) {
+    redirect("/login?auth=required");
+  }
+
+  try {
+    const membership = await requireAdmin(user, createAdminClient());
+    if (membership.slug !== slug) {
+      redirect(`/${slug}`);
+    }
+  } catch (err) {
+    if (err instanceof AppError) {
+      redirect(`/${slug}`);
+    }
+    throw err;
+  }
+
+  // The redirects above run before this block, so no redirect() control flow is caught.
+  try {
+    const { client, orgId } = await resolveOrgIdentity(slug, user.id);
+    const form = await getFormById(client, orgId, formId);
+    if (!form) {
+      return null;
+    }
+    const { publishable, reason } = await evaluateFormPublishability(
+      client,
+      orgId,
+      form,
+    );
+    return { form, publishable, reason };
   } catch (err) {
     if (err instanceof AppError) {
       return null;

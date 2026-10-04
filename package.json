@@ -38,6 +38,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-hook-form": "7.76.0",
+    "react-qr-code": "2.2.0",
     "react-swipeable": "7.0.2",
     "resend": "6.12.3",
     "stripe": "22.1.1",

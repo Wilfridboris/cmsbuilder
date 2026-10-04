@@ -17,21 +17,28 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { ConfirmActionDialog } from "@/components/invoices/ConfirmActionDialog";
+import { FormPublishShare } from "@/components/forms/FormPublishShare";
 import {
   renameForm,
   updateFormSlug,
   deleteForm,
   FormApiError,
 } from "@/lib/data/forms-client";
+import type { PublishabilityReason } from "@/lib/forms/publishability";
 
 /**
- * FormEditor (Epic 14, Story 14.1) — the Admin-only minimal form editor. Three
- * independent sections, each with its own pending/error state:
- *   - Rename   : edit the title (slug is NOT auto-changed);
- *   - Slug     : edit the public slug while unpublished, with inline slugTaken/slugInvalid;
+ * FormEditor (Epic 14, Stories 14.1 + 14.3) — the Admin-only form editor. Independent
+ * sections, each with its own pending/error state:
+ *   - Rename   : edit the title (slug is NOT auto-changed; allowed in any state);
+ *   - Slug     : edit the public slug while UNPUBLISHED (the control locks with an
+ *                unpublish hint once published — the public URL freezes on publish);
  *   - Target   : the heuristic-chosen target table, shown READ-ONLY (reassignment is 14.4);
+ *   - Publish + Share : the publish toggle and share surface ({@link FormPublishShare});
  *   - Delete   : confirmed via the shared ConfirmActionDialog (destructive), never a
  *                native confirm(); on success routes back to the list.
+ *
+ * Published state is lifted here so the slug lock and the publish toggle stay in sync:
+ * `FormPublishShare` owns the toggle but reports changes up via `onPublishedChange`.
  *
  * Each save shows a spinner + disables its control while in flight (React 19
  * `useTransition`) and surfaces a non-technical inline error in a `role="alert"` region.
@@ -43,6 +50,7 @@ const ERROR_KEYS = new Set([
   "titleRequired",
   "slugTaken",
   "slugInvalid",
+  "slugLocked",
   "notFound",
   "forbidden",
   "unauthorized",
@@ -62,18 +70,31 @@ export function FormEditor({
   initialTitle,
   initialSlug,
   targetTableKey,
+  initialPublished,
+  publishable,
+  publishReason,
 }: {
   slug: string;
   formId: string;
   initialTitle: string;
   initialSlug: string;
   targetTableKey: string | null;
+  initialPublished: boolean;
+  publishable: boolean;
+  publishReason: PublishabilityReason;
 }) {
   const t = useTranslations("Forms");
   const router = useRouter();
 
   const [title, setTitle] = useState(initialTitle);
   const [formSlug, setFormSlug] = useState(initialSlug);
+  // The slug actually PERSISTED on the server (initial, then whatever a successful slug
+  // save normalized to). The share surface builds its URL from this — never from the live
+  // `formSlug` input, which may hold an unsaved edit that would 404.
+  const [savedSlug, setSavedSlug] = useState(initialSlug);
+  // Lifted so the slug control can lock while the publish toggle (owned by
+  // FormPublishShare) is on. Kept in sync via onPublishedChange.
+  const [published, setPublished] = useState(initialPublished);
 
   const [titleError, setTitleError] = useState<string | null>(null);
   const [slugError, setSlugError] = useState<string | null>(null);
@@ -89,6 +110,7 @@ export function FormEditor({
 
   const titleErrorId = useId();
   const slugErrorId = useId();
+  const slugLockId = useId();
 
   function handleRename(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -113,6 +135,11 @@ export function FormEditor({
 
   function handleSlug(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    // Defense in depth: the control is disabled when published, but a published form's
+    // URL is frozen — the server would reject with slugLocked regardless.
+    if (published) {
+      return;
+    }
     const trimmed = formSlug.trim();
     setSlugSaved(false);
     if (trimmed === "") {
@@ -123,9 +150,11 @@ export function FormEditor({
     startSlugSave(async () => {
       try {
         const result = await updateFormSlug(slug, formId, trimmed);
-        // The server returns the NORMALIZED slug — reflect it so the field shows the
-        // canonical kebab value actually persisted.
+        // The server returns the NORMALIZED slug — reflect it in both the input and the
+        // persisted-slug value the share surface uses, so the canonical kebab value
+        // actually persisted is what Copy/QR/Preview point at.
         setFormSlug(result.slug);
+        setSavedSlug(result.slug);
         setSlugSaved(true);
       } catch (err) {
         const code = err instanceof FormApiError ? err.code : "genericError";
@@ -221,22 +250,33 @@ export function FormEditor({
               <Input
                 id="editor-slug"
                 value={formSlug}
-                disabled={savingSlug}
+                disabled={savingSlug || published}
                 aria-invalid={slugError ? true : undefined}
-                aria-describedby={slugError ? slugErrorId : undefined}
+                aria-describedby={
+                  slugError ? slugErrorId : published ? slugLockId : undefined
+                }
                 onChange={(event) => {
                   setFormSlug(event.target.value);
                   setSlugSaved(false);
                 }}
                 className="flex-1 font-mono"
               />
-              <Button type="submit" className="min-h-12 gap-2" disabled={savingSlug}>
+              <Button
+                type="submit"
+                className="min-h-12 gap-2"
+                disabled={savingSlug || published}
+              >
                 {savingSlug ? (
                   <Loader2 aria-hidden="true" className="size-4 animate-spin" />
                 ) : null}
                 {savingSlug ? t("saving") : t("saveSlug")}
               </Button>
             </div>
+            {published ? (
+              <p id={slugLockId} className="text-sm text-muted-foreground text-pretty">
+                {t("slugLockedHint")}
+              </p>
+            ) : null}
             {slugError ? (
               <p id={slugErrorId} role="alert" className="text-sm text-destructive">
                 {slugError}
@@ -269,6 +309,18 @@ export function FormEditor({
           )}
         </CardContent>
       </Card>
+
+      {/* Publish + Share (Story 14.3) */}
+      <FormPublishShare
+        slug={slug}
+        formId={formId}
+        orgSlug={slug}
+        formSlug={savedSlug}
+        initialPublished={initialPublished}
+        publishable={publishable}
+        publishReason={publishReason}
+        onPublishedChange={setPublished}
+      />
 
       {/* Delete */}
       <Card className="border-destructive/40">

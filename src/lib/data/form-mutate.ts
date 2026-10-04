@@ -9,6 +9,7 @@ import { getSchema } from "@/lib/data/records";
 import { selectIntakeTable } from "@/lib/intake/target";
 import { deriveFormSlug, ensureUniqueFormSlug } from "@/lib/forms/form-slug";
 import { getFormById } from "@/lib/data/forms";
+import { evaluateFormPublishability } from "@/lib/forms/publishability";
 
 /**
  * Guarded Forms mutation layer (Epic 14, Story 14.1) — the single, targeted write seam
@@ -197,6 +198,13 @@ export async function updateFormSlug(
       throw new AppError(404, "Forms.error.notFound");
     }
 
+    // Publishing FREEZES the public URL (Story 14.3): a published form's slug may not
+    // be edited. Reject before normalization so a published form's URL never changes.
+    // The title rename path stays unaffected (the title never affects the link).
+    if (existing.published) {
+      throw new AppError(409, "Forms.error.slugLocked");
+    }
+
     // A slug that kebab-cases to nothing (no Latin alphanumerics after diacritic fold)
     // is not a valid EXPLICIT choice — reject rather than silently fall back to `form`
     // (that create-time safety net is not appropriate for a deliberate slug edit).
@@ -239,6 +247,77 @@ export async function updateFormSlug(
       throw new AppError(500, "writeFailed", error.message);
     }
     if (!data) {
+      throw new AppError(404, "Forms.error.notFound");
+    }
+
+    return {
+      data: { id: data.id as string, slug: data.slug as string },
+      error: null,
+    };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/**
+ * Set a form's `published` flag (Epic 14, Story 14.3) — the SOLE authority on whether a
+ * form may be published.
+ *
+ * `published = true` is allowed ONLY when the form has a valid target table, re-evaluated
+ * here under the caller's RLS client via {@link evaluateFormPublishability} (the exact
+ * predicate the 14.2 public resolver requires to render), so a form can never be
+ * published into an immediate "not available" state. A blocked publish is rejected with
+ * `Forms.error.publishBlocked` and NO write. Unpublishing (`published = false`) is always
+ * allowed. A form id not in the caller's org is a 404 (RLS hides it). `actor_id` and
+ * `updated_at` are bumped on the write, exactly like {@link renameForm}.
+ */
+export async function publishForm(
+  identity: FormMutateIdentity,
+  input: { formId: string; published: boolean },
+): Promise<ApiResponse<FormMutateResult>> {
+  try {
+    const { client, actorId, orgId } = identity;
+
+    // The form must exist in the caller's org first (else 404), and we need its current
+    // state to evaluate the publish gate against the authoritative target table.
+    const existing = await getFormById(client, orgId, input.formId);
+    if (!existing) {
+      throw new AppError(404, "Forms.error.notFound");
+    }
+
+    // Publishing is gated; unpublishing is always allowed. Re-evaluate the gate
+    // server-side so a frontend-only disable is never the sole authority.
+    if (input.published) {
+      const { publishable } = await evaluateFormPublishability(
+        client,
+        orgId,
+        existing,
+      );
+      if (!publishable) {
+        throw new AppError(409, "Forms.error.publishBlocked");
+      }
+    }
+
+    const { data, error } = await client
+      .from("forms")
+      .update({
+        published: input.published,
+        actor_id: actorId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("organization_id", orgId)
+      .eq("id", input.formId)
+      .select("id, slug")
+      .maybeSingle();
+
+    if (error) {
+      throw new AppError(500, "writeFailed", error.message);
+    }
+    if (!data) {
+      // Deleted between the read and the write (RLS-hidden) — same outcome, no write.
       throw new AppError(404, "Forms.error.notFound");
     }
 
