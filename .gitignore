@@ -62,6 +62,8 @@ next-env.d.ts
 # Scheza Marketing Site — decoupled Astro/Cloudflare sub-project (its own repo/deploy,
 # AD-12). Kept out of the cmsbuilder (Next.js) tree to avoid tooling/dependency conflicts.
 /scheza-marketing/
+/scheza-marketing-v1/
+/scheza-brand-kit/
 
 # Playwright MCP test artifacts (screenshots, snapshots, console logs)
 .playwright-mcp/
