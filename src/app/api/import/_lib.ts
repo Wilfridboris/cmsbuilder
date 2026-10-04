@@ -104,6 +104,11 @@ export function importErrorForKey(key: string): AppError {
       return new AppError(400, "Import.error.empty");
     case "Import.error.noFile":
       return new AppError(400, "Import.error.noFile");
+    case "Import.error.selectValueInvalid":
+      // Story 13.6: a mapped select column held a cell matching no active option.
+      // The route composes the field/values detail (via `getTranslations`) before
+      // this fallback is reached; kept here so the key resolves to a 400 uniformly.
+      return new AppError(400, "Import.error.selectValueInvalid");
     case "Import.error.unreadable":
     default:
       return new AppError(400, "Import.error.unreadable");

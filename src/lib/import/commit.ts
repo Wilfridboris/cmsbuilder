@@ -1,5 +1,6 @@
-import type { SchemaDefinition } from "@/types/db";
+import type { SchemaDefinition, SelectOption } from "@/types/db";
 import type { DecisionMap } from "@/lib/import/resolve";
+import { matchSelectValue } from "@/lib/forms/select-input";
 import { normalizeTableName } from "@/lib/utils";
 
 /**
@@ -27,13 +28,25 @@ import { normalizeTableName } from "@/lib/utils";
 export class CommitPlanError extends Error {
   readonly key:
     | "Import.error.unresolvedColumns"
-    | "Import.error.schemaChanged";
+    | "Import.error.schemaChanged"
+    | "Import.error.selectValueInvalid";
+  /**
+   * Human-readable interpolation values for `selectValueInvalid` (the field label
+   * and the distinct unmatched source values), so the route can surface WHICH
+   * field and WHICH values failed. Absent on the other, parameter-free keys.
+   */
+  readonly params?: { field: string; values: string };
   constructor(
-    key: "Import.error.unresolvedColumns" | "Import.error.schemaChanged",
+    key:
+      | "Import.error.unresolvedColumns"
+      | "Import.error.schemaChanged"
+      | "Import.error.selectValueInvalid",
+    params?: { field: string; values: string },
   ) {
     super(key);
     this.name = "CommitPlanError";
     this.key = key;
+    this.params = params;
   }
 }
 
@@ -60,6 +73,9 @@ type ResolvedTarget = {
   tableKey: string;
   fieldKey: string;
   fieldType: string;
+  /** The target field's options, carried for `select` targets (Story 13.6). */
+  fieldLabel: string;
+  options?: SelectOption[];
 };
 
 /** Boolean spreadsheet tokens (en + fr), matched case-insensitively after trim. */
@@ -132,8 +148,26 @@ export function coerceImportValue(type: string, raw: unknown): ImportCoercion {
  */
 function buildTargetIndex(
   schema: SchemaDefinition,
-): Map<string, { table: string; field: string; type: string }> {
-  const index = new Map<string, { table: string; field: string; type: string }>();
+): Map<
+  string,
+  {
+    table: string;
+    field: string;
+    type: string;
+    label: string;
+    options?: SelectOption[];
+  }
+> {
+  const index = new Map<
+    string,
+    {
+      table: string;
+      field: string;
+      type: string;
+      label: string;
+      options?: SelectOption[];
+    }
+  >();
   for (const table of schema.tables ?? []) {
     if (table.hidden) continue;
     const tableKey = normalizeTableName(table.key);
@@ -144,6 +178,8 @@ function buildTargetIndex(
         table: table.key,
         field: field.key,
         type: field.type,
+        label: field.label,
+        options: field.options,
       });
     }
   }
@@ -164,6 +200,13 @@ function buildTargetIndex(
  * boolean tokens → boolean, dates/text → trimmed string, blank → omitted). A table
  * whose every mapped field ends up dropped (all relation targets) yields no planned
  * rows and does not appear in `affectedTables`.
+ *
+ * A `select` target is validated instead of coerced (Story 13.6): every non-blank
+ * cell must match one of the field's NON-archived options (by `value` token, then
+ * case-insensitively by `label`) via the shared `matchSelectValue`; a matched cell
+ * stores the canonical `value`, a blank is omitted, and ANY unmatched non-blank
+ * value throws `selectValueInvalid` naming the field + the distinct bad values so
+ * NOTHING is written (zero invalid/archived tokens, zero partial write).
  */
 export function planCommit(
   rows: Array<Record<string, string>>,
@@ -202,6 +245,8 @@ export function planCommit(
       tableKey: match.table,
       fieldKey: match.field,
       fieldType: match.type,
+      fieldLabel: match.label,
+      options: match.options,
     });
   }
 
@@ -217,13 +262,42 @@ export function planCommit(
     list.push(target);
   }
 
+  // Collect every unmatched select cell across all rows BEFORE throwing, so the
+  // rejection names the field and the distinct bad values in one pass (Story 13.6).
+  // Keyed by field label → the ordered-unique set of its unmatched raw values.
+  const invalidSelect = new Map<string, Set<string>>();
+
   const tables: PlannedTable[] = [];
   for (const [tableKey, targets] of byTable) {
     const tableRows = rows.map((row) => {
       const payload: Record<string, unknown> = {};
-      for (const { sourceColumn, fieldKey, fieldType } of targets) {
-        // Coerce each cell to its target field type so imported values match
-        // hand-entered ones (a blank cell is omitted, not written as "").
+      for (const {
+        sourceColumn,
+        fieldKey,
+        fieldType,
+        fieldLabel,
+        options,
+      } of targets) {
+        if (fieldType === "select") {
+          // A select cell must resolve to one of the field's NON-archived option
+          // tokens/labels via the shared matcher: blank → omit, a match → write
+          // the canonical `value`, anything else → collect for the typed throw.
+          const match = matchSelectValue(options, row[sourceColumn] ?? "");
+          if (match.kind === "ok") {
+            payload[fieldKey] = match.value;
+          } else if (match.kind === "invalid") {
+            let set = invalidSelect.get(fieldLabel);
+            if (!set) {
+              set = new Set<string>();
+              invalidSelect.set(fieldLabel, set);
+            }
+            set.add((row[sourceColumn] ?? "").trim());
+          }
+          // `omit` → left out of the payload.
+          continue;
+        }
+        // Coerce each non-select cell to its target field type so imported values
+        // match hand-entered ones (a blank cell is omitted, not written as "").
         const coerced = coerceImportValue(fieldType, row[sourceColumn]);
         if (coerced.kind === "value") {
           payload[fieldKey] = coerced.value;
@@ -232,6 +306,16 @@ export function planCommit(
       return payload;
     });
     tables.push({ tableKey, rows: tableRows });
+  }
+
+  // Any unmatched select cell rejects the WHOLE commit (nothing is written): the
+  // Admin fixes the source values or skips/remaps the column, then re-imports.
+  if (invalidSelect.size > 0) {
+    const [field, values] = [...invalidSelect.entries()][0];
+    throw new CommitPlanError("Import.error.selectValueInvalid", {
+      field,
+      values: [...values].join(", "),
+    });
   }
 
   return {

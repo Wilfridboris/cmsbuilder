@@ -1,7 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
-import { CheckCircle2, Inbox, Loader2, Send } from "lucide-react";
+import { CheckCircle2, ChevronDown, Inbox, Loader2, Send } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import type { FieldDefinition } from "@/types/db";
@@ -270,6 +270,36 @@ function IntakeField({
           noLabel={boolLabels("no")}
           disabled={disabled}
         />
+      ) : field.type === "select" ? (
+        <div className="relative">
+          <select
+            id={id}
+            name={field.key}
+            value={value}
+            disabled={disabled}
+            aria-invalid={hasError}
+            aria-describedby={hasError ? errorId : undefined}
+            onChange={(event) => onChange(event.target.value)}
+            className={cn(
+              "min-h-12 w-full appearance-none rounded-md border border-input bg-background px-3 pe-10 text-sm",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "disabled:cursor-not-allowed disabled:opacity-50",
+            )}
+          >
+            <option value="">{boolLabels("selectPlaceholder")}</option>
+            {(field.options ?? [])
+              .filter((option) => !option.archived)
+              .map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+          </select>
+          <ChevronDown
+            aria-hidden="true"
+            className="pointer-events-none absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+        </div>
       ) : (
         <Input
           id={id}

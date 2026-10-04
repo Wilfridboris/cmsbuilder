@@ -366,6 +366,7 @@
       "schemaChanged": "Vos tables ont changé pendant votre association. Veuillez revoir la correspondance avant d'importer.",
       "tooManyRows": "Ce fichier contient plus de 5 000 lignes. Veuillez le diviser en fichiers plus petits, puis réessayez.",
       "commitFailed": "Nous n'avons pas pu terminer l'import. Rien n'a été enregistré à moitié. Veuillez réessayer.",
+      "selectValueInvalid": "La colonne associée à « {field} » contient des valeurs qui ne sont pas des options valides : {values}. Rien n'a été enregistré. Corrigez ces valeurs dans votre fichier, ou ignorez cette colonne, puis réimportez.",
       "genericError": "Une erreur est survenue. Veuillez réessayer."
     }
   },
@@ -811,6 +812,7 @@
     "yes": "Oui",
     "no": "Non",
     "submit": "Envoyer",
+    "selectPlaceholder": "Choisir une option",
     "invalidNumber": "Saisissez un nombre valide.",
     "emptyForm": "Veuillez remplir au moins un champ avant d'envoyer.",
     "sending": "Envoi en cours…",

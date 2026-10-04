@@ -8,6 +8,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getIntakeTarget } from "@/lib/data/intake";
 import { mutate, INTAKE_ACTOR_ID } from "@/lib/data/mutate";
 import { coerceAddValue } from "@/lib/forms/field-input";
+import { matchSelectValue } from "@/lib/forms/select-input";
 import {
   resolveAdminEmails,
   resolveOrgLanguage,
@@ -82,6 +83,23 @@ export async function POST(
         // A boolean is never "blank": the toggle supplies a real boolean. Accept a
         // boolean or its "true"/"false" string form; anything else is false.
         data[field.key] = submitted === true || submitted === "true";
+        continue;
+      }
+
+      if (field.type === "select") {
+        // A select cell must resolve to one of the field's NON-archived option
+        // tokens (Story 13.6). The shared matcher is the authority: blank → omit,
+        // a valid active option → write its canonical `value`, anything else
+        // (a forged token, an archived option's value) → reject the whole write
+        // with the generic 400 (no per-field leak on the public surface).
+        const match = matchSelectValue(field.options, String(submitted ?? ""));
+        if (match.kind === "invalid") {
+          throw new AppError(400, "genericError");
+        }
+        if (match.kind === "ok") {
+          data[field.key] = match.value;
+        }
+        // `omit` → left out of `data`.
         continue;
       }
 

@@ -366,6 +366,7 @@
       "schemaChanged": "Your tables changed while you were mapping. Please review the mapping again before importing.",
       "tooManyRows": "That file has more than 5,000 rows. Please split it into smaller files and try again.",
       "commitFailed": "We couldn't finish the import. Nothing was left half-saved. Please try again.",
+      "selectValueInvalid": "The column mapped to \"{field}\" has values that are not valid options: {values}. Nothing was saved. Fix those values in your file, or skip this column, then import again.",
       "genericError": "Something went wrong. Please try again."
     }
   },
@@ -811,6 +812,7 @@
     "yes": "Yes",
     "no": "No",
     "submit": "Send",
+    "selectPlaceholder": "Choose an option",
     "invalidNumber": "Enter a valid number.",
     "emptyForm": "Please fill in at least one field before sending.",
     "sending": "Sending…",

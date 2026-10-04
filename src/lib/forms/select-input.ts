@@ -76,3 +76,42 @@ export function selectDraftToData(
   const token = (raw ?? "").trim();
   return token === "" ? { kind: "omit" } : { kind: "ok", value: token };
 }
+
+/**
+ * The single source of truth for "is this a valid select value", reused by BOTH
+ * the public intake write (`/api/intake/[slug]`) and the import commit planner
+ * (Story 13.6). Pure and total — it only READS the field's `options`, never
+ * mutates the schema.
+ *
+ * Trims `raw`, then:
+ *  - blank → `omit` (the schema has no `required` flag; the key is dropped);
+ *  - matches a NON-archived option by exact `value` token first, then by
+ *    case-insensitive `label`, returning that option's canonical `value`;
+ *  - anything else (including an archived option's value/label) → `invalid`.
+ *
+ * Archived options never match: intake/import create NEW records, and an archived
+ * option is not selectable for new records (Story 13.4). Matching by `label`
+ * (case-insensitive) as well as by `value` lets import resolve external
+ * spreadsheet labels ("In progress") to the stored token ("in_progress"); the
+ * intake client only ever sends tokens, but one matcher keeps a single rule.
+ */
+export function matchSelectValue(
+  options: SelectOption[] | undefined,
+  raw: string,
+): { kind: "omit" } | { kind: "ok"; value: string } | { kind: "invalid" } {
+  const token = raw.trim();
+  if (token === "") {
+    return { kind: "omit" };
+  }
+  const active = (options ?? []).filter((opt) => !opt.archived);
+  const byValue = active.find((opt) => opt.value === token);
+  if (byValue) {
+    return { kind: "ok", value: byValue.value };
+  }
+  const lower = token.toLowerCase();
+  const byLabel = active.find((opt) => opt.label.toLowerCase() === lower);
+  if (byLabel) {
+    return { kind: "ok", value: byLabel.value };
+  }
+  return { kind: "invalid" };
+}

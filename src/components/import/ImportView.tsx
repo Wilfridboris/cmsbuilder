@@ -506,7 +506,7 @@ const COMMIT_ERROR_KEYS = new Set([
 ]);
 
 /** Resolve a thrown commit error CODE to a translated message (default: commitFailed). */
-function resolveCommitError(
+export function resolveCommitError(
   code: string | null,
   t: ReturnType<typeof useTranslations>,
 ): string {
@@ -514,5 +514,16 @@ function resolveCommitError(
   const key = raw.startsWith("Import.error.")
     ? raw.slice("Import.error.".length)
     : raw;
-  return COMMIT_ERROR_KEYS.has(key) ? t(`error.${key}`) : t("error.commitFailed");
+  if (COMMIT_ERROR_KEYS.has(key)) {
+    return t(`error.${key}`);
+  }
+  // Story 13.6: the server composes the `selectValueInvalid` message with the
+  // field + distinct unmatched values (the string envelope can't carry params),
+  // so a non-key, non-prefixed code that reads as a composed sentence is shown
+  // verbatim — it names exactly which values the Admin must fix. A bare unknown
+  // token (no spaces) still falls back to the safe generic copy.
+  if (!raw.startsWith("Import.error.") && /\s/.test(raw)) {
+    return raw;
+  }
+  return t("error.commitFailed");
 }

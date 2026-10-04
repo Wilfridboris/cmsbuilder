@@ -1,6 +1,7 @@
 import "server-only";
 
 import { NextResponse, type NextRequest } from "next/server";
+import { getTranslations } from "next-intl/server";
 
 import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
@@ -114,6 +115,18 @@ export async function POST(
       if (err instanceof CommitPlanError) {
         if (err.key === "Import.error.unresolvedColumns") {
           throw new AppError(400, err.key);
+        }
+        if (err.key === "Import.error.selectValueInvalid") {
+          // Story 13.6: a mapped select column held cells matching no active
+          // option. Compose the field + distinct bad values server-side (the
+          // string envelope can't carry interpolation params) so the Admin sees
+          // exactly which values to fix; nothing was written. The client shows
+          // this composed message verbatim.
+          const t = await getTranslations("Import");
+          const message = err.params
+            ? t("error.selectValueInvalid", err.params)
+            : t("error.commitFailed");
+          throw new AppError(400, message);
         }
         throw new AppError(409, err.key);
       }

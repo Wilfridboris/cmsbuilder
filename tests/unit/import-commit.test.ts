@@ -34,7 +34,19 @@ const SCHEMA: SchemaDefinition = {
     {
       key: "invoices",
       label: "Invoices",
-      fields: [{ key: "total", label: "Total", type: "currency" }],
+      fields: [
+        { key: "total", label: "Total", type: "currency" },
+        {
+          key: "status",
+          label: "Status",
+          type: "select",
+          options: [
+            { value: "paid", label: "Paid" },
+            { value: "in_progress", label: "In progress" },
+            { value: "void", label: "Void", archived: true },
+          ],
+        },
+      ],
     },
     {
       key: "hidden_table",
@@ -167,6 +179,62 @@ describe("planCommit — value coercion (A2)", () => {
       { done: "maybe" },
       {},
     ]);
+  });
+});
+
+describe("planCommit — select targets (Story 13.6)", () => {
+  it("stores the option token for a value- or label-matched cell, omits blanks", () => {
+    const decisions: DecisionMap = {
+      Status: { kind: "map", table: "invoices", field: "status" },
+    };
+    const rows = [
+      { Status: "paid" }, // exact value token
+      { Status: "In progress" }, // case-insensitive label → its value token
+      { Status: "" }, // blank → omitted
+    ];
+    const plan = planCommit(rows, decisions, SCHEMA);
+    expect(plan.tables[0].rows).toEqual([
+      { status: "paid" },
+      { status: "in_progress" },
+      {},
+    ]);
+  });
+
+  it("throws selectValueInvalid naming the field + distinct unmatched values", () => {
+    const decisions: DecisionMap = {
+      Status: { kind: "map", table: "invoices", field: "status" },
+    };
+    const rows = [
+      { Status: "paid" },
+      { Status: "shipped" },
+      { Status: "shipped" }, // duplicate → one distinct value
+      { Status: "pending" },
+    ];
+    try {
+      planCommit(rows, decisions, SCHEMA);
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(CommitPlanError);
+      const e = err as CommitPlanError;
+      expect(e.key).toBe("Import.error.selectValueInvalid");
+      expect(e.params?.field).toBe("Status");
+      expect(e.params?.values).toBe("shipped, pending");
+    }
+  });
+
+  it("treats an archived option's value as unmatched (not selectable for new records)", () => {
+    const decisions: DecisionMap = {
+      Status: { kind: "map", table: "invoices", field: "status" },
+    };
+    try {
+      planCommit([{ Status: "void" }], decisions, SCHEMA);
+      throw new Error("expected throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(CommitPlanError);
+      expect((err as CommitPlanError).key).toBe(
+        "Import.error.selectValueInvalid",
+      );
+    }
   });
 });
 

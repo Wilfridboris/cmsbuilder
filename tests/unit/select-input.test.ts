@@ -4,6 +4,7 @@ import type { SelectOption } from "@/types/db";
 import {
   SELECT_CLEAR_SENTINEL,
   fromDropdownValue,
+  matchSelectValue,
   partitionSelectOptions,
   resolveSelectCommit,
   selectDraftToData,
@@ -91,5 +92,49 @@ describe("selectDraftToData (add-form pick / blank)", () => {
     expect(selectDraftToData("")).toEqual({ kind: "omit" });
     expect(selectDraftToData("   ")).toEqual({ kind: "omit" });
     expect(selectDraftToData(undefined)).toEqual({ kind: "omit" });
+  });
+});
+
+describe("matchSelectValue (shared intake + import matcher, Story 13.6)", () => {
+  it("matches a non-archived option by exact value token", () => {
+    expect(matchSelectValue(OPTIONS, "paid")).toEqual({
+      kind: "ok",
+      value: "paid",
+    });
+    expect(matchSelectValue(OPTIONS, "  unpaid  ")).toEqual({
+      kind: "ok",
+      value: "unpaid",
+    });
+  });
+
+  it("matches a non-archived option by case-insensitive label, returning its value", () => {
+    // External spreadsheets carry human labels, not normalized tokens.
+    expect(matchSelectValue(OPTIONS, "Paid")).toEqual({
+      kind: "ok",
+      value: "paid",
+    });
+    expect(matchSelectValue(OPTIONS, "UNPAID")).toEqual({
+      kind: "ok",
+      value: "unpaid",
+    });
+  });
+
+  it("treats an archived option's value OR label as invalid (not selectable for new records)", () => {
+    expect(matchSelectValue(OPTIONS, "rejected")).toEqual({ kind: "invalid" });
+    expect(matchSelectValue(OPTIONS, "Rejected")).toEqual({ kind: "invalid" });
+  });
+
+  it("omits a blank value (trimmed empty)", () => {
+    expect(matchSelectValue(OPTIONS, "")).toEqual({ kind: "omit" });
+    expect(matchSelectValue(OPTIONS, "   ")).toEqual({ kind: "omit" });
+  });
+
+  it("rejects an unknown value", () => {
+    expect(matchSelectValue(OPTIONS, "shipped")).toEqual({ kind: "invalid" });
+  });
+
+  it("treats a missing options list as: blank omits, anything else invalid", () => {
+    expect(matchSelectValue(undefined, "")).toEqual({ kind: "omit" });
+    expect(matchSelectValue(undefined, "paid")).toEqual({ kind: "invalid" });
   });
 });

@@ -332,6 +332,104 @@ describe("POST /api/intake/[slug] — write failure is masked", () => {
   });
 });
 
+describe("POST /api/intake/[slug] — select field (Story 13.6)", () => {
+  // A select-bearing target: one active option by value, one archived (never
+  // selectable for new records). The real `matchSelectValue` runs server-side.
+  const SELECT_FIELDS: FieldDefinition[] = [
+    { key: "email", label: "Email", type: "email" },
+    {
+      key: "status",
+      label: "Status",
+      type: "select",
+      options: [
+        { value: "new", label: "New" },
+        { value: "closed", label: "Closed", archived: true },
+      ],
+    },
+  ];
+  const SELECT_TABLE: TableDefinition = {
+    key: "leads",
+    label: "Leads",
+    fields: SELECT_FIELDS,
+  };
+  const SELECT_TARGET = {
+    ...TARGET,
+    table: SELECT_TABLE,
+    fields: SELECT_FIELDS,
+    schema: { tables: [SELECT_TABLE] } as SchemaDefinition,
+  };
+
+  beforeEach(() => {
+    getIntakeTarget.mockResolvedValue(SELECT_TARGET);
+  });
+
+  it("writes the option token for a valid active option", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/route");
+
+    const res = await POST(
+      postReq({
+        values: { email: "ada@example.ca", status: "new" },
+        idempotencyKey: "k",
+      }),
+      paramsFor("acme"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mutate.mock.calls[0][3]).toEqual({
+      email: "ada@example.ca",
+      status: "new",
+    });
+  });
+
+  it("omits the select key when left blank (placeholder)", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/route");
+
+    const res = await POST(
+      postReq({
+        values: { email: "ada@example.ca", status: "" },
+        idempotencyKey: "k",
+      }),
+      paramsFor("acme"),
+    );
+
+    expect(res.status).toBe(200);
+    expect(mutate.mock.calls[0][3]).toEqual({ email: "ada@example.ca" });
+    expect(mutate.mock.calls[0][3]).not.toHaveProperty("status");
+  });
+
+  it("400 generic on a forged non-option token, never calling mutate", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/route");
+
+    const res = await POST(
+      postReq({
+        values: { email: "ada@example.ca", status: "not-an-option" },
+        idempotencyKey: "k",
+      }),
+      paramsFor("acme"),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("genericError");
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("400 generic on an archived option's value (not selectable for new records)", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/route");
+
+    const res = await POST(
+      postReq({
+        values: { email: "ada@example.ca", status: "closed" },
+        idempotencyKey: "k",
+      }),
+      paramsFor("acme"),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("genericError");
+    expect(mutate).not.toHaveBeenCalled();
+  });
+});
+
 describe("POST /api/intake/[slug] — owner notification (Story 6.4)", () => {
   it("emails the single resolved admin with the submission context, returns 200", async () => {
     const { POST } = await import("@/app/api/intake/[slug]/route");

@@ -96,6 +96,32 @@ vi.mock("@/lib/data/mutate", async () => {
   return { ...actual, bulkInsertRecords };
 });
 vi.mock("@/lib/observability/report", () => ({ reportError: vi.fn() }));
+// The commit route composes the `selectValueInvalid` message server-side via
+// `getTranslations("Import")` (the string envelope can't carry params). In a bare
+// unit test there is no request-locale context, so mock the server translator to do
+// real ICU-style interpolation from the actual en.json Import namespace — this keeps
+// the assertion pinned to the shipped copy while exercising the route's compose branch.
+vi.mock("next-intl/server", () => ({
+  getTranslations: async (namespace: string) => {
+    const messages = (
+      await vi.importActual<{ default: Record<string, unknown> }>(
+        "@/lib/i18n/en.json",
+      )
+    ).default;
+    const ns = messages[namespace] as Record<string, unknown>;
+    return (key: string, params?: Record<string, unknown>) => {
+      const raw = key
+        .split(".")
+        .reduce<unknown>(
+          (o, k) => (o == null ? o : (o as Record<string, unknown>)[k]),
+          ns,
+        );
+      return typeof raw === "string"
+        ? raw.replace(/\{(\w+)\}/g, (_m, p) => String(params?.[p] ?? ""))
+        : key;
+    };
+  },
+}));
 
 const SCHEMA = {
   tables: [
@@ -105,6 +131,15 @@ const SCHEMA = {
       fields: [
         { key: "name", label: "Name", type: "text" },
         { key: "email", label: "Email", type: "email" },
+        {
+          key: "status",
+          label: "Status",
+          type: "select",
+          options: [
+            { value: "paid", label: "Paid" },
+            { value: "unpaid", label: "Unpaid" },
+          ],
+        },
       ],
     },
     {
@@ -371,6 +406,33 @@ describe("POST /api/import/commit — error mapping", () => {
     );
     expect(res.status).toBe(409);
     expect((await body(res)).error).toBe("Import.error.schemaChanged");
+    expect(bulkInsertRecords).not.toHaveBeenCalled();
+  });
+
+  it("400 selectValueInvalid with the server-composed message naming the field + distinct bad values", async () => {
+    const en = (await import("@/lib/i18n/en.json")).default as {
+      Import: { error: { selectValueInvalid: string } };
+    };
+    // A column mapped to a `select` field whose cells include an unmatched value
+    // ("shipped", twice → one distinct) must reject at commit with the composed
+    // message and write nothing.
+    parseSpreadsheet.mockReturnValue({
+      columns: ["Stage"],
+      rows: [{ Stage: "paid" }, { Stage: "shipped" }, { Stage: "shipped" }],
+      sheetName: "customers",
+    });
+    const res = await POST(
+      baseReq({
+        decisions: JSON.stringify({
+          Stage: { kind: "map", table: "clients", field: "status" },
+        }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    const expected = en.Import.error.selectValueInvalid
+      .replace("{field}", "Status")
+      .replace("{values}", "shipped");
+    expect((await body(res)).error).toBe(expected);
     expect(bulkInsertRecords).not.toHaveBeenCalled();
   });
 
