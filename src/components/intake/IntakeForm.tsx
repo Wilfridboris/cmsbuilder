@@ -56,8 +56,13 @@ const HTML_INPUT_TYPE: Partial<Record<FieldDefinition["type"], string>> = {
 };
 
 type IntakeFormProps = {
-  /** The route slug — the POST target (`/api/intake/{slug}`). */
-  slug: string;
+  /**
+   * The fully-constructed, per-segment URL-encoded POST target the server page builds
+   * for this surface (`/api/intake/{orgSlug}` for the legacy bare-org route, or
+   * `/api/intake/{orgSlug}/{formSlug}` for a keyed form). The component is decoupled
+   * from the route structure: it only POSTs here.
+   */
+  submitPath: string;
   /** The business name, shown as the card eyebrow and named in the confirmation. */
   orgName: string;
   /** The eligible, non-relation fields to render as inputs, in definition order. */
@@ -76,7 +81,7 @@ function blankDraft(fields: FieldDefinition[]): Draft {
   return draft;
 }
 
-export function IntakeForm({ slug, orgName, fields }: IntakeFormProps) {
+export function IntakeForm({ submitPath, orgName, fields }: IntakeFormProps) {
   const t = useTranslations("IntakeForm");
   const idBase = useId();
 
@@ -145,7 +150,7 @@ export function IntakeForm({ slug, orgName, fields }: IntakeFormProps) {
     setFormError(null);
     setPending(true);
     try {
-      const res = await fetch(`/api/intake/${encodeURIComponent(slug)}`, {
+      const res = await fetch(submitPath, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ values, idempotencyKey: idempotencyKey.current }),

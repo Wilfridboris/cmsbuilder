@@ -72,7 +72,7 @@ export type MutateOptions = {
   /**
    * A pre-resolved org schema (epic-3 retro item 21). When the caller already
    * read the schema for this write — e.g. the public intake path resolves it in
-   * `getIntakeTarget` — pass it here so the relation referential-integrity guard
+   * `resolvePublicFormTarget` — pass it here so the relation referential-integrity guard
    * reuses it instead of issuing a second `getSchema` round-trip per write. Omit
    * it and the guard reads the schema itself, exactly as before (no behavior
    * change for callers that don't supply it).

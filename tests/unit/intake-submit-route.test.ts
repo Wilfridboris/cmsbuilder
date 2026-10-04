@@ -24,11 +24,12 @@ import type {
  *   - idempotent retry      → the client's stable key is passed straight through;
  *   - mutate failure        → 500 generic, never leaks internals.
  *
- * `getIntakeTarget` (the shared resolver) and `mutate` are mocked; the REAL
- * `coerceAddValue` runs so per-field coercion/rejection is exercised end-to-end.
+ * `resolvePublicFormTarget` (the shared resolver) and `mutate` are mocked; the REAL
+ * `submitToTarget` + `coerceAddValue` run so per-field coercion/rejection and the
+ * parse/mutate/notify envelope are exercised end-to-end.
  */
 
-const getIntakeTarget = vi.fn();
+const resolvePublicFormTarget = vi.fn();
 const mutate = vi.fn();
 const createAdminClient = vi.fn(() => ({ __admin: true }));
 const INTAKE_ACTOR_ID = "00000000-0000-0000-0000-0000000000b0";
@@ -41,7 +42,7 @@ const resolveOrgLanguage = vi.fn();
 const sendIntakeSubmissionEmail = vi.fn();
 const reportError = vi.fn();
 
-vi.mock("@/lib/data/intake", () => ({ getIntakeTarget }));
+vi.mock("@/lib/data/forms-public", () => ({ resolvePublicFormTarget }));
 vi.mock("@/lib/data/mutate", () => ({ mutate, INTAKE_ACTOR_ID }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient }));
 vi.mock("@/lib/orgs/org-recipients", () => ({
@@ -73,13 +74,14 @@ const FIELDS: FieldDefinition[] = [
 
 const TABLE: TableDefinition = { key: "leads", label: "Leads", fields: FIELDS };
 
-// The schema `getIntakeTarget` resolves once and hands to the route, which passes
-// it into `mutate` so the referential-integrity guard skips a second read (epic-3
-// retro item 21). The route forwards it verbatim in the mutate opts.
+// The schema `resolvePublicFormTarget` resolves once and hands to the route, which
+// passes it into `mutate` so the referential-integrity guard skips a second read
+// (epic-3 retro item 21). The route forwards it verbatim in the mutate opts.
 const SCHEMA: SchemaDefinition = { tables: [TABLE] };
 
 const TARGET = {
   orgId: "org-1",
+  orgSlug: "acme",
   orgName: "Acme Plumbing",
   table: TABLE,
   fields: FIELDS,
@@ -89,7 +91,7 @@ const TARGET = {
 beforeEach(() => {
   vi.clearAllMocks();
   createAdminClient.mockReturnValue({ __admin: true });
-  getIntakeTarget.mockResolvedValue(TARGET);
+  resolvePublicFormTarget.mockResolvedValue(TARGET);
   mutate.mockResolvedValue({ data: { id: "rec-1", version: 1 }, error: null });
   // Notification defaults: one resolvable admin, EN, a successful send.
   resolveAdminEmails.mockResolvedValue(["owner@example.com"]);
@@ -125,7 +127,7 @@ describe("POST /api/intake/[slug] — happy path", () => {
     expect(body.data).toEqual({ ok: true });
 
     // The write re-resolved the target server-side (never trusting the client).
-    expect(getIntakeTarget).toHaveBeenCalledWith("acme");
+    expect(resolvePublicFormTarget).toHaveBeenCalledWith({ orgSlug: "acme" });
 
     const call = mutate.mock.calls[0];
     // identity: admin client + dedicated anonymous actor + resolved org id.
@@ -240,7 +242,7 @@ describe("POST /api/intake/[slug] — rejections (no write)", () => {
   it("400 generic on a fully-empty scalar submission (no field filled)", async () => {
     const { POST } = await import("@/app/api/intake/[slug]/route");
     // A scalar-only target so there is no boolean forcing a value.
-    getIntakeTarget.mockResolvedValue({
+    resolvePublicFormTarget.mockResolvedValue({
       ...TARGET,
       fields: [{ key: "full_name", label: "Full Name", type: "text" }],
       table: {
@@ -262,7 +264,7 @@ describe("POST /api/intake/[slug] — rejections (no write)", () => {
 
   it("400 generic for an unknown/absent slug (resolver returns null), no write, no internals", async () => {
     const { POST } = await import("@/app/api/intake/[slug]/route");
-    getIntakeTarget.mockResolvedValue(null);
+    resolvePublicFormTarget.mockResolvedValue(null);
 
     const res = await POST(
       postReq({ values: { email: "ada@example.ca" }, idempotencyKey: "k" }),
@@ -276,7 +278,7 @@ describe("POST /api/intake/[slug] — rejections (no write)", () => {
     expect(mutate).not.toHaveBeenCalled();
   });
 
-  it("400 generic on a malformed body (missing idempotencyKey), never resolving the target", async () => {
+  it("400 generic on a malformed body (missing idempotencyKey), never writing", async () => {
     const { POST } = await import("@/app/api/intake/[slug]/route");
 
     const res = await POST(
@@ -285,7 +287,8 @@ describe("POST /api/intake/[slug] — rejections (no write)", () => {
     );
 
     expect(res.status).toBe(400);
-    expect(getIntakeTarget).not.toHaveBeenCalled();
+    // The route resolves the target first (strict, published) then `submitToTarget`
+    // shape-validates the body; a malformed body is rejected before any write.
     expect(mutate).not.toHaveBeenCalled();
   });
 });
@@ -360,7 +363,7 @@ describe("POST /api/intake/[slug] — select field (Story 13.6)", () => {
   };
 
   beforeEach(() => {
-    getIntakeTarget.mockResolvedValue(SELECT_TARGET);
+    resolvePublicFormTarget.mockResolvedValue(SELECT_TARGET);
   });
 
   it("writes the option token for a valid active option", async () => {

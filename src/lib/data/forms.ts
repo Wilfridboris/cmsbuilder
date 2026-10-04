@@ -54,3 +54,63 @@ export async function getFormById(
 
   return (data as FormRow | null) ?? null;
 }
+
+/**
+ * Published-gated read for the PUBLIC per-form route (Epic 14, Story 14.2).
+ *
+ * Load a single PUBLISHED form by its `(organization_id, slug)` within the org, or
+ * `null` when none matches (unknown slug, or a form that exists but is unpublished).
+ * The caller supplies the service-role admin client (the public visitor has no
+ * session); the explicit `organization_id` + `published = true` filters are the gate,
+ * so an unpublished or cross-org form never comes back. Reads never surface raw SQL —
+ * an error throws a generic message the resolver collapses to `null`.
+ */
+export async function getPublishedFormBySlug(
+  client: SupabaseClient,
+  orgId: string,
+  slug: string,
+): Promise<FormRow | null> {
+  const { data, error } = await client
+    .from("forms")
+    .select("*")
+    .eq("organization_id", orgId)
+    .eq("slug", slug)
+    .eq("published", true)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load form: ${error.message}`);
+  }
+
+  return (data as FormRow | null) ?? null;
+}
+
+/**
+ * The org's PRIMARY published form for the legacy bare-org route (Epic 14, Story 14.2).
+ *
+ * With no `published_at` column, "primary" is the oldest published row by `created_at`
+ * (the original, most stable form). Returns `null` when the org has no published form
+ * (the default state until publishing lands in 14.3). The caller supplies the
+ * service-role admin client; `published = true` is the gate. A secondary `id` sort
+ * makes the choice fully deterministic when two forms share a `created_at`.
+ */
+export async function getPrimaryPublishedForm(
+  client: SupabaseClient,
+  orgId: string,
+): Promise<FormRow | null> {
+  const { data, error } = await client
+    .from("forms")
+    .select("*")
+    .eq("organization_id", orgId)
+    .eq("published", true)
+    .order("created_at", { ascending: true })
+    .order("id", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load form: ${error.message}`);
+  }
+
+  return (data as FormRow | null) ?? null;
+}

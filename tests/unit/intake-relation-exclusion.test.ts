@@ -20,8 +20,8 @@ import { intakeFields } from "@/lib/intake/target";
  *        reaches the rendered field set or the written payload.
  *
  * Deliberately NOT covered here (covered elsewhere or not leakable by construction):
- *   - production's `getIntakeTarget` wiring `intakeFields` into `target.fields` — proven
- *     against the real derivation in `intake-data.test.ts`;
+ *   - production's `resolvePublicFormTarget` wiring `intakeFields` into `target.fields`
+ *     — proven against the real derivation in `forms-public.test.ts`;
  *   - the `IntakeForm` React component's JSX — it has no relation branch by design and
  *     relies on this upstream filter (no jsdom in this test env, see `filter-sort`);
  *   - target-RECORD labels / counts — the public path never fetches related records, so
@@ -81,7 +81,7 @@ describe("Story 6.5 / FR78 — render path never emits a relation field", () => 
 
 // --- Payload path: the same derivation output feeds the server-side allowlist. ---
 
-const getIntakeTarget = vi.fn();
+const resolvePublicFormTarget = vi.fn();
 const mutate = vi.fn();
 const createAdminClient = vi.fn(() => ({ __admin: true }));
 const INTAKE_ACTOR_ID = "00000000-0000-0000-0000-0000000000b0";
@@ -90,7 +90,7 @@ const resolveOrgLanguage = vi.fn();
 const sendIntakeSubmissionEmail = vi.fn();
 const reportError = vi.fn();
 
-vi.mock("@/lib/data/intake", () => ({ getIntakeTarget }));
+vi.mock("@/lib/data/forms-public", () => ({ resolvePublicFormTarget }));
 vi.mock("@/lib/data/mutate", () => ({ mutate, INTAKE_ACTOR_ID }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient }));
 vi.mock("@/lib/orgs/org-recipients", () => ({
@@ -117,6 +117,7 @@ function paramsFor(slug: string) {
 const INTAKE_FIELDS: FieldDefinition[] = intakeFields(JOBS_TABLE);
 const TARGET = {
   orgId: "org-1",
+  orgSlug: "acme",
   orgName: "Acme Plumbing",
   table: JOBS_TABLE,
   fields: INTAKE_FIELDS,
@@ -124,7 +125,7 @@ const TARGET = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  getIntakeTarget.mockResolvedValue(TARGET);
+  resolvePublicFormTarget.mockResolvedValue(TARGET);
   mutate.mockResolvedValue({ data: { id: "rec-1", version: 1 }, error: null });
   resolveAdminEmails.mockResolvedValue([]);
   resolveOrgLanguage.mockResolvedValue("en");

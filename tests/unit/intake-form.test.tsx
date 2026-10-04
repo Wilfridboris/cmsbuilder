@@ -44,7 +44,11 @@ const HAPPY_FIELDS: FieldDefinition[] = [
 
 describe("IntakeForm — happy path", () => {
   const html = render(
-    <IntakeForm slug="acme" orgName="Acme Plumbing" fields={HAPPY_FIELDS} />,
+    <IntakeForm
+      submitPath="/api/intake/acme"
+      orgName="Acme Plumbing"
+      fields={HAPPY_FIELDS}
+    />,
   );
 
   it("renders the business name and the translated heading/CTA", () => {
@@ -99,7 +103,7 @@ describe("IntakeForm — boolean field", () => {
   it("renders a WIRED radiogroup with translated Yes/No and a defined selection", () => {
     const html = render(
       <IntakeForm
-        slug="acme"
+        submitPath="/api/intake/acme"
         orgName="Acme"
         fields={[{ key: "subscribe", label: "Subscribe?", type: "boolean" }]}
       />,
@@ -123,7 +127,7 @@ describe("IntakeForm — boolean field", () => {
 describe("IntakeForm — French locale", () => {
   it("renders French chrome copy while field labels stay as authored", () => {
     const html = render(
-      <IntakeForm slug="acme" orgName="Acme" fields={HAPPY_FIELDS} />,
+      <IntakeForm submitPath="/api/intake/acme" orgName="Acme" fields={HAPPY_FIELDS} />,
       "fr",
       fr as AbstractIntlMessages,
     );
