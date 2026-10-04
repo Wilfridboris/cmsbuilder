@@ -64,6 +64,20 @@ export const publishBodySchema = z.object({
 
 export type PublishBody = z.infer<typeof publishBodySchema>;
 
+/**
+ * The target-table body (Story 14.4): the org `slug` (the gate) plus the chosen
+ * `targetTableKey`. Discriminated in the PATCH handler after publish and before slug/
+ * rename. The mutator validates the key names a currently-visible table and rejects a
+ * non-visible target with `Forms.error.targetInvalid` (or `Forms.error.targetLocked` on
+ * a published form).
+ */
+export const targetBodySchema = z.object({
+  slug: z.string().trim().min(1),
+  targetTableKey: z.string().trim().min(1),
+});
+
+export type TargetBody = z.infer<typeof targetBodySchema>;
+
 /** The DELETE query: just the org slug. */
 export const deleteQuerySchema = z.object({
   slug: z.string().trim().min(1),

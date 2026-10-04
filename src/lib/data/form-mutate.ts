@@ -6,6 +6,7 @@ import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { kebabCase } from "@/lib/utils";
 import { getSchema } from "@/lib/data/records";
+import { visibleTables } from "@/lib/schema/overrides";
 import { selectIntakeTable } from "@/lib/intake/target";
 import { deriveFormSlug, ensureUniqueFormSlug } from "@/lib/forms/form-slug";
 import { getFormById } from "@/lib/data/forms";
@@ -305,6 +306,103 @@ export async function publishForm(
       .from("forms")
       .update({
         published: input.published,
+        actor_id: actorId,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("organization_id", orgId)
+      .eq("id", input.formId)
+      .select("id, slug")
+      .maybeSingle();
+
+    if (error) {
+      throw new AppError(500, "writeFailed", error.message);
+    }
+    if (!data) {
+      // Deleted between the read and the write (RLS-hidden) — same outcome, no write.
+      throw new AppError(404, "Forms.error.notFound");
+    }
+
+    return {
+      data: { id: data.id as string, slug: data.slug as string },
+      error: null,
+    };
+  } catch (err) {
+    if (err instanceof AppError) {
+      throw err;
+    }
+    throw new AppError(500, "writeFailed", (err as Error)?.message);
+  }
+}
+
+/**
+ * Choose a form's target table (Epic 14, Story 14.4) — the owner's explicit override of
+ * the creation-time intake heuristic. The stored `target_table_key` is the sole runtime
+ * authority for public rendering/submission (14.2); this write lets the Admin set it.
+ *
+ * Server-authoritative, mirroring {@link updateFormSlug}'s guard order:
+ *   1. The form must exist in the caller's org (else 404, RLS-hidden) — read first so a
+ *      cross-org change cannot even probe the schema.
+ *   2. The target is LOCKED while the form is PUBLISHED (mirrors the 14.3 slug lock, so a
+ *      live form never silently redirects where responses land): reject with
+ *      `targetLocked` BEFORE validating the new key, so a published form's target can
+ *      never move.
+ *   3. The chosen `targetTableKey` must name a CURRENTLY-visible table of the org's schema
+ *      (`visibleTables`) — a hidden / deleted / unknown / cross-org key is rejected with
+ *      `targetInvalid` and NO write (no internals leaked).
+ *
+ * On a valid change, `field_config` is revalidated against the new table: entries whose
+ * `key` is not a field of the new table are DROPPED (selective filter, not a wholesale
+ * reset); matching entries are preserved. `field_config` is `[]` today (14.1), so this is
+ * a no-op in practice, but the filter is implemented correctly for when 14.5 populates it.
+ * The write bumps `actor_id` + `updated_at`, exactly like {@link renameForm}.
+ */
+export async function updateFormTarget(
+  identity: FormMutateIdentity,
+  input: { formId: string; targetTableKey: string },
+): Promise<ApiResponse<FormMutateResult>> {
+  try {
+    const { client, actorId, orgId } = identity;
+
+    // The form must exist in the caller's org first (else 404), so a cross-org target
+    // change cannot even probe the schema for valid tables.
+    const existing = await getFormById(client, orgId, input.formId);
+    if (!existing) {
+      throw new AppError(404, "Forms.error.notFound");
+    }
+
+    // The target is FROZEN while published (mirrors the slug lock, Story 14.3): a live
+    // form must never silently redirect where its responses land. Reject BEFORE
+    // validating the new key so a published form's target can never move.
+    if (existing.published) {
+      throw new AppError(409, "Forms.error.targetLocked");
+    }
+
+    // The chosen table must be a CURRENTLY-visible table of the org's schema. A schema we
+    // cannot read cannot prove a valid target, so fail closed (reject). A hidden /
+    // deleted / unknown / cross-org key names no visible table -> targetInvalid.
+    const schemaResult = await getSchema(client, orgId);
+    if (schemaResult.error || !schemaResult.data) {
+      throw new AppError(400, "Forms.error.targetInvalid");
+    }
+    const table = visibleTables(schemaResult.data).find(
+      (t) => t.key === input.targetTableKey,
+    );
+    if (!table) {
+      throw new AppError(400, "Forms.error.targetInvalid");
+    }
+
+    // Revalidate field_config against the NEW table: drop entries whose field no longer
+    // exists there, preserve matching ones. [] today, correct for when 14.5 populates it.
+    const newTableFieldKeys = new Set(table.fields.map((field) => field.key));
+    const filteredFieldConfig = existing.field_config.filter((entry) =>
+      newTableFieldKeys.has(entry.key),
+    );
+
+    const { data, error } = await client
+      .from("forms")
+      .update({
+        target_table_key: input.targetTableKey,
+        field_config: filteredFieldConfig,
         actor_id: actorId,
         updated_at: new Date().toISOString(),
       })

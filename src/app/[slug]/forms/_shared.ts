@@ -9,6 +9,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdmin } from "@/lib/auth/rbac";
 import { resolveOrgIdentity } from "@/lib/api/route-helpers";
 import { getFormById } from "@/lib/data/forms";
+import { getSchema } from "@/lib/data/records";
+import { visibleTables } from "@/lib/schema/overrides";
 import {
   evaluateFormPublishability,
   type PublishabilityReason,
@@ -98,9 +100,11 @@ export async function loadFormForPage(
  * and additionally evaluates the server-side publish gate
  * ({@link evaluateFormPublishability}) so the editor can render the publish toggle
  * disabled with a reason — frontend disabling is never the only gate (the mutation
- * re-runs the same predicate). Returns `null` when the form does not exist under this org
- * (RLS-hidden / unknown id). The publishability evaluation never throws; a form that
- * cannot be read is simply `null`.
+ * re-runs the same predicate). Also returns the org's VISIBLE tables (`{key,label}`) so
+ * the editor's target-table picker (Story 14.4) can offer them. Returns `null` when the
+ * form does not exist under this org (RLS-hidden / unknown id). The publishability
+ * evaluation never throws; a form that cannot be read is simply `null`. A schema read
+ * failure degrades the tables list to empty rather than crashing the page.
  */
 export async function loadFormForEditor(
   slug: string,
@@ -109,6 +113,7 @@ export async function loadFormForEditor(
   form: FormRow;
   publishable: boolean;
   reason: PublishabilityReason;
+  tables: { key: string; label: string }[];
 } | null> {
   const user = await getCurrentUser();
   if (!user) {
@@ -139,7 +144,17 @@ export async function loadFormForEditor(
       orgId,
       form,
     );
-    return { form, publishable, reason };
+    // The target-table picker (Story 14.4) offers exactly the org's VISIBLE tables,
+    // labelled by their human `label`. A schema read failure degrades to an empty list
+    // (the picker then shows its placeholder) rather than crashing the admin page.
+    const schemaResult = await getSchema(client, orgId);
+    const tables = schemaResult.data
+      ? visibleTables(schemaResult.data).map((t) => ({
+          key: t.key,
+          label: t.label,
+        }))
+      : [];
+    return { form, publishable, reason, tables };
   } catch (err) {
     if (err instanceof AppError) {
       return null;

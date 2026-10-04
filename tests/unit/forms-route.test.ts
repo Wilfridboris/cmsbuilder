@@ -28,6 +28,7 @@ const {
   createForm,
   renameForm,
   updateFormSlug,
+  updateFormTarget,
   publishForm,
   deleteForm,
 } = vi.hoisted(() => ({
@@ -39,6 +40,7 @@ const {
   createForm: vi.fn(),
   renameForm: vi.fn(),
   updateFormSlug: vi.fn(),
+  updateFormTarget: vi.fn(),
   publishForm: vi.fn(),
   deleteForm: vi.fn(),
 }));
@@ -59,6 +61,7 @@ vi.mock("@/lib/data/form-mutate", () => ({
   createForm,
   renameForm,
   updateFormSlug,
+  updateFormTarget,
   publishForm,
   deleteForm,
 }));
@@ -102,6 +105,7 @@ function expectNoDataAccess() {
   expect(createForm).not.toHaveBeenCalled();
   expect(renameForm).not.toHaveBeenCalled();
   expect(updateFormSlug).not.toHaveBeenCalled();
+  expect(updateFormTarget).not.toHaveBeenCalled();
   expect(publishForm).not.toHaveBeenCalled();
   expect(deleteForm).not.toHaveBeenCalled();
 }
@@ -219,8 +223,67 @@ describe("/api/forms body dispatch (gate passing)", () => {
 
     expect(res.status).toBe(400);
     expect(updateFormSlug).not.toHaveBeenCalled();
+    expect(updateFormTarget).not.toHaveBeenCalled();
     expect(renameForm).not.toHaveBeenCalled();
     expect(publishForm).not.toHaveBeenCalled();
+  });
+
+  it("PATCH { slug, targetTableKey } dispatches to updateFormTarget (not slug/rename/publish)", async () => {
+    updateFormTarget.mockResolvedValue({
+      data: { id: "f1", slug: "job-request" },
+      error: null,
+    });
+
+    const res = await PATCH(
+      bodyReq({ slug: SLUG, targetTableKey: "leads" }),
+      formParams(),
+    );
+    const body = (await res.json()) as { data: unknown; error: string | null };
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({ data: { id: "f1", slug: "job-request" }, error: null });
+    expect(updateFormTarget).toHaveBeenCalledTimes(1);
+    expect(updateFormTarget).toHaveBeenCalledWith(IDENTITY, {
+      formId: "f1",
+      targetTableKey: "leads",
+    });
+    expect(publishForm).not.toHaveBeenCalled();
+    expect(updateFormSlug).not.toHaveBeenCalled();
+    expect(renameForm).not.toHaveBeenCalled();
+  });
+
+  it("PATCH target branch ordering: publish is still checked FIRST, target before slug/rename", async () => {
+    // A body carrying BOTH `published` and `targetTableKey` hits the publish branch first
+    // (publish is the earliest discriminator), so the target branch never runs.
+    publishForm.mockResolvedValue({
+      data: { id: "f1", slug: "job-request" },
+      error: null,
+    });
+
+    await PATCH(
+      bodyReq({ slug: SLUG, published: true, targetTableKey: "leads" }),
+      formParams(),
+    );
+
+    expect(publishForm).toHaveBeenCalledTimes(1);
+    expect(updateFormTarget).not.toHaveBeenCalled();
+
+    vi.clearAllMocks();
+    requireUser.mockResolvedValue({ id: "user-1" });
+    resolveWritableAdminIdentity.mockResolvedValue(IDENTITY);
+
+    // A target body carries no `title`/`newSlug`, so target is reached before slug/rename.
+    updateFormTarget.mockResolvedValue({
+      data: { id: "f1", slug: "job-request" },
+      error: null,
+    });
+    await PATCH(
+      bodyReq({ slug: SLUG, targetTableKey: "leads" }),
+      formParams(),
+    );
+    expect(updateFormTarget).toHaveBeenCalledTimes(1);
+    expect(updateFormSlug).not.toHaveBeenCalled();
+    expect(renameForm).not.toHaveBeenCalled();
   });
 
   it("PATCH { slug, published } dispatches to publishForm (not slug/rename) and returns its result", async () => {

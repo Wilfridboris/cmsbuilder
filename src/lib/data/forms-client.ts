@@ -89,6 +89,25 @@ export async function updateFormSlug(
 }
 
 /**
+ * Choose a form's target table (Story 14.4). The server validates the key names a
+ * currently-visible table; a non-visible key throws
+ * `FormApiError("Forms.error.targetInvalid")` and a change on a published form throws
+ * `FormApiError("Forms.error.targetLocked")`. Returns the form's id + slug.
+ */
+export async function updateFormTarget(
+  slug: string,
+  formId: string,
+  targetTableKey: string,
+): Promise<FormMutateResult> {
+  const res = await fetch(`/api/forms/${encodeURIComponent(formId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify({ slug, targetTableKey }),
+  });
+  return parseEnvelope<FormMutateResult>(res);
+}
+
+/**
  * Publish or unpublish a form (Story 14.3). Publishing a form with no valid target table
  * throws `FormApiError("Forms.error.publishBlocked")`; everything else maps as usual.
  * Returns the form's id + slug.

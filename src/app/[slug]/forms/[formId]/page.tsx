@@ -13,9 +13,8 @@ import { loadFormForEditor } from "../_shared";
  * and evaluates the server-side publish gate (the `/api/forms/[formId]` routes re-enforce
  * both Admin and the publish predicate independently). A form not in the caller's org
  * renders a not-found note. Otherwise the client `FormEditor` hosts the title rename, slug
- * edit (locked once published), read-only target-table display, the publish toggle +
- * share surface, and delete. The target table is read-only here — owner reassignment is
- * Story 14.4.
+ * edit (locked once published), the target-table picker (Story 14.4; visible tables,
+ * locked once published), the publish toggle + share surface, and delete.
  */
 
 export const dynamic = "force-dynamic";
@@ -55,6 +54,7 @@ export default async function FormEditorPage({
           initialTitle={form.title}
           initialSlug={form.slug}
           targetTableKey={form.target_table_key}
+          tables={loaded?.tables ?? []}
           initialPublished={form.published}
           publishable={loaded?.publishable ?? false}
           publishReason={loaded?.reason ?? "no-target"}

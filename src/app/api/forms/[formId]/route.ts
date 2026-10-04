@@ -13,6 +13,7 @@ import {
 import {
   renameForm,
   updateFormSlug,
+  updateFormTarget,
   publishForm,
   deleteForm,
   type FormMutateResult,
@@ -20,6 +21,7 @@ import {
 import {
   renameBodySchema,
   slugBodySchema,
+  targetBodySchema,
   publishBodySchema,
   deleteQuerySchema,
   listQuerySchema,
@@ -37,7 +39,9 @@ import {
  *
  * PATCH discriminates on the body: a `published` boolean is a publish toggle (checked
  * first; gated server-side, `publishBlocked` when the form has no valid target, URL
- * freezes on publish); a `title` is a rename (slug unchanged); a `newSlug` is a slug edit
+ * freezes on publish); a `targetTableKey` is a target-table choice (Story 14.4; validated
+ * against the org's visible tables, `targetInvalid`, and locked with `targetLocked` once
+ * published); a `title` is a rename (slug unchanged); a `newSlug` is a slug edit
  * (normalized to kebab, uniqueness-checked, `slugTaken`/`slugInvalid`, and rejected with
  * `slugLocked` once published). DELETE hard-deletes the form. Every failure resolves to a
  * translated KEY via the `{ data, error }` envelope; raw SQL never leaks.
@@ -80,6 +84,21 @@ export async function PATCH(
       const result = await publishForm(identity, {
         formId,
         published: publishParse.data.published,
+      });
+      if (result.error || !result.data) {
+        throw new AppError(500, "writeFailed");
+      }
+      return json<FormMutateResult>({ data: result.data, error: null }, 200);
+    }
+
+    // A `targetTableKey` is a target-table choice (Story 14.4): checked after publish and
+    // before slug/rename. The mutator validates the key names a currently-visible table
+    // and locks the change while published.
+    const targetParse = targetBodySchema.safeParse(raw);
+    if (targetParse.success) {
+      const result = await updateFormTarget(identity, {
+        formId,
+        targetTableKey: targetParse.data.targetTableKey,
       });
       if (result.error || !result.data) {
         throw new AppError(500, "writeFailed");

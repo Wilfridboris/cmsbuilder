@@ -8,7 +8,6 @@ import { Check, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -16,11 +15,19 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ConfirmActionDialog } from "@/components/invoices/ConfirmActionDialog";
 import { FormPublishShare } from "@/components/forms/FormPublishShare";
 import {
   renameForm,
   updateFormSlug,
+  updateFormTarget,
   deleteForm,
   FormApiError,
 } from "@/lib/data/forms-client";
@@ -32,7 +39,9 @@ import type { PublishabilityReason } from "@/lib/forms/publishability";
  *   - Rename   : edit the title (slug is NOT auto-changed; allowed in any state);
  *   - Slug     : edit the public slug while UNPUBLISHED (the control locks with an
  *                unpublish hint once published — the public URL freezes on publish);
- *   - Target   : the heuristic-chosen target table, shown READ-ONLY (reassignment is 14.4);
+ *   - Target   : a Select picker of the org's visible tables with the stored target
+ *                pre-selected + a Save action (Story 14.4); locks with an unpublish hint
+ *                once published, mirroring the slug card;
  *   - Publish + Share : the publish toggle and share surface ({@link FormPublishShare});
  *   - Delete   : confirmed via the shared ConfirmActionDialog (destructive), never a
  *                native confirm(); on success routes back to the list.
@@ -51,6 +60,8 @@ const ERROR_KEYS = new Set([
   "slugTaken",
   "slugInvalid",
   "slugLocked",
+  "targetInvalid",
+  "targetLocked",
   "notFound",
   "forbidden",
   "unauthorized",
@@ -70,6 +81,7 @@ export function FormEditor({
   initialTitle,
   initialSlug,
   targetTableKey,
+  tables,
   initialPublished,
   publishable,
   publishReason,
@@ -79,6 +91,7 @@ export function FormEditor({
   initialTitle: string;
   initialSlug: string;
   targetTableKey: string | null;
+  tables: { key: string; label: string }[];
   initialPublished: boolean;
   publishable: boolean;
   publishReason: PublishabilityReason;
@@ -96,21 +109,35 @@ export function FormEditor({
   // FormPublishShare) is on. Kept in sync via onPublishedChange.
   const [published, setPublished] = useState(initialPublished);
 
+  // The currently-selected target table and the value actually PERSISTED on the server.
+  // A stale/hidden stored key matches no option, so the picker shows its placeholder
+  // until the Admin picks a valid table. Save is enabled only when the selection differs
+  // from the persisted value.
+  const initialTarget = targetTableKey ?? "";
+  const [targetKey, setTargetKey] = useState(initialTarget);
+  const [savedTarget, setSavedTarget] = useState(initialTarget);
+
   const [titleError, setTitleError] = useState<string | null>(null);
   const [slugError, setSlugError] = useState<string | null>(null);
+  const [targetError, setTargetError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [titleSaved, setTitleSaved] = useState(false);
   const [slugSaved, setSlugSaved] = useState(false);
+  const [targetSaved, setTargetSaved] = useState(false);
 
   const [renaming, startRename] = useTransition();
   const [savingSlug, startSlugSave] = useTransition();
+  const [savingTarget, startTargetSave] = useTransition();
   const [deleting, startDelete] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const titleErrorId = useId();
   const slugErrorId = useId();
   const slugLockId = useId();
+  const targetSelectId = useId();
+  const targetErrorId = useId();
+  const targetLockId = useId();
 
   function handleRename(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -159,6 +186,35 @@ export function FormEditor({
       } catch (err) {
         const code = err instanceof FormApiError ? err.code : "genericError";
         setSlugError(resolveError(t, code));
+      }
+    });
+  }
+
+  function handleTarget(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    // Defense in depth: the control is disabled when published, but a published form's
+    // target is frozen — the server would reject with targetLocked regardless.
+    if (published) {
+      return;
+    }
+    setTargetSaved(false);
+    if (targetKey === "" || targetKey === savedTarget) {
+      // Nothing to save (no selection, or the selection matches what's persisted).
+      return;
+    }
+    setTargetError(null);
+    startTargetSave(async () => {
+      try {
+        await updateFormTarget(slug, formId, targetKey);
+        setSavedTarget(targetKey);
+        setTargetSaved(true);
+        // The target drives publishability (empty/invalid table -> not publishable). Refresh
+        // the server-computed publish gate so the Publish card reflects the new target
+        // without a manual reload (the matrix promises the editor re-evaluates).
+        router.refresh();
+      } catch (err) {
+        const code = err instanceof FormApiError ? err.code : "genericError";
+        setTargetError(resolveError(t, code));
       }
     });
   }
@@ -291,21 +347,95 @@ export function FormEditor({
         </CardContent>
       </Card>
 
-      {/* Target table (read-only — reassignment is Story 14.4) */}
+      {/* Target table (Story 14.4 — pick one of the org's visible tables) */}
       <Card>
         <CardHeader>
           <CardTitle>{t("targetLabel")}</CardTitle>
           <CardDescription>{t("targetHelp")}</CardDescription>
         </CardHeader>
         <CardContent>
-          {targetTableKey ? (
-            <Badge variant="outline" className="font-mono text-sm">
-              {targetTableKey}
-            </Badge>
-          ) : (
+          {tables.length === 0 ? (
             <p className="text-sm text-muted-foreground text-pretty">
               {t("targetNone")}
             </p>
+          ) : (
+            <form onSubmit={handleTarget} className="flex flex-col gap-3">
+              <Label htmlFor={targetSelectId} className="sr-only">
+                {t("targetLabel")}
+              </Label>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
+                <Select
+                  value={targetKey === "" ? undefined : targetKey}
+                  disabled={savingTarget || published}
+                  onValueChange={(value) => {
+                    setTargetKey(value);
+                    setTargetSaved(false);
+                  }}
+                >
+                  <SelectTrigger
+                    id={targetSelectId}
+                    className="min-h-12 flex-1"
+                    aria-invalid={targetError ? true : undefined}
+                    aria-describedby={
+                      targetError
+                        ? targetErrorId
+                        : published
+                          ? targetLockId
+                          : undefined
+                    }
+                  >
+                    <SelectValue placeholder={t("targetPlaceholder")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tables.map((table) => (
+                      <SelectItem key={table.key} value={table.key}>
+                        {table.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="submit"
+                  className="min-h-12 gap-2"
+                  disabled={
+                    savingTarget ||
+                    published ||
+                    targetKey === "" ||
+                    targetKey === savedTarget
+                  }
+                >
+                  {savingTarget ? (
+                    <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+                  ) : null}
+                  {savingTarget ? t("saving") : t("saveTarget")}
+                </Button>
+              </div>
+              {published ? (
+                <p
+                  id={targetLockId}
+                  className="text-sm text-muted-foreground text-pretty"
+                >
+                  {t("targetLockedHint")}
+                </p>
+              ) : null}
+              {targetError ? (
+                <p
+                  id={targetErrorId}
+                  role="alert"
+                  className="text-sm text-destructive"
+                >
+                  {targetError}
+                </p>
+              ) : targetSaved ? (
+                <p
+                  role="status"
+                  className="flex items-center gap-1 text-sm text-muted-foreground"
+                >
+                  <Check aria-hidden="true" className="size-4" />
+                  {t("saved")}
+                </p>
+              ) : null}
+            </form>
           )}
         </CardContent>
       </Card>
