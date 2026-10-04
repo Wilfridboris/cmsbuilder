@@ -79,11 +79,13 @@ export type ResolveRelation = (
 
 /**
  * Render one cell: a `relation` resolves to the target's display label; every
- * other type goes through the scalar `CellText`. An unresolvable relation or a
- * blank scalar renders as a visually empty cell carrying only a screen-reader
- * label (`cellStrings.empty`), never a placeholder glyph.
+ * other type goes through the scalar `CellText` (a `select` forwards its
+ * `options` so the stored token renders as the matching option label). An
+ * unresolvable relation or a blank scalar renders as a visually empty cell
+ * carrying only a screen-reader label (`cellStrings.empty`), never a
+ * placeholder glyph.
  */
-function renderCell(
+export function renderCell(
   field: FieldDefinition,
   value: unknown,
   cellStrings: CellStrings,
@@ -96,7 +98,14 @@ function renderCell(
       )
     );
   }
-  return <CellText value={value} type={field.type} strings={cellStrings} />;
+  return (
+    <CellText
+      value={value}
+      type={field.type}
+      strings={cellStrings}
+      options={field.options}
+    />
+  );
 }
 
 export function DemoDashboard({ response }: DemoDashboardProps) {

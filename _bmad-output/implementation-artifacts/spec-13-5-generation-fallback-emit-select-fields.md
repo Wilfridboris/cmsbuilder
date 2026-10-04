@@ -70,6 +70,10 @@ context: []
 
 ## Implementation Notes
 
+**Post-merge manual review (Playwright, localhost:3000).** Ran a live generation with a status-implying description ("track jobs and whether each is quoted, scheduled, in progress, or complete"). Generation emitted a well-formed `select` Status field (`isFallback:false`) with options Quoted/Scheduled/In Progress/Complete and value-token seeds — the generation surface works end to end.
+
+The review surfaced one defect this story was the first to expose: the pre-account demo dashboard (`DemoDashboard.renderCell`, the "aha moment" preview) rendered a select cell's raw token (`in_progress`) instead of its label. Root cause: `renderCell` called `<CellText>` without forwarding `field.options`, so the shared `formatCell` could not resolve the label. Latent before 13.5 because neither generation nor the fallback ever produced a `select` on that surface. Fix: forward `field.options` to `CellText` in `src/components/dashboard/DemoDashboard.tsx` (one prop; `CellText` already supported it) and export `renderCell` for a focused unit test (`tests/unit/demo-dashboard-cell.test.tsx`: label resolution, unmatched-token fallback, scalar unchanged). Re-verified in-browser: Status now renders Complete / In Progress / Quoted / Scheduled. The authed dashboard (`RecordsView`) already forwarded options (13.2) and was unaffected.
+
 ## Spec Change Log
 
 ## Review Triage Log
