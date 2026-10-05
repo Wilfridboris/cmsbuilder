@@ -4,6 +4,7 @@ import { ClipboardList, FileText, LayoutDashboard, Settings, Upload } from "luci
 
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
+import { LocaleToggle } from "@/components/i18n/LocaleToggle";
 import type { MemberRole } from "@/types/db";
 
 /**
@@ -94,6 +95,11 @@ export async function DashboardNav({
             </Link>
           </>
         ) : null}
+
+        {/* Story 8.1: instant EN/FR toggle, pinned top-right via its own
+            `ml-auto`. A client component rendered from this Server Component;
+            RBAC link-gating above is untouched (role stays server-side). */}
+        <LocaleToggle />
       </div>
     </nav>
   );

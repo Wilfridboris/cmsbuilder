@@ -243,3 +243,11 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-14-7-abuse-protection-on-public-intake.md`
   summary: IntakeForm's client-side 429 handling (res.status === 429 -> tooManyRequests alert) and the honeypot body carrier (website: honeypot in the POST body) have no automated coverage.
   evidence: Both are reachable only through handleSubmit, which the SSR/renderToStaticMarkup node-env component test (tests/unit/intake-form.test.tsx) never drives. The repo has no jsdom/@testing-library harness (component tests are static-render only by deliberate convention) and spec 14.7's "Never" list forbids adding a dependency, so covering these needs a net-new client-interaction test style. Server-side honeypot drop and the limiter logic are both unit-covered; only the thin client wiring is unpinned. Settling it needs a jsdom/testing-library harness (a project-wide test-infra decision) or an e2e layer.
+
+- source_spec: `spec-8-1-instant-en-fr-ui-toggle-no-reload.md`
+  summary: The EN/FR language toggle is wired only into the authenticated DashboardNav; anonymous/public surfaces (landing page `src/app/page.tsx`, login, legal) have no way to switch language.
+  evidence: Story 8.1's AC scopes the toggle to "any dashboard screen," so public surfaces are out of its intent, but a French visitor to the landing page is stuck in English until they log in. An orphaned `Home.localeLabel` string (EN/FR) already exists, rendered by nothing — a public control was likely intended. Likely belongs to the marketing-site epic.
+
+- source_spec: `spec-8-1-instant-en-fr-ui-toggle-no-reload.md`
+  summary: No automated coverage of the live locale switch (setLocale state-swap + persist + router.refresh) or the mount-reconcile effect; both are manual-review-only today.
+  evidence: The repo test env is `node` with no jsdom/interaction renderer, and `tests/e2e/` holds only `.gitkeep`, so the headline no-reload swap and the useEffect/useRef reconcile are never executed by a test (pure helpers are tested in isolation; router.refresh is mocked to a no-op). A regression in the wiring would ship green. Closing it needs new infra (RTL+jsdom or Playwright e2e).

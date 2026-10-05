@@ -1,4 +1,15 @@
 {
+  "LocaleToggle": {
+    "label": "Language",
+    "locale": {
+      "en": "EN",
+      "fr": "FR"
+    },
+    "switchTo": {
+      "en": "Switch to English",
+      "fr": "Switch to French"
+    }
+  },
   "Home": {
     "title": "Scheza",
     "tagline": "Describe your business. Get a working dashboard in seconds.",

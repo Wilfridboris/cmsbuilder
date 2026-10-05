@@ -1,4 +1,15 @@
 {
+  "LocaleToggle": {
+    "label": "Langue",
+    "locale": {
+      "en": "EN",
+      "fr": "FR"
+    },
+    "switchTo": {
+      "en": "Passer en anglais",
+      "fr": "Passer en français"
+    }
+  },
   "Home": {
     "title": "Scheza",
     "tagline": "Décrivez votre entreprise. Obtenez un tableau de bord fonctionnel en quelques secondes.",

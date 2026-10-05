@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
-import { NextIntlClientProvider } from "next-intl";
-import { getLocale, getMessages } from "next-intl/server";
+import { getLocale } from "next-intl/server";
+import { LocaleProvider } from "@/components/i18n/LocaleProvider";
+import { isLocale, defaultLocale } from "@/lib/i18n/config";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -25,8 +26,8 @@ export const metadata: Metadata = {
 export default async function RootLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
-  const locale = await getLocale();
-  const messages = await getMessages();
+  const resolved = await getLocale();
+  const locale = isLocale(resolved) ? resolved : defaultLocale;
 
   return (
     <html
@@ -34,9 +35,9 @@ export default async function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        <NextIntlClientProvider locale={locale} messages={messages}>
+        <LocaleProvider initialLocale={locale}>
           <Providers>{children}</Providers>
-        </NextIntlClientProvider>
+        </LocaleProvider>
       </body>
     </html>
   );
