@@ -119,8 +119,13 @@ describe("IntakeForm — boolean field", () => {
     // and one is not.
     expect((html.match(/aria-checked="false"/g) ?? []).length).toBe(1);
     expect((html.match(/aria-checked="true"/g) ?? []).length).toBe(1);
-    // A boolean renders the toggle, never a scalar <input>.
-    expect(html).not.toContain("<input");
+    // A boolean renders the toggle, never a scalar <input> for the field itself. The
+    // only <input> on the surface is the hidden Story 14.7 honeypot (name="website",
+    // the stable bot-bait; its id is namespaced via useId), present on every form
+    // regardless of field types.
+    const inputs = html.match(/<input[^>]*>/g) ?? [];
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toContain('name="website"');
   });
 });
 

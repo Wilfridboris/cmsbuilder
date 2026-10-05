@@ -52,12 +52,22 @@ vi.mock("@/lib/orgs/org-recipients", () => ({
 vi.mock("@/lib/resend/intake-notification", () => ({ sendIntakeSubmissionEmail }));
 vi.mock("@/lib/observability/report", () => ({ reportError }));
 
+let ipCounter = 0;
 function postReq(body: unknown): NextRequest {
   // `nextUrl.origin` is read by the 6.4 notification path to build the absolute
-  // dashboard CTA; the 6.2 rows ignore it.
+  // dashboard CTA; the 6.2 rows ignore it. `headers.get` is now required by the Story
+  // 14.7 rate limiter (`getClientIp`) running at the top of the route — give each call a
+  // UNIQUE client IP so the limiter's module-level buckets never accumulate across this
+  // file's many sequential POSTs (the limiter is real here, not mocked).
+  ipCounter += 1;
+  const ip = `test-ip-${ipCounter}`;
   return {
     json: async () => body,
     nextUrl: { origin: "https://app.example.com" },
+    headers: {
+      get: (name: string) =>
+        name.toLowerCase() === "x-forwarded-for" ? ip : null,
+    },
   } as unknown as NextRequest;
 }
 
@@ -529,5 +539,37 @@ describe("POST /api/intake/[slug] — owner notification (Story 6.4)", () => {
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(sendIntakeSubmissionEmail).not.toHaveBeenCalled();
     expect(reportError).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("POST /api/intake/[slug] — abuse protection (Story 14.7)", () => {
+  it("sheds a per-slug flood with a 429 tooManyRequests BEFORE resolving or writing", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/route");
+
+    // Flood ONE slug (its own, isolated from the other tests' "acme" budget). Each
+    // `postReq` carries a distinct IP, so the per-IP bucket never trips first — the 429
+    // comes from the per-slug bucket (capacity 60). Keep sending until it sheds one so
+    // the assertion is robust to the real-clock refill the route uses (no injected now).
+    let sawLimit = false;
+    for (let i = 0; i < 200 && !sawLimit; i++) {
+      const r = await POST(postReq(VALID_BODY), paramsFor("floodtown"));
+      if (r.status === 429) {
+        sawLimit = true;
+      }
+    }
+    expect(sawLimit).toBe(true);
+
+    // Still in the throttled window — the very next POST is shed too. Assert it never
+    // reached the resolver or the write: the limiter runs first, so no DB work happens.
+    resolvePublicFormTarget.mockClear();
+    mutate.mockClear();
+    const res = await POST(postReq(VALID_BODY), paramsFor("floodtown"));
+
+    expect(res.status).toBe(429);
+    const body = await res.json();
+    expect(body.data).toBeNull();
+    expect(body.error).toBe("tooManyRequests");
+    expect(resolvePublicFormTarget).not.toHaveBeenCalled();
+    expect(mutate).not.toHaveBeenCalled();
   });
 });

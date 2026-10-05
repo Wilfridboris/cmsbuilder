@@ -43,10 +43,21 @@ vi.mock("@/lib/orgs/org-recipients", () => ({
 vi.mock("@/lib/resend/intake-notification", () => ({ sendIntakeSubmissionEmail }));
 vi.mock("@/lib/observability/report", () => ({ reportError }));
 
+let ipCounter = 0;
 function postReq(body: unknown): NextRequest {
+  // `headers.get` is required by the Story 14.7 rate limiter (`getClientIp`) now running
+  // at the top of the route; give each call a UNIQUE client IP so the limiter's
+  // module-level buckets never accumulate across this file's sequential POSTs (the
+  // limiter is real here, not mocked).
+  ipCounter += 1;
+  const ip = `test-ip-${ipCounter}`;
   return {
     json: async () => body,
     nextUrl: { origin: "https://app.example.com" },
+    headers: {
+      get: (name: string) =>
+        name.toLowerCase() === "x-forwarded-for" ? ip : null,
+    },
   } as unknown as NextRequest;
 }
 
@@ -130,6 +141,38 @@ describe("POST /api/intake/[slug]/[formSlug] — unavailable collapses to 400", 
     const body = await res.json();
     expect(body.data).toBeNull();
     expect(body.error).toBe("genericError");
+    expect(mutate).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/intake/[slug]/[formSlug] — abuse protection (Story 14.7)", () => {
+  it("sheds a per-slug flood with a 429 tooManyRequests BEFORE resolving or writing", async () => {
+    const { POST } = await import("@/app/api/intake/[slug]/[formSlug]/route");
+
+    // Flood ONE keyed form. Each `postReq` carries a distinct IP so the per-IP bucket
+    // never trips first — the 429 comes from the per-slug bucket (capacity 60). Keep
+    // sending until it sheds one, robust to the route's real-clock refill (no injected now).
+    const body = {
+      values: { full_name: "Ada", email: "ada@example.ca" },
+      idempotencyKey: "k",
+    };
+    let sawLimit = false;
+    for (let i = 0; i < 200 && !sawLimit; i++) {
+      const r = await POST(postReq(body), paramsFor("acme", "flood-form"));
+      if (r.status === 429) {
+        sawLimit = true;
+      }
+    }
+    expect(sawLimit).toBe(true);
+
+    // Still throttled — the next POST is shed before the resolver or the write runs.
+    resolvePublicFormTarget.mockClear();
+    mutate.mockClear();
+    const res = await POST(postReq(body), paramsFor("acme", "flood-form"));
+
+    expect(res.status).toBe(429);
+    expect((await res.json()).error).toBe("tooManyRequests");
+    expect(resolvePublicFormTarget).not.toHaveBeenCalled();
     expect(mutate).not.toHaveBeenCalled();
   });
 });

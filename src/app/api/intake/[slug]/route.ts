@@ -6,6 +6,7 @@ import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { resolvePublicFormTarget } from "@/lib/data/forms-public";
 import { submitToTarget } from "@/lib/intake/submit";
+import { enforceIntakeRateLimit } from "@/lib/intake/rate-limit";
 import { json, handleError } from "@/lib/api/route-helpers";
 
 /**
@@ -42,6 +43,11 @@ export async function POST(
 ): Promise<NextResponse<ApiResponse<{ ok: true }>>> {
   try {
     const { slug } = await params;
+
+    // Abuse protection (Story 14.7): shed a per-IP or per-slug flood BEFORE any form
+    // resolution / DB read. Fails open on any internal limiter error (capture is never
+    // dropped by machinery failure); a 429 is returned verbatim by `handleError`.
+    enforceIntakeRateLimit(req, `org:${slug}`);
 
     // Re-resolve the target server-side: the org's primary published form, strict (no
     // heuristic fallback). An unknown slug / no published form / invalid target is

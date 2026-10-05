@@ -6,6 +6,7 @@ import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { resolvePublicFormTarget } from "@/lib/data/forms-public";
 import { submitToTarget } from "@/lib/intake/submit";
+import { enforceIntakeRateLimit } from "@/lib/intake/rate-limit";
 import { json, handleError } from "@/lib/api/route-helpers";
 
 /**
@@ -41,6 +42,11 @@ export async function POST(
 ): Promise<NextResponse<ApiResponse<{ ok: true }>>> {
   try {
     const { slug, formSlug } = await params;
+
+    // Abuse protection (Story 14.7): shed a per-IP or per-slug flood BEFORE any form
+    // resolution / DB read. Same helper as the bare-org route (no divergent copy); fails
+    // open on an internal limiter error, and a 429 is returned verbatim by `handleError`.
+    enforceIntakeRateLimit(req, `form:${slug}/${formSlug}`);
 
     // Re-resolve the keyed target server-side, published-gated and strict. Any
     // unavailable case is indistinguishable — a generic 400, no internals leaked.

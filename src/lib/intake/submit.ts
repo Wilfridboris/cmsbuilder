@@ -54,7 +54,16 @@ export async function submitToTarget(
   if (!parsed.success) {
     throw new AppError(400, "genericError");
   }
-  const { values, idempotencyKey } = parsed.data;
+  const { values, idempotencyKey, website } = parsed.data;
+
+  // Honeypot (Story 14.7): a non-empty `website` means a bot filled a hidden field a
+  // human can never reach. Silently drop it — return the SAME success envelope a real
+  // submission gets, but build no payload, write nothing, email no one, and report
+  // nothing (this is an expected/benign decision, not a Sentry event). A bot must not be
+  // able to tell it was rejected.
+  if (website?.trim()) {
+    return { ok: true as const };
+  }
 
   // Build the write payload ONLY from the server-resolved allowlist. Every key not on
   // it (extra fields, a relation field, anything the client invented) is silently

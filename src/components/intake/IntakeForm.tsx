@@ -119,9 +119,12 @@ export function IntakeForm({
 
   const [draft, setDraft] = useState<Draft>(() => blankDraft(fields));
   const [fieldErrors, setFieldErrors] = useState<Record<string, boolean>>({});
-  const [formError, setFormError] = useState<"emptyForm" | "submitError" | null>(
-    null,
-  );
+  const [formError, setFormError] = useState<
+    "emptyForm" | "submitError" | "tooManyRequests" | null
+  >(null);
+  // Honeypot (Story 14.7): a hidden, autofill-suppressed field a human never reaches. A
+  // bot that fills it is silently dropped server-side (same success envelope, no write).
+  const [honeypot, setHoneypot] = useState("");
   const [pending, setPending] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
 
@@ -185,8 +188,21 @@ export function IntakeForm({
       const res = await fetch(submitPath, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ values, idempotencyKey: idempotencyKey.current }),
+        body: JSON.stringify({
+          values,
+          idempotencyKey: idempotencyKey.current,
+          // Honeypot carrier: empty for a human, filled only by a bot (silently dropped).
+          website: honeypot,
+        }),
       });
+      // Rate-limited (Story 14.7): a non-blocking inline alert that keeps the filled form
+      // intact for a retry once the limit cools off. Handled before the body parse so a
+      // 429 (which still carries the generic error envelope) reads as "too fast", not a
+      // generic failure.
+      if (res.status === 429) {
+        setFormError("tooManyRequests");
+        return;
+      }
       let body: ApiResponse<{ ok: true }>;
       try {
         body = (await res.json()) as ApiResponse<{ ok: true }>;
@@ -255,6 +271,26 @@ export function IntakeForm({
               boolLabels={t}
             />
           ))}
+
+          {/*
+            Honeypot (Story 14.7): a real-looking "Website" field hidden from humans —
+            visually hidden, aria-hidden, removed from the tab order, and autofill-
+            suppressed so a browser never populates it. A human never reaches it; a dumb
+            form-filling bot fills it and is silently dropped server-side. Not CAPTCHA:
+            zero friction for real visitors.
+          */}
+          <div aria-hidden="true" className="sr-only">
+            <label htmlFor={`${idBase}-website`}>{t("website")}</label>
+            <input
+              id={`${idBase}-website`}
+              name="website"
+              type="text"
+              autoComplete="off"
+              tabIndex={-1}
+              value={honeypot}
+              onChange={(event) => setHoneypot(event.target.value)}
+            />
+          </div>
         </form>
       </CardContent>
 

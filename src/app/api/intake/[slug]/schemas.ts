@@ -16,4 +16,11 @@ export const intakeBodySchema = z.object({
   values: z.record(z.string(), z.unknown()),
   /** A per-form-instance key so a retried submit dedupes to one logical write. */
   idempotencyKey: z.string().trim().min(1),
+  /**
+   * Honeypot carrier (Story 14.7): a hidden, autofill-suppressed field a human never
+   * reaches. Declared here because Zod strips unknown keys — without it the bot's value
+   * would be dropped before `submitToTarget` could see it. Non-empty after trim ⇒ a
+   * silent bot drop (handled in `submit.ts`), indistinguishable from a real success.
+   */
+  website: z.string().optional(),
 });
