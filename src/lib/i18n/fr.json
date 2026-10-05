@@ -10,6 +10,13 @@
       "fr": "Passer en français"
     }
   },
+  "PwaInstall": {
+    "label": "Installer Scheza",
+    "title": "Ajoutez Scheza à votre écran d'accueil",
+    "body": "Installez Scheza pour un accès en un geste et une expérience plein écran, comme une application.",
+    "install": "Installer",
+    "dismiss": "Plus tard"
+  },
   "Home": {
     "title": "Scheza",
     "tagline": "Décrivez votre entreprise. Obtenez un tableau de bord fonctionnel en quelques secondes.",

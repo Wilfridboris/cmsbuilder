@@ -251,3 +251,7 @@
 - source_spec: `spec-8-1-instant-en-fr-ui-toggle-no-reload.md`
   summary: No automated coverage of the live locale switch (setLocale state-swap + persist + router.refresh) or the mount-reconcile effect; both are manual-review-only today.
   evidence: The repo test env is `node` with no jsdom/interaction renderer, and `tests/e2e/` holds only `.gitkeep`, so the headline no-reload swap and the useEffect/useRef reconcile are never executed by a test (pure helpers are tested in isolation; router.refresh is mocked to a no-op). A regression in the wiring would ship green. Closing it needs new infra (RTL+jsdom or Playwright e2e).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-2-pwa-install-add-to-home-screen.md`
+  summary: Slug generation has no reserved-word list, so top-level static routes (login, auth, forms, generate, demo, i, api, and now home) silently shadow any org whose slug equals that word.
+  evidence: src/app exposes those routes as siblings of [slug] and src/lib/claim/slug.ts reserves none; a composite trade+city slug realistically never equals a bare reserved word today, but the namespace is unguarded. Would be settled by either adding a reserved-slug blocklist to slug generation or confirming the generator can never emit a bare single reserved token.

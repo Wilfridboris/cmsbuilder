@@ -10,6 +10,13 @@
       "fr": "Switch to French"
     }
   },
+  "PwaInstall": {
+    "label": "Install Scheza",
+    "title": "Add Scheza to your home screen",
+    "body": "Install Scheza for one-tap access and a full-screen, app-like experience.",
+    "install": "Install",
+    "dismiss": "Not now"
+  },
   "Home": {
     "title": "Scheza",
     "tagline": "Describe your business. Get a working dashboard in seconds.",
