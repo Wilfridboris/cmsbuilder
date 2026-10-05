@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import { Download } from "lucide-react";
 
@@ -148,7 +149,17 @@ export function InstallPrompt() {
     return null;
   }
 
-  return (
+  // Portal to document.body: this component is mounted inside DashboardNav's
+  // <nav>, which carries `backdrop-blur` (a backdrop-filter). A backdrop-filter
+  // establishes a containing block for `position: fixed` descendants, so without
+  // the portal the banner's `bottom-4` would pin to the nav bar (top of screen)
+  // instead of the viewport. `visible` only turns true from a client effect, so
+  // document is always defined here; the guard is belt-and-suspenders for SSR.
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
     <div
       role="region"
       aria-label={t("label")}
@@ -174,6 +185,7 @@ export function InstallPrompt() {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
