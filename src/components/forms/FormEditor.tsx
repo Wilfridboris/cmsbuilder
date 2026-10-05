@@ -316,8 +316,15 @@ export function FormEditor({
         published={published}
       />
 
-      {/* Per-field public customization (Story 14.5) */}
+      {/* Per-field public customization (Story 14.5). Keyed on the target table so that
+          changing the target (FormTargetCard saves, then router.refresh re-loads this
+          page with the new table's editorFields and the server-revalidated field_config)
+          REMOUNTS the editor on the new identity. FormFieldsEditor seeds its row state
+          from props once via useState, so without the key it would keep showing the prior
+          table's fields after a target switch — and a Save there would post stale keys the
+          server then drops. The remount is correct: edits for the old table are moot. */}
       <FormFieldsEditor
+        key={targetTableKey ?? "no-target"}
         slug={slug}
         formId={formId}
         editorFields={editorFields}
