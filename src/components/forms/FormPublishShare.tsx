@@ -17,6 +17,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { setFormPublished, FormApiError } from "@/lib/data/forms-client";
+import { resolveFormError } from "@/lib/forms/error-copy";
 import { publicFormUrl } from "@/lib/forms/share";
 import { useIsClient } from "@/components/invoices/use-is-client";
 import type { PublishabilityReason } from "@/lib/forms/publishability";
@@ -56,16 +57,6 @@ const PUBLISH_ERROR_KEYS = new Set([
   "writeFailed",
   "genericError",
 ]);
-
-function resolvePublishError(
-  t: (key: string) => string,
-  code: string,
-): string {
-  const short = code.replace(/^Forms\.error\./, "");
-  return PUBLISH_ERROR_KEYS.has(short)
-    ? t(`error.${short}`)
-    : t("error.genericError");
-}
 
 /** Map the server-computed publishability reason to the disabled-switch hint. */
 function reasonText(
@@ -137,7 +128,7 @@ export function FormPublishShare({
         onPublishedChange?.(next);
       } catch (err) {
         const code = err instanceof FormApiError ? err.code : "genericError";
-        setPublishError(resolvePublishError(t, code));
+        setPublishError(resolveFormError(t, code, PUBLISH_ERROR_KEYS));
       }
     });
   }

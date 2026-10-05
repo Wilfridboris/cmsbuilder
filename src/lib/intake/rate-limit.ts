@@ -132,12 +132,28 @@ export function consumeToken(
 }
 
 /**
- * Best-effort client IP: the first hop of `x-forwarded-for` (the original client, before
- * proxies append), else `x-real-ip`, else a shared `"unknown"` sentinel. An absent header
- * must never 500 — a request with no resolvable IP still throttles (against the shared
- * `"unknown"` bucket) and still resolves.
+ * Best-effort client IP, preferring a PLATFORM-TRUSTED source over the client-controlled
+ * `x-forwarded-for`. Order:
+ *   1. `x-vercel-forwarded-for` — set by Vercel's edge to the real client IP and NOT
+ *      forgeable by the caller (Vercel overwrites any client-sent value). This is what
+ *      makes the per-IP bucket meaningful in production: a bot rotating `x-forwarded-for`
+ *      can no longer mint a fresh per-IP bucket per request, and so can no longer spoof
+ *      its way around the per-IP cap to drain a form's shared per-slug bucket (Epic 14
+ *      retro F1/F2).
+ *   2. first hop of `x-forwarded-for` — best-effort for non-Vercel / local dev. The caller
+ *      CAN spoof this, so it ranks below the trusted header above.
+ *   3. `x-real-ip`, then a shared `"unknown"` sentinel. An absent header must never 500 —
+ *      a request with no resolvable IP still throttles (against the shared bucket) and
+ *      still resolves.
  */
 export function getClientIp(req: NextRequest): string {
+  const vercel = req.headers.get("x-vercel-forwarded-for");
+  if (vercel) {
+    const first = vercel.split(",")[0]?.trim();
+    if (first) {
+      return first;
+    }
+  }
   const forwarded = req.headers.get("x-forwarded-for");
   if (forwarded) {
     const first = forwarded.split(",")[0]?.trim();

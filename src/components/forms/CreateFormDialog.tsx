@@ -17,6 +17,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createForm, FormApiError } from "@/lib/data/forms-client";
+import { resolveFormError } from "@/lib/forms/error-copy";
 
 /**
  * CreateFormDialog (Epic 14, Story 14.1) — the Admin-only "create a form" entry point.
@@ -39,11 +40,6 @@ const ERROR_KEYS = new Set([
   "readOnly",
   "genericError",
 ]);
-
-function resolveError(t: (key: string) => string, code: string): string {
-  const short = code.replace(/^Forms\.error\./, "");
-  return ERROR_KEYS.has(short) ? t(`error.${short}`) : t("error.genericError");
-}
 
 export function CreateFormDialog({
   slug,
@@ -87,7 +83,7 @@ export function CreateFormDialog({
         handleOpenChange(false);
       } catch (err) {
         const code = err instanceof FormApiError ? err.code : "genericError";
-        setError(resolveError(t, code));
+        setError(resolveFormError(t, code, ERROR_KEYS));
       }
     });
   }

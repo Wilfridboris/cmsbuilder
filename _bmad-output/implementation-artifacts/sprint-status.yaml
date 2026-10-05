@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: '10-04-2026 18:25'
+last_updated: '10-04-2026 20:54'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -168,7 +168,7 @@ development_status:
 
   # ── Epic 14: Owner-Controlled Intake Forms ───────────────────────────────
   # Added via sprint-change-proposal-2026-10-02-intake-forms.md (FR25 amended; FR100-104)
-  epic-14: in-progress
+  epic-14: done
   14-1-forms-data-model-admin-form-creation: done
   14-2-multi-form-public-route-form-keyed-submission: done
   14-3-publish-toggle-share-surface: done
@@ -176,7 +176,7 @@ development_status:
   14-5-per-field-public-customization: done
   14-6-branded-public-form: done
   14-7-abuse-protection-on-public-intake: done
-  epic-14-retrospective: optional
+  epic-14-retrospective: done
 action_items:
   - id: "epic-1-retro-item-1-reconcile-the-gemini-model-in-architectu"
     epic: 1
@@ -816,3 +816,44 @@ action_items:
     owner: "Dev"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-13-retro-2026-10-03.md"
+  - id: "epic-14-retro-item-83-f9-add-scheza-marketing-v1-and-any-sibli"
+    epic: 14
+    action: "[F9] Add scheza-marketing-v1 (and any sibling decoupled sub-project dirs)
+      to tsconfig.json exclude, mirroring the .gitignore entry from d736fd3c, so npm
+      run type-check reflects the app; verify it exits 0."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-14-retro-2026-10-04.md"
+  - id: "epic-14-retro-item-84-f4-extract-one-shared-resolveformerror-t"
+    epic: 14
+    action: "[F4] Extract one shared resolveFormError(t, code, allowedKeys) helper
+      and replace the five duplicated resolver + ERROR_KEYS copies in FormEditor.tsx:81,
+      CreateFormDialog.tsx:43, FormsList.tsx:35, FormFieldsEditor.tsx:185, FormPublishShare.tsx:60."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-14-retro-2026-10-04.md"
+  - id: "epic-14-retro-item-85-f1-f2-on-vercel-source-the-client-ip-fro"
+    epic: 14
+    action: "[F1/F2] On Vercel, source the client IP from the platform trusted header
+      (x-vercel-forwarded-for / request.ip) instead of raw X-Forwarded-For in getClientIp
+      (rate-limit.ts:140), so the per-IP cap is not spoofable and the per-slug bucket
+      cannot be weaponized to deny a popular form."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-14-retro-2026-10-04.md"
+  - id: "epic-14-retro-item-86-f5-watch-item-formeditor-tsx-606-loc-ext"
+    epic: 14
+    action: "[F5] Watch item: FormEditor.tsx (606 LOC) — extract the Target and Intro
+      sections into their own card components (as Fields and Publish/Share already
+      are) if it keeps growing."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-14-retro-2026-10-04.md"
+  - id: "epic-14-retro-item-87-f8-record-against-the-open-offboarding-c"
+    epic: 14
+    action: "[F8] Record against the open offboarding-cascade hand-off (epic-12-retro-item-44)
+      that forms rows must be dropped in that cascade (FK ON DELETE CASCADE already
+      in place; no statutory-retention carve-out, unlike invoices)."
+    owner: "Boris+Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-14-retro-2026-10-04.md"

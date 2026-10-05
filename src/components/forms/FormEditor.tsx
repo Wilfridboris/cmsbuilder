@@ -8,7 +8,6 @@ import { Check, Loader2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Card,
   CardContent,
@@ -16,15 +15,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { ConfirmActionDialog } from "@/components/invoices/ConfirmActionDialog";
 import { FormPublishShare } from "@/components/forms/FormPublishShare";
+import { FormTargetCard } from "@/components/forms/FormTargetCard";
+import { FormIntroCard } from "@/components/forms/FormIntroCard";
 import {
   FormFieldsEditor,
   type EditorField,
@@ -32,44 +26,44 @@ import {
 import {
   renameForm,
   updateFormSlug,
-  updateFormTarget,
-  updateFormIntroText,
   deleteForm,
   FormApiError,
 } from "@/lib/data/forms-client";
+import { resolveFormError } from "@/lib/forms/error-copy";
 import type { PublishabilityReason } from "@/lib/forms/publishability";
 import type { FormFieldConfig } from "@/types/db";
 
 /**
- * FormEditor (Epic 14, Stories 14.1 + 14.3) — the Admin-only form editor. Independent
- * sections, each with its own pending/error state:
- *   - Rename   : edit the title (slug is NOT auto-changed; allowed in any state);
- *   - Slug     : edit the public slug while UNPUBLISHED (the control locks with an
- *                unpublish hint once published — the public URL freezes on publish);
- *   - Target   : a Select picker of the org's visible tables with the stored target
- *                pre-selected + a Save action (Story 14.4); locks with an unpublish hint
- *                once published, mirroring the slug card;
- *   - Publish + Share : the publish toggle and share surface ({@link FormPublishShare});
- *   - Delete   : confirmed via the shared ConfirmActionDialog (destructive), never a
- *                native confirm(); on success routes back to the list.
+ * FormEditor (Epic 14, Stories 14.1 + 14.3) — the Admin-only form editor. It composes a
+ * stack of independent cards, each owning its own pending/error/saved state:
+ *   - Rename           : edit the title (slug is NOT auto-changed; allowed in any state);
+ *   - Slug             : edit the public slug while UNPUBLISHED (the control locks with an
+ *                        unpublish hint once published — the public URL freezes on publish);
+ *   - Target           : {@link FormTargetCard} — pick the org table submissions land in
+ *                        (Story 14.4); locks once published;
+ *   - Fields           : {@link FormFieldsEditor} — per-field public customization (14.5);
+ *   - Intro            : {@link FormIntroCard} — the owner-authored intro text (14.6);
+ *   - Publish + Share  : {@link FormPublishShare} — the publish toggle and share surface;
+ *   - Delete           : confirmed via the shared ConfirmActionDialog (destructive), never a
+ *                        native confirm(); on success routes back to the list.
  *
- * Published state is lifted here so the slug lock and the publish toggle stay in sync:
- * `FormPublishShare` owns the toggle but reports changes up via `onPublishedChange`.
+ * Only the Rename/Slug/Delete sections keep state here; Target, Fields, Intro, and
+ * Publish+Share are self-contained child cards (Epic 14 retro F5 extraction). Published
+ * state is still lifted here so the slug lock and the publish toggle stay in sync:
+ * `FormPublishShare` owns the toggle but reports changes up via `onPublishedChange`, and
+ * the Slug card and `FormTargetCard` both read it to lock.
  *
  * Each save shows a spinner + disables its control while in flight (React 19
  * `useTransition`) and surfaces a non-technical inline error in a `role="alert"` region.
  * All copy resolves through the `Forms` namespace.
  */
 
-/** Error codes the editor maps to a translated message; anything else → generic. */
+/** Error codes the Rename/Slug/Delete sections map to a translated message; else generic. */
 const ERROR_KEYS = new Set([
   "titleRequired",
   "slugTaken",
   "slugInvalid",
   "slugLocked",
-  "targetInvalid",
-  "targetLocked",
-  "introTooLong",
   "notFound",
   "forbidden",
   "unauthorized",
@@ -77,11 +71,6 @@ const ERROR_KEYS = new Set([
   "readOnly",
   "genericError",
 ]);
-
-function resolveError(t: (key: string) => string, code: string): string {
-  const short = code.replace(/^Forms\.error\./, "");
-  return ERROR_KEYS.has(short) ? t(`error.${short}`) : t("error.genericError");
-}
 
 export function FormEditor({
   slug,
@@ -119,49 +108,25 @@ export function FormEditor({
   // save normalized to). The share surface builds its URL from this — never from the live
   // `formSlug` input, which may hold an unsaved edit that would 404.
   const [savedSlug, setSavedSlug] = useState(initialSlug);
-  // Lifted so the slug control can lock while the publish toggle (owned by
-  // FormPublishShare) is on. Kept in sync via onPublishedChange.
+  // Lifted so the slug control and the target card can lock while the publish toggle (owned
+  // by FormPublishShare) is on. Kept in sync via onPublishedChange.
   const [published, setPublished] = useState(initialPublished);
-
-  // The currently-selected target table and the value actually PERSISTED on the server.
-  // A stale/hidden stored key matches no option, so the picker shows its placeholder
-  // until the Admin picks a valid table. Save is enabled only when the selection differs
-  // from the persisted value.
-  const initialTarget = targetTableKey ?? "";
-  const [targetKey, setTargetKey] = useState(initialTarget);
-  const [savedTarget, setSavedTarget] = useState(initialTarget);
-
-  // The intro text draft and the value actually PERSISTED on the server. Save is enabled
-  // only when the draft differs from what's persisted (clearing counts as a change).
-  const [introText, setIntroText] = useState(initialIntroText ?? "");
-  const [savedIntro, setSavedIntro] = useState(initialIntroText ?? "");
 
   const [titleError, setTitleError] = useState<string | null>(null);
   const [slugError, setSlugError] = useState<string | null>(null);
-  const [targetError, setTargetError] = useState<string | null>(null);
-  const [introError, setIntroError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const [titleSaved, setTitleSaved] = useState(false);
   const [slugSaved, setSlugSaved] = useState(false);
-  const [targetSaved, setTargetSaved] = useState(false);
-  const [introSaved, setIntroSaved] = useState(false);
 
   const [renaming, startRename] = useTransition();
   const [savingSlug, startSlugSave] = useTransition();
-  const [savingTarget, startTargetSave] = useTransition();
-  const [savingIntro, startIntroSave] = useTransition();
   const [deleting, startDelete] = useTransition();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const titleErrorId = useId();
   const slugErrorId = useId();
   const slugLockId = useId();
-  const targetSelectId = useId();
-  const targetErrorId = useId();
-  const targetLockId = useId();
-  const introFieldId = useId();
-  const introErrorId = useId();
 
   function handleRename(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -179,7 +144,7 @@ export function FormEditor({
         setTitleSaved(true);
       } catch (err) {
         const code = err instanceof FormApiError ? err.code : "genericError";
-        setTitleError(resolveError(t, code));
+        setTitleError(resolveFormError(t, code, ERROR_KEYS));
       }
     });
   }
@@ -209,57 +174,7 @@ export function FormEditor({
         setSlugSaved(true);
       } catch (err) {
         const code = err instanceof FormApiError ? err.code : "genericError";
-        setSlugError(resolveError(t, code));
-      }
-    });
-  }
-
-  function handleTarget(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    // Defense in depth: the control is disabled when published, but a published form's
-    // target is frozen — the server would reject with targetLocked regardless.
-    if (published) {
-      return;
-    }
-    setTargetSaved(false);
-    if (targetKey === "" || targetKey === savedTarget) {
-      // Nothing to save (no selection, or the selection matches what's persisted).
-      return;
-    }
-    setTargetError(null);
-    startTargetSave(async () => {
-      try {
-        await updateFormTarget(slug, formId, targetKey);
-        setSavedTarget(targetKey);
-        setTargetSaved(true);
-        // The target drives publishability (empty/invalid table -> not publishable). Refresh
-        // the server-computed publish gate so the Publish card reflects the new target
-        // without a manual reload (the matrix promises the editor re-evaluates).
-        router.refresh();
-      } catch (err) {
-        const code = err instanceof FormApiError ? err.code : "genericError";
-        setTargetError(resolveError(t, code));
-      }
-    });
-  }
-
-  function handleIntro(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setIntroSaved(false);
-    // Trim for the no-op check so re-saving unchanged whitespace doesn't write. The server
-    // is authoritative on the trim-and-null-if-blank rule; this only gates the request.
-    if (introText.trim() === savedIntro.trim()) {
-      return;
-    }
-    setIntroError(null);
-    startIntroSave(async () => {
-      try {
-        await updateFormIntroText(slug, formId, introText);
-        setSavedIntro(introText);
-        setIntroSaved(true);
-      } catch (err) {
-        const code = err instanceof FormApiError ? err.code : "genericError";
-        setIntroError(resolveError(t, code));
+        setSlugError(resolveFormError(t, code, ERROR_KEYS));
       }
     });
   }
@@ -274,7 +189,7 @@ export function FormEditor({
         router.refresh();
       } catch (err) {
         const code = err instanceof FormApiError ? err.code : "genericError";
-        setDeleteError(resolveError(t, code));
+        setDeleteError(resolveFormError(t, code, ERROR_KEYS));
         setConfirmOpen(false);
       }
     });
@@ -393,97 +308,13 @@ export function FormEditor({
       </Card>
 
       {/* Target table (Story 14.4 — pick one of the org's visible tables) */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("targetLabel")}</CardTitle>
-          <CardDescription>{t("targetHelp")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {tables.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-pretty">
-              {t("targetNone")}
-            </p>
-          ) : (
-            <form onSubmit={handleTarget} className="flex flex-col gap-3">
-              <Label htmlFor={targetSelectId} className="sr-only">
-                {t("targetLabel")}
-              </Label>
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
-                <Select
-                  value={targetKey === "" ? undefined : targetKey}
-                  disabled={savingTarget || published}
-                  onValueChange={(value) => {
-                    setTargetKey(value);
-                    setTargetSaved(false);
-                  }}
-                >
-                  <SelectTrigger
-                    id={targetSelectId}
-                    className="min-h-12 flex-1"
-                    aria-invalid={targetError ? true : undefined}
-                    aria-describedby={
-                      targetError
-                        ? targetErrorId
-                        : published
-                          ? targetLockId
-                          : undefined
-                    }
-                  >
-                    <SelectValue placeholder={t("targetPlaceholder")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tables.map((table) => (
-                      <SelectItem key={table.key} value={table.key}>
-                        {table.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  type="submit"
-                  className="min-h-12 gap-2"
-                  disabled={
-                    savingTarget ||
-                    published ||
-                    targetKey === "" ||
-                    targetKey === savedTarget
-                  }
-                >
-                  {savingTarget ? (
-                    <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-                  ) : null}
-                  {savingTarget ? t("saving") : t("saveTarget")}
-                </Button>
-              </div>
-              {published ? (
-                <p
-                  id={targetLockId}
-                  className="text-sm text-muted-foreground text-pretty"
-                >
-                  {t("targetLockedHint")}
-                </p>
-              ) : null}
-              {targetError ? (
-                <p
-                  id={targetErrorId}
-                  role="alert"
-                  className="text-sm text-destructive"
-                >
-                  {targetError}
-                </p>
-              ) : targetSaved ? (
-                <p
-                  role="status"
-                  className="flex items-center gap-1 text-sm text-muted-foreground"
-                >
-                  <Check aria-hidden="true" className="size-4" />
-                  {t("saved")}
-                </p>
-              ) : null}
-            </form>
-          )}
-        </CardContent>
-      </Card>
+      <FormTargetCard
+        slug={slug}
+        formId={formId}
+        tables={tables}
+        initialTargetKey={targetTableKey ?? ""}
+        published={published}
+      />
 
       {/* Per-field public customization (Story 14.5) */}
       <FormFieldsEditor
@@ -494,62 +325,11 @@ export function FormEditor({
       />
 
       {/* Intro / info message (Story 14.6) — authored above the public form's fields. */}
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("introTitle")}</CardTitle>
-          <CardDescription>{t("introHelp")}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleIntro} className="flex flex-col gap-3">
-            <Label htmlFor={introFieldId} className="sr-only">
-              {t("introLabel")}
-            </Label>
-            <Textarea
-              id={introFieldId}
-              value={introText}
-              disabled={savingIntro}
-              maxLength={500}
-              rows={4}
-              placeholder={t("introPlaceholder")}
-              aria-invalid={introError ? true : undefined}
-              aria-describedby={introError ? introErrorId : undefined}
-              onChange={(event) => {
-                setIntroText(event.target.value);
-                setIntroSaved(false);
-              }}
-            />
-            <div className="flex">
-              <Button
-                type="submit"
-                className="min-h-12 gap-2"
-                disabled={savingIntro || introText.trim() === savedIntro.trim()}
-              >
-                {savingIntro ? (
-                  <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-                ) : null}
-                {savingIntro ? t("saving") : t("saveIntro")}
-              </Button>
-            </div>
-            {introError ? (
-              <p
-                id={introErrorId}
-                role="alert"
-                className="text-sm text-destructive"
-              >
-                {introError}
-              </p>
-            ) : introSaved ? (
-              <p
-                role="status"
-                className="flex items-center gap-1 text-sm text-muted-foreground"
-              >
-                <Check aria-hidden="true" className="size-4" />
-                {t("saved")}
-              </p>
-            ) : null}
-          </form>
-        </CardContent>
-      </Card>
+      <FormIntroCard
+        slug={slug}
+        formId={formId}
+        initialIntroText={initialIntroText}
+      />
 
       {/* Publish + Share (Story 14.3) */}
       <FormPublishShare

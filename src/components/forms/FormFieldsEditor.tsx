@@ -19,11 +19,12 @@ import {
 } from "@/components/ui/card";
 import type { FormFieldConfig } from "@/types/db";
 import { updateFormFieldConfig, FormApiError } from "@/lib/data/forms-client";
+import { resolveFormError } from "@/lib/forms/error-copy";
 
 /**
  * Error codes this card maps to a translated message; anything else falls back to
- * `genericError`. Mirrors `FormEditor`'s guarded `resolveError` so an unexpected server
- * code never reaches `next-intl` as a missing key.
+ * `genericError` via the shared `resolveFormError` helper, so an unexpected server code
+ * never reaches `next-intl` as a missing key.
  */
 const ERROR_KEYS = new Set([
   "notFound",
@@ -182,8 +183,7 @@ export function FormFieldsEditor({
         setSaved(true);
       } catch (err) {
         const code = err instanceof FormApiError ? err.code : "genericError";
-        const short = code.replace(/^Forms\.error\./, "");
-        setError(ERROR_KEYS.has(short) ? t(`error.${short}`) : t("error.genericError"));
+        setError(resolveFormError(t, code, ERROR_KEYS));
       }
     });
   }

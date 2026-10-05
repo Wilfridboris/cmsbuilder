@@ -18,6 +18,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { FormRow } from "@/types/db";
 import { FormApiError, listForms } from "@/lib/data/forms-client";
+import { resolveFormError } from "@/lib/forms/error-copy";
 import { CreateFormDialog } from "@/components/forms/CreateFormDialog";
 
 /**
@@ -30,12 +31,6 @@ import { CreateFormDialog } from "@/components/forms/CreateFormDialog";
 
 /** Server error codes this list maps to a translated message; anything else → generic. */
 const ERROR_KEYS = new Set(["forbidden", "unauthorized", "loadFailed", "genericError"]);
-
-/** Resolve a server error code to a translated message, guarding unknown codes. */
-function resolveListError(t: (key: string) => string, code: string): string {
-  const short = code.replace(/^Forms\.error\./, "");
-  return ERROR_KEYS.has(short) ? t(`error.${short}`) : t("error.genericError");
-}
 
 export function FormsList({ slug }: { slug: string }) {
   const t = useTranslations("Forms");
@@ -53,7 +48,7 @@ export function FormsList({ slug }: { slug: string }) {
       } catch (err) {
         if (!active) return;
         const code = err instanceof FormApiError ? err.code : "loadFailed";
-        setError(resolveListError(t, code));
+        setError(resolveFormError(t, code, ERROR_KEYS));
       } finally {
         if (active) setLoading(false);
       }
@@ -71,7 +66,7 @@ export function FormsList({ slug }: { slug: string }) {
       setError(null);
     } catch (err) {
       const code = err instanceof FormApiError ? err.code : "loadFailed";
-      setError(resolveListError(t, code));
+      setError(resolveFormError(t, code, ERROR_KEYS));
     }
   }
 

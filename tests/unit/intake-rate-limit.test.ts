@@ -49,6 +49,28 @@ beforeEach(() => {
 });
 
 describe("getClientIp", () => {
+  it("prefers the trusted x-vercel-forwarded-for over a spoofed x-forwarded-for", async () => {
+    const { getClientIp } = await freshModule();
+    // A caller can forge x-forwarded-for; on Vercel the edge-set header wins, so the
+    // per-IP bucket keys on the real client, not the attacker's rotated value (F1/F2).
+    expect(
+      getClientIp(
+        reqWith({
+          "x-vercel-forwarded-for": "198.51.100.9",
+          "x-forwarded-for": "9.9.9.9",
+          "x-real-ip": "5.5.5.5",
+        }),
+      ),
+    ).toBe("198.51.100.9");
+  });
+
+  it("takes the first hop of x-vercel-forwarded-for", async () => {
+    const { getClientIp } = await freshModule();
+    expect(
+      getClientIp(reqWith({ "x-vercel-forwarded-for": "198.51.100.9, 5.6.7.8" })),
+    ).toBe("198.51.100.9");
+  });
+
   it("takes the first hop of x-forwarded-for", async () => {
     const { getClientIp } = await freshModule();
     expect(
