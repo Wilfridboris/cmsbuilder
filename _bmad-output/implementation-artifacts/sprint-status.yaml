@@ -1,5 +1,5 @@
 # generated: 2026-09-23
-# last_updated: 2026-10-06 (8-5 review, verified + review pass 1 done)
+# last_updated: 2026-10-06 (8-5 done, manual review passed)
 # project: Scheza
 # project_key: NOKEY
 # tracking_system: file-system
@@ -132,7 +132,7 @@ development_status:
   8-2-pwa-install-add-to-home-screen: done
   8-3-field-level-sensitivity-indicator: done
   8-4-download-my-data-csv-json: done
-  8-5-self-service-offboarding-grace-cascade-delete: review
+  8-5-self-service-offboarding-grace-cascade-delete: done
   epic-8-retrospective: optional
 
   epic-9: backlog
