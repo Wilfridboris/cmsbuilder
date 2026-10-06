@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Lock } from "lucide-react";
 
@@ -24,11 +24,20 @@ import { cn } from "@/lib/utils";
  * Why a Popover (not a Tooltip): the AC requires reveal on tap OR hover, and
  * the card view is the mobile surface. A Radix Tooltip covers hover + focus
  * but not touch tap, so it would fail the AC on mobile. We reuse `popover.tsx`
- * (as `OverrideControl` does): the Popover opens on tap/click + keyboard
- * natively; hover (`onMouseEnter`/`onMouseLeave`) and focus
- * (`onFocus`/`onBlur`) openers are layered on. `onOpenAutoFocus` is prevented
- * on the content so the hover/focus reveal never steals or traps keyboard
- * focus.
+ * (as `OverrideControl` does).
+ *
+ * Open is a derived intent: `hovered || keyboard-focused || tap-pinned`.
+ * - Hover/focus openers live on a host span, not on the Slotted trigger:
+ *   through `PopoverTrigger asChild` the trigger's own merged handlers do not
+ *   fire, so the reveal would otherwise only open on click.
+ * - Focus only counts as a keyboard reveal when it arrives while the pointer is
+ *   NOT over the trigger. Radix focuses the trigger when it opens, and Chromium
+ *   reports that programmatic focus as `:focus-visible`, so `:focus-visible`
+ *   alone cannot tell a keyboard tab from a hover-induced focus; the hover ref
+ *   does, which is what lets pointer-leave actually dismiss.
+ * - Tap/click (the touch path, where there is no hover or keyboard focus) is
+ *   Radix-driven via `onOpenChange`; any close request (second tap, Escape,
+ *   outside pointer-down) drops every intent so it actually dismisses.
  *
  * Accessibility: the reveal message lives in a portaled `PopoverContent` whose
  * auto-focus is suppressed, so assistive tech never reaches it. We therefore
@@ -39,36 +48,70 @@ import { cn } from "@/lib/utils";
  */
 export function SensitivityBadge({ className }: { className?: string }) {
   const t = useTranslations("Sensitivity");
-  const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const hoveredRef = useRef(false);
   const descriptionId = useId();
   const message = t("message");
+  const open = hovered || focused || pinned;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          aria-label={t("indicatorLabel")}
-          aria-describedby={descriptionId}
-          onMouseEnter={() => setOpen(true)}
-          onMouseLeave={() => setOpen(false)}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setOpen(false)}
-          className={cn(
-            "inline-flex shrink-0 items-center justify-center rounded-md p-2.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            className,
-          )}
-        >
-          <Lock aria-hidden="true" className="size-3.5" />
-          <span id={descriptionId} className="sr-only">
-            {message}
-          </span>
-        </button>
-      </PopoverTrigger>
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (next) {
+          setPinned(true);
+        } else {
+          setPinned(false);
+          setHovered(false);
+          setFocused(false);
+        }
+      }}
+    >
+      <span
+        className="inline-flex"
+        onMouseEnter={() => {
+          hoveredRef.current = true;
+          setHovered(true);
+        }}
+        onMouseLeave={() => {
+          hoveredRef.current = false;
+          setHovered(false);
+        }}
+        onFocus={(event) => {
+          if (
+            !hoveredRef.current &&
+            event.target instanceof Element &&
+            event.target.matches(":focus-visible")
+          ) {
+            setFocused(true);
+          }
+        }}
+        onBlur={() => setFocused(false)}
+      >
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            aria-label={t("indicatorLabel")}
+            aria-describedby={descriptionId}
+            className={cn(
+              "inline-flex shrink-0 items-center justify-center rounded-md p-2.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              className,
+            )}
+          >
+            <Lock aria-hidden="true" className="size-3.5" />
+            <span id={descriptionId} className="sr-only">
+              {message}
+            </span>
+          </button>
+        </PopoverTrigger>
+      </span>
       <PopoverContent
         side="top"
         onOpenAutoFocus={(event) => event.preventDefault()}
-        className="w-auto max-w-56 text-sm text-pretty motion-reduce:animate-none"
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="pointer-events-none w-auto max-w-56 text-sm text-pretty motion-reduce:animate-none"
       >
         {message}
       </PopoverContent>
