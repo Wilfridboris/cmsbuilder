@@ -260,6 +260,42 @@ describe("RecordsView inline-edit affordances (Story 3.3)", () => {
   });
 });
 
+describe("RecordsView sensitivity indicator (Story 8.3)", () => {
+  // `phone` is flagged sensitive and is the 3rd field, so it headlines no card
+  // (name/status take primary/secondary) and lands in the card `<dl>` — covering
+  // the table header site and a card site in one render. `name` is not sensitive.
+  const contacts: TableDefinition = {
+    key: "contacts",
+    label: "Contacts",
+    fields: [
+      { key: "name", label: "Name", type: "text" },
+      { key: "status", label: "Status", type: "text" },
+      { key: "phone", label: "Phone", type: "phone", sensitive: true },
+    ],
+  };
+  const contactRows: RecordData[] = [
+    { id: "c1", version: 1, data: { name: "Ada", status: "Active", phone: "555-0100" } },
+  ];
+
+  it("renders the sensitivity badge beside a sensitive field in both table and card views", () => {
+    const html = render([contacts], { contacts: contactRows });
+
+    // next-intl is mocked to echo keys, so the badge trigger surfaces its
+    // aria-label. One occurrence in the desktop table header + one in the mobile
+    // card `<dl>` label for the single row (the responsive split is CSS-only).
+    const badges = html.match(/aria-label="indicatorLabel"/g) ?? [];
+    expect(badges.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders no sensitivity badge when no field is flagged sensitive", () => {
+    const html = render([customers], {
+      customers: [{ id: "x1", version: 1, data: { name: "Bob" } }],
+    });
+
+    expect(html).not.toContain('aria-label="indicatorLabel"');
+  });
+});
+
 describe("clampTableIndex (swipe / switcher navigation)", () => {
   it("advances and retreats within range", () => {
     expect(clampTableIndex(1, 3)).toBe(1);

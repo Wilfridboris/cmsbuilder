@@ -17,6 +17,10 @@
     "install": "Install",
     "dismiss": "Not now"
   },
+  "Sensitivity": {
+    "indicatorLabel": "Sensitive field. See how it is protected.",
+    "message": "Stored encrypted, on Canadian servers only (PIPEDA)."
+  },
   "Home": {
     "title": "Scheza",
     "tagline": "Describe your business. Get a working dashboard in seconds.",

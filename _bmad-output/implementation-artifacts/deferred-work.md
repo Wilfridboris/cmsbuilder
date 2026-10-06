@@ -255,3 +255,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-2-pwa-install-add-to-home-screen.md`
   summary: Slug generation has no reserved-word list, so top-level static routes (login, auth, forms, generate, demo, i, api, and now home) silently shadow any org whose slug equals that word.
   evidence: src/app exposes those routes as siblings of [slug] and src/lib/claim/slug.ts reserves none; a composite trade+city slug realistically never equals a bare reserved word today, but the namespace is unguarded. Would be settled by either adding a reserved-slug blocklist to slug generation or confirming the generator can never emit a bare single reserved token.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-3-field-level-sensitivity-indicator.md`
+  summary: The record detail panel (RecordDetail.tsx) shows no field-level sensitivity padlock on sensitive fields.
+  evidence: Story 8.3 added the SensitivityBadge to the table header and card views per the AC ("field-level indicator on columns ... in both table and card views", FR40/UX-DR12). RecordDetail.tsx:168 renders {field.label} in a span already hosting OverrideControl but was intentionally out of scope — the frozen AC named only the table and card (column) surfaces. A sensitive field therefore shows the padlock in the list but not when opened in the detail panel. A consistency follow-up could mount SensitivityBadge there (the gap-1 label span is already primed for an adjacent control).

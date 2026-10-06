@@ -17,6 +17,10 @@
     "install": "Installer",
     "dismiss": "Plus tard"
   },
+  "Sensitivity": {
+    "indicatorLabel": "Champ sensible. Voir comment il est protégé.",
+    "message": "Stocké chiffré, sur des serveurs canadiens uniquement (PIPEDA)."
+  },
   "Home": {
     "title": "Scheza",
     "tagline": "Décrivez votre entreprise. Obtenez un tableau de bord fonctionnel en quelques secondes.",

@@ -67,6 +67,7 @@ import {
   type RelationResolution,
 } from "@/components/dashboard/useRelationLabels";
 import { RecordsToolbar } from "@/components/dashboard/RecordsToolbar";
+import { SensitivityBadge } from "@/components/dashboard/SensitivityBadge";
 import { ColumnVisibilityControl } from "@/components/dashboard/ColumnVisibilityControl";
 import { AddRelationFieldControl } from "@/components/dashboard/AddRelationFieldControl";
 import { useFilterSortState } from "@/components/dashboard/useFilterSortState";
@@ -922,32 +923,36 @@ function RecordsTable({
                   aria-sort={sortable ? ariaSort : undefined}
                 >
                   {sortable ? (
-                    <button
-                      type="button"
-                      onClick={() => onSort(field.key)}
-                      aria-label={sortAriaLabel(
-                        field.label,
-                        active ? sort!.direction : "none",
-                      )}
-                      className="flex min-h-12 w-full items-center gap-1.5 px-2 text-left font-medium transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
-                    >
-                      <span className="truncate">{field.label}</span>
-                      {active ? (
-                        sort!.direction === "asc" ? (
-                          <ArrowUp aria-hidden="true" className="size-3.5 shrink-0" />
+                    <div className="flex items-center pr-1">
+                      <button
+                        type="button"
+                        onClick={() => onSort(field.key)}
+                        aria-label={sortAriaLabel(
+                          field.label,
+                          active ? sort!.direction : "none",
+                        )}
+                        className="flex min-h-12 flex-1 items-center gap-1.5 px-2 text-left font-medium transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                      >
+                        <span className="truncate">{field.label}</span>
+                        {active ? (
+                          sort!.direction === "asc" ? (
+                            <ArrowUp aria-hidden="true" className="size-3.5 shrink-0" />
+                          ) : (
+                            <ArrowDown aria-hidden="true" className="size-3.5 shrink-0" />
+                          )
                         ) : (
-                          <ArrowDown aria-hidden="true" className="size-3.5 shrink-0" />
-                        )
-                      ) : (
-                        <ArrowUpDown
-                          aria-hidden="true"
-                          className="size-3.5 shrink-0 text-muted-foreground/50"
-                        />
-                      )}
-                    </button>
+                          <ArrowUpDown
+                            aria-hidden="true"
+                            className="size-3.5 shrink-0 text-muted-foreground/50"
+                          />
+                        )}
+                      </button>
+                      {field.sensitive ? <SensitivityBadge /> : null}
+                    </div>
                   ) : (
-                    <span className="flex min-h-12 items-center px-2">
+                    <span className="flex min-h-12 items-center gap-1 px-2">
                       {field.label}
+                      {field.sensitive ? <SensitivityBadge /> : null}
                     </span>
                   )}
                 </TableHead>
@@ -1060,7 +1065,7 @@ function RecordsCards({
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1 flex flex-col gap-2">
                     {primaryField ? (
-                      <div className="text-base font-medium text-foreground text-pretty">
+                      <div className="flex items-center gap-1 text-base font-medium text-foreground text-pretty">
                         <InlineEditCell
                           field={primaryField}
                           value={row.data[primaryField.key]}
@@ -1073,10 +1078,11 @@ function RecordsCards({
                             onCellCommit(row, primaryField, result)
                           }
                         />
+                        {primaryField.sensitive ? <SensitivityBadge /> : null}
                       </div>
                     ) : null}
                     {secondaryField ? (
-                      <div className="text-sm text-muted-foreground text-pretty">
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground text-pretty">
                         <InlineEditCell
                           field={secondaryField}
                           value={row.data[secondaryField.key]}
@@ -1089,6 +1095,7 @@ function RecordsCards({
                             onCellCommit(row, secondaryField, result)
                           }
                         />
+                        {secondaryField.sensitive ? <SensitivityBadge /> : null}
                       </div>
                     ) : null}
                   </div>
@@ -1124,8 +1131,9 @@ function RecordsCards({
                         key={field.key}
                         className="flex items-baseline justify-between gap-3 text-sm"
                       >
-                        <dt className="shrink-0 text-muted-foreground">
+                        <dt className="flex shrink-0 items-center gap-1 text-muted-foreground">
                           {field.label}
+                          {field.sensitive ? <SensitivityBadge /> : null}
                         </dt>
                         <dd className="min-w-0 flex-1 text-right text-foreground">
                           <InlineEditCell
