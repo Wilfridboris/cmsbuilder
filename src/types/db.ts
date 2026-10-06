@@ -203,9 +203,17 @@ export type SchemaDefinition = {
  * states the signature-verified portal webhook records: `'past_due'`
  * (invoice.payment_failed) and `'read_only'` (customer.subscription.deleted,
  * terminal for lifecycle events). Story 7.3 only RECORDS these; Story 7.4 adds
- * the read-only ENFORCEMENT that gates on them.
+ * the read-only ENFORCEMENT that gates on them. Story 8.5 adds the terminal
+ * `'deleted'` tombstone: the Day-30 offboarding cascade sets it after purging the
+ * user-data tables while keeping the org row (so the retained invoice tables
+ * survive). `'read_only'` and `'deleted'` are both non-writable.
  */
-export type SubscriptionStatus = "trial" | "active" | "past_due" | "read_only";
+export type SubscriptionStatus =
+  | "trial"
+  | "active"
+  | "past_due"
+  | "read_only"
+  | "deleted";
 
 /**
  * The billed flat-tier plan (Story 7.2). Orthogonal to `SubscriptionStatus`
@@ -265,6 +273,38 @@ export type OrganizationRow = {
    * as a safety net for a Stripe account not configured to cancel on exhausted dunning.
    */
   past_due_since: string | null;
+  /**
+   * When the 30-day offboarding grace clock started (Story 8.5, FR38). Stamped
+   * once (idempotent) by the Stripe webhook when a voluntary
+   * `customer.subscription.deleted` flips the org to `read_only`; null for a
+   * `read_only` reached via trial expiry or dunning. Cleared on re-subscription
+   * (checkout -> active). The daily offboarding cron acts only on orgs where this
+   * is set and `offboarding_purged_at` is null.
+   */
+  offboarding_initiated_at: string | null;
+  /**
+   * When the Day-1 offboarding warning email was successfully sent (Story 8.5,
+   * FR39). Null until the daily sweep sends it; stamped only after Resend succeeds
+   * so the exactly-once warning retries on a transient failure. Cleared on
+   * re-subscription.
+   */
+  offboarding_reminder_day1_sent_at: string | null;
+  /**
+   * When the Day-7 offboarding warning email was successfully sent (Story 8.5,
+   * FR39). Same semantics as the Day-1 stamp.
+   */
+  offboarding_reminder_day7_sent_at: string | null;
+  /**
+   * When the Day-25 offboarding warning email was successfully sent (Story 8.5,
+   * FR39). Same semantics as the Day-1 stamp.
+   */
+  offboarding_reminder_day25_sent_at: string | null;
+  /**
+   * When the Day-30 cascade purge completed (Story 8.5, FR38). Set together with
+   * `subscription_status='deleted'` on the surviving org tombstone. Non-null means
+   * the purge is done: the sweep skips the org and the cascade is re-entrant.
+   */
+  offboarding_purged_at: string | null;
   created_at: string;
   updated_at: string;
 };

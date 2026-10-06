@@ -262,3 +262,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-4-download-my-data-csv-json.md`
   summary: Data export has no size/memory ceiling; it buffers all records of all tables and runs synchronous in-memory zipSync on a force-dynamic serverless function, which could OOM or time out for a very large org.
   evidence: build-export + route hold every table's records plus all CSV/JSON strings in memory then zipSync over the lot. maybe-false at realistic small-business scale; would settle by comparing the largest plausible org's data volume against the serverless function's memory/duration limits. If it holds, mitigate via streaming/chunked zip or a size cap.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-8-5-self-service-offboarding-grace-cascade-delete.md`
+  summary: The offboarding cascade's "purging records is safe" retention guarantee (invoices/credit_notes.customer_record_id are ON DELETE SET NULL) is asserted in prose but never exercised against a live schema.
+  evidence: offboarding-cascade.test.ts fully mocks the DB, so it verifies which tables are called but not that deleting records preserves (rather than cascade-deletes or blocks) the retained invoice rows. Would be settled by an integration test against a real Supabase schema confirming a retained invoice's customer_record_id is nulled when its linked record is purged. The FKs are pre-existing (migrations 20260928120200/20260928121500), not introduced by this story.

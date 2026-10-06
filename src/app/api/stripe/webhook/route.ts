@@ -177,12 +177,24 @@ async function handleCheckoutCompleted(
     // Reactivation clears any prior past_due marker [F1] — a completed checkout is a
     // paid, current subscription regardless of what state the org was in before.
     past_due_since: null;
+    // Story 8.5: a re-subscribe during the offboarding grace period clears the grace
+    // clock and all reminder stamps, so the daily sweep no longer treats the org as
+    // delete-bound and normal access resumes. Clearing unconditionally is safe — a
+    // never-offboarded org already has these null.
+    offboarding_initiated_at: null;
+    offboarding_reminder_day1_sent_at: null;
+    offboarding_reminder_day7_sent_at: null;
+    offboarding_reminder_day25_sent_at: null;
     stripe_customer_id?: string;
   } = {
     subscription_status: "active",
     subscription_tier: tier,
     stripe_subscription_id: subscriptionId,
     past_due_since: null,
+    offboarding_initiated_at: null,
+    offboarding_reminder_day1_sent_at: null,
+    offboarding_reminder_day7_sent_at: null,
+    offboarding_reminder_day25_sent_at: null,
   };
   if (customerId) {
     orgUpdate.stripe_customer_id = customerId;
@@ -206,6 +218,15 @@ async function handleCheckoutCompleted(
  * the cancel request), so record `read_only`. Straight idempotent write — a
  * re-delivery lands the same value. `read_only` is terminal for lifecycle events:
  * only a new `checkout.session.completed` moves an org back out of it.
+ *
+ * Story 8.5: this is ALSO where the 30-day offboarding grace clock starts, but ONLY for
+ * a VOLUNTARY cancellation. Stripe fires `customer.subscription.deleted` for an
+ * involuntary dunning-exhaustion cancellation too (`cancellation_details.reason ===
+ * "payment_failed"`); the spec forbids a dunning `read_only` from becoming delete-bound,
+ * so that case writes `read_only` without starting the clock. (A trial-expiry `read_only`
+ * is set by the daily cron, not here, so it is likewise never delete-bound.) For a
+ * voluntary cancellation, `offboarding_initiated_at` is stamped once (idempotent via a
+ * `.is(null)` guard) so a re-delivered event never resets the clock.
  */
 async function handleSubscriptionDeleted(
   subscription: Stripe.Subscription,
@@ -222,6 +243,27 @@ async function handleSubscriptionDeleted(
     return;
   }
   await writeOrgStatus(orgId, "read_only");
+
+  // Story 8.5: only a VOLUNTARY cancellation starts the 30-day offboarding grace clock.
+  // An involuntary dunning-exhaustion cancellation (Stripe reason "payment_failed") must
+  // NOT become delete-bound (frozen Never boundary) — write read_only and stop here.
+  if (subscription.cancellation_details?.reason === "payment_failed") {
+    return;
+  }
+
+  // Stamp `offboarding_initiated_at` ONCE (idempotent) — the `.is(null)` guard means a
+  // re-delivered event never resets the clock.
+  const adminClient = createAdminClient();
+  const { error } = await adminClient
+    .from("organizations")
+    .update({ offboarding_initiated_at: new Date().toISOString() })
+    .eq("id", orgId)
+    .is("offboarding_initiated_at", null);
+  if (error) {
+    throw new Error(
+      `Failed to stamp offboarding_initiated_at for org ${orgId}: ${error.message}`,
+    );
+  }
 }
 
 /**

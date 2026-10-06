@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/reconcile-tier",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/cron/offboarding",
+      "schedule": "0 12 * * *"
     }
   ]
 }

@@ -1,14 +1,23 @@
 import type { ReactNode } from "react";
 
+import { getLocale } from "next-intl/server";
+
 import { getCurrentUser } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { resolveUserOrgMembership } from "@/lib/auth/org";
 import { reportError } from "@/lib/observability/report";
+import { isOffboarding, isDeleted } from "@/lib/billing/access";
 import { DashboardNav } from "@/components/layout/DashboardNav";
 import { TrialBanner } from "@/components/layout/TrialBanner";
+import { GracePeriodBanner } from "@/components/layout/GracePeriodBanner";
+import { AccountClosedScreen } from "@/components/layout/AccountClosedScreen";
 import { ActiveTableProvider } from "@/components/dashboard/ActiveTableProvider";
 import { ChatAssistant } from "@/components/chat/ChatAssistant";
 import type { SubscriptionStatus } from "@/types/db";
+
+/** Grace length matched to the Day-30 cascade (Story 8.5). */
+const GRACE_PERIOD_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Whole days from `now` until `trialExpiresAt` (negative past expiry); null when unset. */
 function daysUntil(trialExpiresAt: string | null, now: Date): number | null {
@@ -58,16 +67,24 @@ export default async function SlugLayout({
   // cross-org / no-membership viewer gets no nav; the page bounces them.
   const showNav = membership !== null && membership.slug === slug;
 
-  // Story 7.4: load the org's cached access state to drive the persistent trial /
-  // read-only banner. Only for a confirmed member of THIS org (the gated surface).
+  // Story 7.4 / 8.5: load the org's cached access state to drive the persistent
+  // trial / read-only / grace banner (and the terminal account-closed screen). Only
+  // for a confirmed member of THIS org (the gated surface).
   let banner: {
     subscriptionStatus: SubscriptionStatus;
     daysRemaining: number | null;
   } | null = null;
+  // Story 8.5: grace-period UI state (null unless the org is mid-offboarding).
+  let grace: { daysRemaining: number; deletionDateLabel: string } | null = null;
+  // Story 8.5: terminal tombstone — render the account-closed screen instead of
+  // the nav + banners + children.
+  let accountDeleted = false;
   if (showNav && membership) {
     const { data: org, error } = await adminClient
       .from("organizations")
-      .select("subscription_status, trial_expires_at")
+      .select(
+        "subscription_status, trial_expires_at, offboarding_initiated_at, offboarding_purged_at",
+      )
       .eq("id", membership.orgId)
       .maybeSingle();
     // Handle the read error explicitly: do NOT silently default an errored read to a
@@ -80,13 +97,44 @@ export default async function SlugLayout({
       reportError(error, { route: "[slug]/layout" });
       banner = { subscriptionStatus: "read_only", daysRemaining: null };
     } else if (org) {
-      banner = {
-        subscriptionStatus: org.subscription_status as SubscriptionStatus,
-        daysRemaining: daysUntil(
-          (org.trial_expires_at as string | null) ?? null,
-          new Date(),
-        ),
-      };
+      const status = org.subscription_status as SubscriptionStatus;
+      const initiatedAt =
+        (org.offboarding_initiated_at as string | null) ?? null;
+      const purgedAt = (org.offboarding_purged_at as string | null) ?? null;
+
+      if (isDeleted(status)) {
+        accountDeleted = true;
+      } else if (
+        isOffboarding({
+          offboarding_initiated_at: initiatedAt,
+          offboarding_purged_at: purgedAt,
+        }) &&
+        initiatedAt
+      ) {
+        // Mid-offboarding: compute the countdown + localized deletion date here so
+        // the client banner stays pure. `daysRemaining` is whole days to deletion,
+        // clamped to >= 0 (the sweep deletes at day 30).
+        const deletionMs =
+          new Date(initiatedAt).getTime() + GRACE_PERIOD_DAYS * DAY_MS;
+        const daysRemaining = Math.max(
+          0,
+          Math.ceil((deletionMs - new Date().getTime()) / DAY_MS),
+        );
+        const locale = await getLocale();
+        const deletionDateLabel = new Intl.DateTimeFormat(
+          locale === "fr" ? "fr-CA" : "en-CA",
+          { year: "numeric", month: "long", day: "numeric" },
+        ).format(new Date(deletionMs));
+        grace = { daysRemaining, deletionDateLabel };
+      } else {
+        banner = {
+          subscriptionStatus: status,
+          daysRemaining: daysUntil(
+            (org.trial_expires_at as string | null) ?? null,
+            new Date(),
+          ),
+        };
+      }
     }
   }
 
@@ -96,10 +144,25 @@ export default async function SlugLayout({
   const isAdminHere =
     showNav && membership !== null && membership.role === "admin";
 
+  // Story 8.5: a `deleted` org gets the terminal account-closed screen in place of
+  // the whole tenant shell (no nav, no banner, no dashboard data).
+  if (accountDeleted) {
+    return <AccountClosedScreen />;
+  }
+
   return (
     <ActiveTableProvider>
       {showNav ? <DashboardNav slug={slug} role={membership.role} /> : null}
-      {showNav && membership && banner ? (
+      {/* Exactly ONE banner shows: the offboarding grace banner suppresses the
+          TrialBanner's read-only state while the org is mid-offboarding. */}
+      {showNav && membership && grace ? (
+        <GracePeriodBanner
+          slug={slug}
+          role={membership.role}
+          daysRemaining={grace.daysRemaining}
+          deletionDateLabel={grace.deletionDateLabel}
+        />
+      ) : showNav && membership && banner ? (
         <TrialBanner
           slug={slug}
           role={membership.role}

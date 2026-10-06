@@ -254,6 +254,49 @@
       "genericError": "We could not prepare your download. Please try again."
     }
   },
+  "Offboarding": {
+    "banner": {
+      "title": "Your account is scheduled to close",
+      "message": "Your subscription was canceled, so your account is read-only and will be permanently deleted on {date}. You can still view and download your data until then.",
+      "messageMember": "Your subscription was canceled, so your account is read-only and will be permanently deleted on {date}. Ask an admin if you need a copy of your data.",
+      "countdown": "{days, plural, one {# day left} other {# days left}}",
+      "downloadCta": "Download my data",
+      "keepCta": "Keep my account"
+    },
+    "section": {
+      "title": "Close account",
+      "subtitle": "Understand what happens when you cancel, and make sure you have a copy of your data first.",
+      "lead": "When you cancel your subscription, your account does not close right away. It enters a 30-day read-only grace period so you have time to export anything you need.",
+      "stepGrace": "For 30 days your account is read-only. Your data stays visible and you can download it at any time, but you cannot create or edit entries.",
+      "stepReminders": "We email you reminders on day 1, day 7, and day 25 so the closing date never comes as a surprise.",
+      "stepDeletion": "On day 30 your account data is permanently deleted. This cannot be undone.",
+      "retention": "Your invoices and credit notes are kept for six years as required by law, even after your account closes.",
+      "manageCta": "Manage billing to cancel",
+      "downloadCta": "Download my data"
+    },
+    "accountClosed": {
+      "title": "This account has been closed.",
+      "body": "Your account data was permanently deleted. Any invoices and credit notes required for tax purposes are retained separately. If you need help, please contact support.",
+      "homeCta": "Return home"
+    },
+    "email": {
+      "greeting": "Hello,",
+      "cta": "View or download your data before your account closes:",
+      "signature": "Thank you,\nThe Scheza team",
+      "day1": {
+        "subject": "Your Scheza account will close on {date}",
+        "body": "Your subscription was canceled, so your Scheza account is now read-only and is scheduled to be permanently deleted on {date}. Your data is still here and safe to view. Please download anything you want to keep before that date."
+      },
+      "day7": {
+        "subject": "A reminder: your Scheza account closes on {date}",
+        "body": "Your Scheza account is read-only and is scheduled to be permanently deleted on {date}. If you have not already, please download a copy of your data while you still can."
+      },
+      "day25": {
+        "subject": "Last reminder: your Scheza account closes on {date}",
+        "body": "Your Scheza account is scheduled to be permanently deleted on {date}, just a few days from now. This is your last reminder to download a copy of your data before it is removed for good."
+      }
+    }
+  },
   "BusinessProfile": {
     "title": "Business profile",
     "subtitle": "Enter your company details once. They appear on every invoice you send, so your legal name, tax number, and payment options are always correct.",

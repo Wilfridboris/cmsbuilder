@@ -254,6 +254,49 @@
       "genericError": "Nous n'avons pas pu préparer votre téléchargement. Veuillez réessayer."
     }
   },
+  "Offboarding": {
+    "banner": {
+      "title": "Votre compte est en voie de fermeture",
+      "message": "Votre abonnement a été annulé. Votre compte est donc en lecture seule et sera supprimé définitivement le {date}. Vous pouvez toujours consulter et télécharger vos données d'ici là.",
+      "messageMember": "Votre abonnement a été annulé. Votre compte est donc en lecture seule et sera supprimé définitivement le {date}. Demandez à un administrateur si vous avez besoin d'une copie de vos données.",
+      "countdown": "{days, plural, one {# jour restant} other {# jours restants}}",
+      "downloadCta": "Télécharger mes données",
+      "keepCta": "Conserver mon compte"
+    },
+    "section": {
+      "title": "Fermer le compte",
+      "subtitle": "Comprenez ce qui se passe lorsque vous annulez et assurez-vous d'abord d'avoir une copie de vos données.",
+      "lead": "Lorsque vous annulez votre abonnement, votre compte ne ferme pas immédiatement. Il entre dans une période de grâce de 30 jours en lecture seule, le temps d'exporter tout ce dont vous avez besoin.",
+      "stepGrace": "Pendant 30 jours, votre compte est en lecture seule. Vos données restent visibles et vous pouvez les télécharger à tout moment, mais vous ne pouvez plus créer ni modifier d'entrées.",
+      "stepReminders": "Nous vous envoyons des rappels par courriel aux jours 1, 7 et 25 afin que la date de fermeture ne vous surprenne jamais.",
+      "stepDeletion": "Au jour 30, les données de votre compte sont supprimées définitivement. Cette action est irréversible.",
+      "retention": "Vos factures et vos notes de crédit sont conservées pendant six ans, comme l'exige la loi, même après la fermeture de votre compte.",
+      "manageCta": "Gérer la facturation pour annuler",
+      "downloadCta": "Télécharger mes données"
+    },
+    "accountClosed": {
+      "title": "Ce compte a été fermé.",
+      "body": "Les données de votre compte ont été supprimées définitivement. Les factures et notes de crédit requises à des fins fiscales sont conservées séparément. Si vous avez besoin d'aide, veuillez contacter le soutien.",
+      "homeCta": "Retour à l'accueil"
+    },
+    "email": {
+      "greeting": "Bonjour,",
+      "cta": "Consultez ou téléchargez vos données avant la fermeture de votre compte :",
+      "signature": "Merci,\nL'équipe Scheza",
+      "day1": {
+        "subject": "Votre compte Scheza fermera le {date}",
+        "body": "Votre abonnement a été annulé. Votre compte Scheza est donc maintenant en lecture seule et il est prévu qu'il soit supprimé définitivement le {date}. Vos données sont toujours là et vous pouvez les consulter. Veuillez télécharger tout ce que vous souhaitez conserver avant cette date."
+      },
+      "day7": {
+        "subject": "Rappel : votre compte Scheza ferme le {date}",
+        "body": "Votre compte Scheza est en lecture seule et il est prévu qu'il soit supprimé définitivement le {date}. Si ce n'est pas déjà fait, veuillez télécharger une copie de vos données pendant que vous le pouvez encore."
+      },
+      "day25": {
+        "subject": "Dernier rappel : votre compte Scheza ferme le {date}",
+        "body": "Il est prévu que votre compte Scheza soit supprimé définitivement le {date}, dans quelques jours à peine. Ceci est votre dernier rappel pour télécharger une copie de vos données avant leur suppression définitive."
+      }
+    }
+  },
   "BusinessProfile": {
     "title": "Profil d'entreprise",
     "subtitle": "Saisissez les coordonnées de votre entreprise une seule fois. Elles apparaissent sur chaque facture que vous envoyez, afin que votre dénomination légale, votre numéro de taxe et vos options de paiement soient toujours exacts.",

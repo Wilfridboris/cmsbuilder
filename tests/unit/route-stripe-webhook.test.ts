@@ -39,7 +39,18 @@ function makeAdminClient() {
           }),
         }),
         update: (patch: unknown) => ({
-          eq: async (_col: string, id: string) => adminUpdate(patch, id),
+          // `.eq("id", id)` is both directly awaitable (writeOrgStatus /
+          // checkout) AND chainable with `.is(...)` (Story 8.5's idempotent
+          // offboarding_initiated_at stamp). The returned object is a thenable
+          // carrying an `is` method so both shapes resolve through `adminUpdate`.
+          eq: (_col: string, id: string) => {
+            const run = () => adminUpdate(patch, id);
+            return {
+              is: (_isCol: string, _isVal: unknown) => run(),
+              then: (resolve: (v: unknown) => void) =>
+                Promise.resolve(run()).then(resolve),
+            };
+          },
         }),
       };
     },
@@ -134,6 +145,11 @@ describe("POST /api/stripe/webhook", () => {
         subscription_tier: "solo",
         stripe_subscription_id: "sub_123",
         past_due_since: null,
+        // Story 8.5: checkout (re-subscribe) clears any offboarding grace state.
+        offboarding_initiated_at: null,
+        offboarding_reminder_day1_sent_at: null,
+        offboarding_reminder_day7_sent_at: null,
+        offboarding_reminder_day25_sent_at: null,
       },
       "org-1",
     );
@@ -158,6 +174,11 @@ describe("POST /api/stripe/webhook", () => {
         subscription_tier: "solo",
         stripe_subscription_id: "sub_123",
         past_due_since: null,
+        // Story 8.5: checkout (re-subscribe) clears any offboarding grace state.
+        offboarding_initiated_at: null,
+        offboarding_reminder_day1_sent_at: null,
+        offboarding_reminder_day7_sent_at: null,
+        offboarding_reminder_day25_sent_at: null,
         stripe_customer_id: "cus_abc",
       },
       "org-1",
@@ -254,6 +275,65 @@ describe("POST /api/stripe/webhook", () => {
       { subscription_status: "read_only", past_due_since: null },
       "org-1",
     );
+    // Story 8.5: a voluntary cancellation also starts the grace clock (stamped
+    // idempotently via a .is(null) guard, so the mock's `is` path runs it).
+    expect(adminUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        offboarding_initiated_at: expect.any(String),
+      }),
+      "org-1",
+    );
+  });
+
+  it("customer.subscription.deleted from dunning (payment_failed) sets read_only but does NOT start the grace clock (Story 8.5)", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    constructEvent.mockReturnValue({
+      type: "customer.subscription.deleted",
+      data: {
+        object: {
+          id: "sub_123",
+          metadata: { org_id: "org-1" },
+          // Stripe marks an involuntary dunning-exhaustion cancellation this way.
+          cancellation_details: { reason: "payment_failed" },
+        },
+      },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    // read_only IS written (the org is canceled)...
+    expect(adminUpdate).toHaveBeenCalledWith(
+      { subscription_status: "read_only", past_due_since: null },
+      "org-1",
+    );
+    // ...but the grace clock is NEVER stamped for an involuntary cancellation.
+    expect(adminUpdate).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        offboarding_initiated_at: expect.any(String),
+      }),
+      "org-1",
+    );
+  });
+
+  it("checkout.session.completed clears the offboarding grace clock + reminder stamps (Story 8.5)", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    orgById = { data: { subscription_status: "read_only" }, error: null };
+    constructEvent.mockReturnValue(
+      completedEvent({
+        id: "cs_re2",
+        metadata: { org_id: "org-1", tier: "solo" },
+        client_reference_id: "org-1",
+        subscription: "sub_123",
+        line_items: { data: [{ price: { id: "price_solo_123" } }] },
+      }),
+    );
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    const [patch] = adminUpdate.mock.calls[0];
+    expect(patch.subscription_status).toBe("active");
+    expect(patch.offboarding_initiated_at).toBeNull();
+    expect(patch.offboarding_reminder_day1_sent_at).toBeNull();
+    expect(patch.offboarding_reminder_day7_sent_at).toBeNull();
+    expect(patch.offboarding_reminder_day25_sent_at).toBeNull();
   });
 
   it("invoice.paid sets active when the org is NOT read_only", async () => {
@@ -422,7 +502,7 @@ describe("POST /api/stripe/webhook", () => {
     expect(reportError).toHaveBeenCalled();
   });
 
-  it("customer.subscription.deleted is a duplicate no-op (same write on re-delivery)", async () => {
+  it("customer.subscription.deleted is a duplicate no-op (same writes on re-delivery)", async () => {
     const { POST } = await import("@/app/api/stripe/webhook/route");
     constructEvent.mockReturnValue({
       type: "customer.subscription.deleted",
@@ -430,8 +510,17 @@ describe("POST /api/stripe/webhook", () => {
     });
     await POST(webhookReq("{...}", "good-sig"));
     await POST(webhookReq("{...}", "good-sig"));
-    expect(adminUpdate).toHaveBeenCalledTimes(2);
-    expect(adminUpdate.mock.calls[0]).toEqual(adminUpdate.mock.calls[1]);
+    // Each delivery issues two writes: the read_only status write + the Story 8.5
+    // offboarding grace-clock stamp (idempotent via .is(null) at the DB level, which
+    // the plain mock cannot model). The read_only status write is byte-identical
+    // across re-deliveries; the stamp carries a fresh `now`, so only the status write
+    // is asserted equal.
+    expect(adminUpdate).toHaveBeenCalledTimes(4);
+    expect(adminUpdate.mock.calls[0]).toEqual(adminUpdate.mock.calls[2]);
+    expect(adminUpdate.mock.calls[0][0]).toEqual({
+      subscription_status: "read_only",
+      past_due_since: null,
+    });
   });
 
   it("invoice.paid resolves the subscription id from parent.subscription_details.subscription (pinned .dahlia API shape)", async () => {

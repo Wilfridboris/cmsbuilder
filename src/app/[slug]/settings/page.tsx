@@ -16,6 +16,7 @@ import { BillingManage } from "@/components/settings/BillingManage";
 import { TierView } from "@/components/settings/TierView";
 import { HiddenTablesRestoreSection } from "@/components/settings/HiddenTablesRestoreSection";
 import { DownloadMyDataButton } from "@/components/settings/DownloadMyDataButton";
+import { OffboardingSection } from "@/components/settings/OffboardingSection";
 
 /**
  * Admin-only Settings surface at `/{slug}/settings` (Story 2.3).
@@ -192,7 +193,7 @@ export default async function SettingsPage({
 
       <hr className="border-border" />
 
-      <section className="flex flex-col gap-8">
+      <section id="data-export" className="flex flex-col gap-8 scroll-mt-16">
         <header className="flex flex-col gap-2">
           <h2 className="text-2xl font-semibold tracking-tight text-balance">
             {tDataExport("title")}
@@ -203,6 +204,10 @@ export default async function SettingsPage({
         </header>
         <DownloadMyDataButton slug={slug} />
       </section>
+
+      <hr className="border-border" />
+
+      <OffboardingSection />
     </main>
   );
 }
