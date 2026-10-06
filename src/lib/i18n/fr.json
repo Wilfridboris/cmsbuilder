@@ -243,6 +243,17 @@
       "signature": "Merci,\nL'équipe Scheza"
     }
   },
+  "DataExport": {
+    "title": "Télécharger vos données",
+    "subtitle": "Exportez tout le contenu de votre compte. Vous obtenez un seul fichier contenant un tableur (CSV) pour chacune de vos tables ainsi qu'une copie complète au format JSON. Ces données vous appartiennent : conservez-les ou transférez-les où vous voulez.",
+    "button": "Télécharger mes données",
+    "preparing": "Préparation de votre téléchargement...",
+    "error": {
+      "unauthorized": "Votre session a expiré. Veuillez vous reconnecter.",
+      "forbidden": "Seuls les administrateurs peuvent télécharger les données du compte.",
+      "genericError": "Nous n'avons pas pu préparer votre téléchargement. Veuillez réessayer."
+    }
+  },
   "BusinessProfile": {
     "title": "Profil d'entreprise",
     "subtitle": "Saisissez les coordonnées de votre entreprise une seule fois. Elles apparaissent sur chaque facture que vous envoyez, afin que votre dénomination légale, votre numéro de taxe et vos options de paiement soient toujours exacts.",

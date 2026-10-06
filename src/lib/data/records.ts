@@ -84,6 +84,65 @@ export async function listRecords(
 }
 
 /**
+ * The page size `listAllRecords` requests per `.range()` window (Story 8.4). The
+ * backend's default list cap is 1000; paging in 1000-row windows reads a large
+ * table to completeness with the fewest round-trips.
+ */
+export const EXPORT_PAGE_SIZE = 1000;
+
+/**
+ * Return EVERY non-deleted row for a logical table (Story 8.4 data export),
+ * paging via `.range()` until a short page signals exhaustion. A SIBLING of
+ * {@link listRecords} — identical scope/filters/order (`organization_id` +
+ * normalized `table_key` + `deleted_at IS NULL`, `created_at asc`) — but it does
+ * NOT stop at the default page cap: `listRecords` serves the records UI (page 1
+ * is enough), whereas a data export that silently truncated at 1000 rows would
+ * violate "all records." Identity-agnostic (the caller supplies the RLS-scoped
+ * client); server-only. Returns the `{ data, error }` envelope; raw SQL is never
+ * surfaced.
+ */
+export async function listAllRecords(
+  client: SupabaseClient,
+  orgId: string,
+  tableKey: string,
+): Promise<ApiResponse<RecordData[]>> {
+  const normalizedKey = normalizeTableName(tableKey);
+  const rows: RecordData[] = [];
+
+  for (let from = 0; ; from += EXPORT_PAGE_SIZE) {
+    const to = from + EXPORT_PAGE_SIZE - 1;
+    const { data, error } = await client
+      .from("records")
+      .select("id, version, data")
+      .eq("organization_id", orgId)
+      .eq("table_key", normalizedKey)
+      .is("deleted_at", null)
+      .order("created_at", { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      return { data: null, error: "Failed to load records." };
+    }
+
+    const page = data ?? [];
+    for (const row of page) {
+      rows.push({
+        id: row.id as string,
+        version: row.version as number,
+        data: (row.data ?? {}) as Record<string, unknown>,
+      });
+    }
+
+    // A short (or empty) page means we have reached the end of the table.
+    if (page.length < EXPORT_PAGE_SIZE) {
+      break;
+    }
+  }
+
+  return { data: rows, error: null };
+}
+
+/**
  * Return the org's authoritative logical schema (`org_schemas.definition`).
  * A missing row — or a present-but-empty definition (the DB default is
  * `'{}'::jsonb`, which has no `tables` key) — is normalized to `{ tables: [] }`

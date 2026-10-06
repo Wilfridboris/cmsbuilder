@@ -15,6 +15,7 @@ import { BillingStart } from "@/components/settings/BillingStart";
 import { BillingManage } from "@/components/settings/BillingManage";
 import { TierView } from "@/components/settings/TierView";
 import { HiddenTablesRestoreSection } from "@/components/settings/HiddenTablesRestoreSection";
+import { DownloadMyDataButton } from "@/components/settings/DownloadMyDataButton";
 
 /**
  * Admin-only Settings surface at `/{slug}/settings` (Story 2.3).
@@ -40,6 +41,7 @@ export default async function SettingsPage({
   const { slug } = await params;
   const t = await getTranslations("Settings");
   const tBilling = await getTranslations("Billing");
+  const tDataExport = await getTranslations("DataExport");
 
   // Middleware already bounced unauthenticated visits to /login; re-check for
   // defense in depth (and to have the user id for the membership resolve).
@@ -187,6 +189,20 @@ export default async function SettingsPage({
       <hr className="border-border" />
 
       <HiddenTablesRestoreSection slug={slug} hiddenTables={hiddenTables} />
+
+      <hr className="border-border" />
+
+      <section className="flex flex-col gap-8">
+        <header className="flex flex-col gap-2">
+          <h2 className="text-2xl font-semibold tracking-tight text-balance">
+            {tDataExport("title")}
+          </h2>
+          <p className="text-sm text-muted-foreground text-pretty">
+            {tDataExport("subtitle")}
+          </p>
+        </header>
+        <DownloadMyDataButton slug={slug} />
+      </section>
     </main>
   );
 }

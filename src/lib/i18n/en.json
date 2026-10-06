@@ -243,6 +243,17 @@
       "signature": "Thank you,\nThe Scheza team"
     }
   },
+  "DataExport": {
+    "title": "Download your data",
+    "subtitle": "Export everything in your account. You get one file with a spreadsheet (CSV) for each of your tables plus a complete copy in JSON. It is yours to keep or move anywhere.",
+    "button": "Download my data",
+    "preparing": "Preparing your download...",
+    "error": {
+      "unauthorized": "Your session expired. Please sign in again.",
+      "forbidden": "Only admins can download the account data.",
+      "genericError": "We could not prepare your download. Please try again."
+    }
+  },
   "BusinessProfile": {
     "title": "Business profile",
     "subtitle": "Enter your company details once. They appear on every invoice you send, so your legal name, tax number, and payment options are always correct.",
