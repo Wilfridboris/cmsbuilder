@@ -266,3 +266,23 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-8-5-self-service-offboarding-grace-cascade-delete.md`
   summary: The offboarding cascade's "purging records is safe" retention guarantee (invoices/credit_notes.customer_record_id are ON DELETE SET NULL) is asserted in prose but never exercised against a live schema.
   evidence: offboarding-cascade.test.ts fully mocks the DB, so it verifies which tables are called but not that deleting records preserves (rather than cascade-deletes or blocks) the retained invoice rows. Would be settled by an integration test against a real Supabase schema confirming a retained invoice's customer_record_id is nulled when its linked record is purged. The FKs are pre-existing (migrations 20260928120200/20260928121500), not introduced by this story.
+
+- source_spec: `_bmad-output/implementation-artifacts/marketing-site/1-0-promote-v1-to-scheza-marketing-and-deploy-to-cloudflare.md`
+  summary: Pricing card and FAQ render literal placeholder tokens ([INCLUDED RECORDS], [OVERAGE RATE], [SUPPORT EMAIL]) from scheza-marketing src/data/content.ts.
+  evidence: content.ts:35-37 carry explicit TODO(pricing) placeholders that render verbatim in the Pricing section and FAQ. The spec's implementation notes permit deferring these as owner-supplied copy; the Cloudflare deploy is gated on the human, so they are not yet public. Settled by the owner supplying real pricing copy (CAD vs USD base, included records, overage rate, support email) or gating those lines behind filled slots before deploy.
+
+- source_spec: `_bmad-output/implementation-artifacts/marketing-site/1-0-promote-v1-to-scheza-marketing-and-deploy-to-cloudflare.md`
+  summary: Privacy and Terms pages publish placeholder bodies ([PRIVACY POLICY TEXT]/[TERMS OF SERVICE TEXT]) while the footer links to them publicly.
+  evidence: scheza-marketing src/pages/privacy.astro:8 and terms.astro:8 ship bracket placeholders with explicit TODO(legal); the footer links are live. Spec implementation notes permit deferring as owner-supplied copy; deploy is human-gated. Settled by reviewed legal copy (or withholding the footer links) before the site is reachable publicly.
+
+- source_spec: `_bmad-output/implementation-artifacts/marketing-site/1-0-promote-v1-to-scheza-marketing-and-deploy-to-cloudflare.md`
+  summary: The public /api/waitlist endpoint has no rate limiting and no bot/consent hardening beyond a honeypot; README does not flag this for the human before deploy.
+  evidence: v1 scheza-marketing src/pages/api/waitlist.ts dropped the prior build's per-IP limiter (5 req/60s), Turnstile, and CASL consent capture; only a honeypot remains. Intent explicitly defers Turnstile (AD-10) and full CASL consent (AD-9) with interim risk accepted per sprint-change-proposal-2026-10-06.md. Real pre-deploy security consideration: add a Cloudflare WAF rate-limit rule (or Worker-side limiter) on /api/waitlist and note the deferred protections in the README "Before launch" checklist. Settled when the deferred abuse/consent epic lands or a WAF rule is configured at deploy.
+
+- source_spec: `_bmad-output/implementation-artifacts/marketing-site/1-0-promote-v1-to-scheza-marketing-and-deploy-to-cloudflare.md`
+  summary: Waitlist signups receive no transactional confirmation email; the retired build sent one.
+  evidence: v1 waitlist.ts sends no confirmation to the signer (only an optional internal WAITLIST_NOTIFY_TO notify). On-page success state remains. Confirmed/double opt-in is part of the deferred CASL-consent scope. Settled when the deferred consent/comms work lands, or by a deliberate decision to keep waitlist confirmation on-page only.
+
+- source_spec: `_bmad-output/implementation-artifacts/marketing-site/1-0-promote-v1-to-scheza-marketing-and-deploy-to-cloudflare.md`
+  summary: No sitemap.xml and robots.txt has no Sitemap: directive; social-card/SEO meta is incomplete (og:image:alt, twitter:image:alt, twitter:site missing).
+  evidence: Pre-existing v1 state in scheza-marketing public/robots.txt and src/layouts/BaseLayout.astro. SEO/AEO completeness belongs to story 1-6 (homepage SEO/AEO baseline, currently in review), not the 1-0 promotion intent. Settled by 1-6 acceptance: add @astrojs/sitemap + a Sitemap: line, and image-alt/twitter:site meta.
