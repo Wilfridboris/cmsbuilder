@@ -72,6 +72,11 @@ context:
 
 ## Implementation Notes
 
+- Post-commit Playwright manual review (authed dashboard `/session-1f4fa453`, FR locale) — all three I/O paths passed and were confirmed at the DB layer:
+  - Add all-blank record (Customers, no boolean field → `data {}`): rejected, FR `emptyRecord` alert ("Veuillez remplir au moins un champ avant d'enregistrer.") shown, row count unchanged (4), no row written.
+  - Add with one field populated: written normally (row appeared; DB row `{"customer_name":"QA Temp Record"}`).
+  - Inline-edit clearing the last populated field (merged → `{}`): rejected, optimistic edit rolled back to the prior value, same translated alert shown; DB confirmed the value never cleared. Temp record soft-deleted afterward to restore the fixture.
+
 ## Spec Change Log
 
 ## Review Triage Log
