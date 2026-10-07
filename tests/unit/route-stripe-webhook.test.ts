@@ -336,6 +336,38 @@ describe("POST /api/stripe/webhook", () => {
     expect(patch.offboarding_reminder_day25_sent_at).toBeNull();
   });
 
+  it("[F1] checkout.session.completed on a deleted tombstone is a no-op (never resurrects a purged org)", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    orgById = { data: { subscription_status: "deleted" }, error: null };
+    constructEvent.mockReturnValue(
+      completedEvent({
+        id: "cs_dead",
+        metadata: { org_id: "org-1", tier: "solo" },
+        client_reference_id: "org-1",
+        subscription: "sub_123",
+        line_items: { data: [{ price: { id: "price_solo_123" } }] },
+      }),
+    );
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    // No write at all — the tombstone is terminal.
+    expect(adminUpdate).not.toHaveBeenCalled();
+    expect(reportError).toHaveBeenCalled();
+  });
+
+  it("[F1] customer.subscription.deleted on a deleted tombstone is a no-op (no read_only flip, no grace stamp)", async () => {
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    orgById = { data: { subscription_status: "deleted" }, error: null };
+    constructEvent.mockReturnValue({
+      type: "customer.subscription.deleted",
+      data: { object: { id: "sub_123", metadata: { org_id: "org-1" } } },
+    });
+    const res = await POST(webhookReq("{...}", "good-sig"));
+    expect(res.status).toBe(200);
+    expect(adminUpdate).not.toHaveBeenCalled();
+    expect(reportError).toHaveBeenCalled();
+  });
+
   it("invoice.paid sets active when the org is NOT read_only", async () => {
     const { POST } = await import("@/app/api/stripe/webhook/route");
     constructEvent.mockReturnValue({

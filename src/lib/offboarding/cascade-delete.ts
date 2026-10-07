@@ -130,6 +130,11 @@ export async function cascadeDeleteOrganization(
     .update({
       subscription_status: "deleted",
       offboarding_purged_at: new Date().toISOString(),
+      // Defense-in-depth (epic-8-retro F1): drop the live subscription link so a
+      // stale/redelivered Stripe event can no longer resolve this tombstoned org by
+      // `stripe_subscription_id` and resurrect it out of `deleted`. (The webhook
+      // handlers also guard on the `deleted` status directly.)
+      stripe_subscription_id: null,
     })
     .eq("id", orgId);
   if (tombstoneError) {

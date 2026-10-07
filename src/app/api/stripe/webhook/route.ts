@@ -138,6 +138,20 @@ async function handleCheckoutCompleted(
     return;
   }
 
+  // epic-8-retro F1: `deleted` is the most terminal lifecycle state (the org's data
+  // is already purged). A stale/redelivered checkout event must NEVER resurrect a
+  // tombstoned org to `active`. Read the current status first and no-op when deleted.
+  const adminClient = createAdminClient();
+  if ((await readOrgStatus(adminClient, orgId)) === "deleted") {
+    reportError(
+      new Error(
+        "checkout.session.completed skipped: org is a deleted tombstone",
+      ),
+      { route: "/api/stripe/webhook", sessionId: session.id, orgId },
+    );
+    return;
+  }
+
   // Resolve the purchased tier from the session's line-item price id
   // (authoritative), falling back to metadata.tier so a valid session with an
   // unexpanded line item still resolves. The price id is authoritative so a
@@ -200,7 +214,6 @@ async function handleCheckoutCompleted(
     orgUpdate.stripe_customer_id = customerId;
   }
 
-  const adminClient = createAdminClient();
   const { error } = await adminClient
     .from("organizations")
     .update(orgUpdate)
@@ -242,7 +255,24 @@ async function handleSubscriptionDeleted(
     );
     return;
   }
-  await writeOrgStatus(orgId, "read_only");
+
+  const adminClient = createAdminClient();
+
+  // epic-8-retro F1: `deleted` is terminal for ALL lifecycle events (the org's data is
+  // already purged) — more terminal than `read_only`. A stale/redelivered cancellation
+  // must never flip a tombstone back to `read_only`, which would drop the AccountClosed
+  // screen for permanently-deleted data. No-op when already deleted.
+  if ((await readOrgStatus(adminClient, orgId)) === "deleted") {
+    reportError(
+      new Error(
+        "customer.subscription.deleted skipped: org is a deleted tombstone",
+      ),
+      { route: "/api/stripe/webhook", subscriptionId: subscription.id, orgId },
+    );
+    return;
+  }
+
+  await writeOrgStatus(orgId, "read_only", adminClient);
 
   // Story 8.5: only a VOLUNTARY cancellation starts the 30-day offboarding grace clock.
   // An involuntary dunning-exhaustion cancellation (Stripe reason "payment_failed") must
@@ -253,7 +283,6 @@ async function handleSubscriptionDeleted(
 
   // Stamp `offboarding_initiated_at` ONCE (idempotent) — the `.is(null)` guard means a
   // re-delivered event never resets the clock.
-  const adminClient = createAdminClient();
   const { error } = await adminClient
     .from("organizations")
     .update({ offboarding_initiated_at: new Date().toISOString() })
@@ -379,6 +408,26 @@ async function resolveOrgForSubscription(
     return metaOrgId;
   }
   return null;
+}
+
+/**
+ * Read an org's current `subscription_status` (service-role). Returns null when the
+ * row is gone. Used by the lifecycle handlers to guard against resurrecting a
+ * terminal `deleted` tombstone (epic-8-retro F1).
+ */
+async function readOrgStatus(
+  adminClient: ReturnType<typeof createAdminClient>,
+  orgId: string,
+): Promise<string | null> {
+  const { data, error } = await adminClient
+    .from("organizations")
+    .select("subscription_status")
+    .eq("id", orgId)
+    .maybeSingle();
+  if (error) {
+    throw new Error(`Failed to read org ${orgId} status: ${error.message}`);
+  }
+  return (data?.subscription_status as string | undefined) ?? null;
 }
 
 /**

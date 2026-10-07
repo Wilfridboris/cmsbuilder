@@ -1,3 +1,5 @@
+import "server-only";
+
 import { strToU8, zipSync } from "fflate";
 
 /**

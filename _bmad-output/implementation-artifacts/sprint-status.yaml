@@ -53,7 +53,7 @@
 #   THEN 3.7 → 3.8 → 3.9, THEN 6.5. Epic 1 reopened to in-progress for 1.8.
 
 generated: '2026-09-23'
-last_updated: '10-05-2026 08:40'
+last_updated: '10-06-2026 19:34'
 project: Scheza
 project_key: NOKEY
 tracking_system: file-system
@@ -133,7 +133,7 @@ development_status:
   8-3-field-level-sensitivity-indicator: done
   8-4-download-my-data-csv-json: done
   8-5-self-service-offboarding-grace-cascade-delete: done
-  epic-8-retrospective: optional
+  epic-8-retrospective: done
 
   epic-9: backlog
   epic-9-retrospective: optional
@@ -510,7 +510,7 @@ action_items:
       invoices/credit_notes/invoice_payments and their PDF/logo objects under 6-year
       retention and refuses to hard-delete an org with retained invoices (deferred-work.md:137)."
     owner: "Boris+Dev"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-12-retro-2026-09-29.md"
   - id: "epic-12-retro-item-45-schedule-the-ontario-lawyer-cpa-review-o"
     epic: 12
@@ -549,7 +549,7 @@ action_items:
       so trial-reminder.ts and send.ts stop duplicating ~60 lines (escapeHtml, HTML
       scaffold, Resend send/catch tail)."
     owner: "Dev"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-7-retro-2026-10-01.md"
   - id: "epic-7-retro-item-50-a3b-extract-a-useportalredirect-hook-sha"
     epic: 7
@@ -857,3 +857,52 @@ action_items:
     owner: "Boris+Dev"
     status: done
     ref: "_bmad-output/implementation-artifacts/epic-14-retro-2026-10-04.md"
+  - id: "epic-8-retro-item-88-f1-guard-the-stripe-webhook-handlesubscr"
+    epic: 8
+    action: "[F1] Guard the Stripe webhook (handleSubscriptionDeleted + handleCheckoutCompleted
+      in api/stripe/webhook/route.ts) against resurrecting a deleted tombstone: read
+      current subscription_status and no-op when already deleted; optionally null
+      stripe_subscription_id in the cascade tombstone (cascade-delete.ts); add redelivered-event
+      no-op tests. Recommended before enabling production offboarding."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-8-retro-2026-10-06.md"
+  - id: "epic-8-retro-item-89-f2-neutralize-csv-formula-injection-in-t"
+    epic: 8
+    action: "[F2] Neutralize CSV formula injection in tableToCsv (lib/export/build-export.ts):
+      prefix cells whose value starts with =/+/-/@/tab/CR with a quote before Papa.unparse;
+      add an injection test row. Untrusted public-intake content is the vector."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-8-retro-2026-10-06.md"
+  - id: "epic-8-retro-item-90-f5-add-import-server-only-to-lib-export"
+    epic: 8
+    action: "[F5] Add import server-only to lib/export/build-export.ts and lib/export/zip.ts
+      for convention parity, or record as an accepted deviation in spec-8-4."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-8-retro-2026-10-06.md"
+  - id: "epic-8-retro-item-91-f4-extract-a-shared-cron-sweep-helper-sc"
+    epic: 8
+    action: "[F4] Extract a shared cron-sweep helper (scanGraceOrgs + runReminderStage)
+      reused by cron/offboarding and cron/trial-lifecycle, retiring ~65-70 duplicated
+      lines; completes the scanOrgs half of epic-7-retro-item-54."
+    owner: "Dev"
+    status: done
+    ref: "_bmad-output/implementation-artifacts/epic-8-retro-2026-10-06.md"
+  - id: "epic-8-retro-item-92-f6-watch-item-app-slug-layout-tsx-177-li"
+    epic: 8
+    action: "[F6] Watch item: app/[slug]/layout.tsx (177 lines) accreting lifecycle-banner
+      selection; extract a banner-selector if a 4th banner lands."
+    owner: "Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-8-retro-2026-10-06.md"
+  - id: "epic-8-retro-item-93-process-lesson-when-adding-a-value-to-a"
+    epic: 8
+    action: "[Process lesson] When adding a value to a shared state enum (e.g. subscription_status
+      deleted), grep all writers/readers and confirm each handles it; F1 arose because
+      the Story-7 webhook handlers were not re-audited when 8.5 added the deleted
+      state. Consider a cross-story review-checklist line."
+    owner: "Dev+Boris"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-8-retro-2026-10-06.md"

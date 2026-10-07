@@ -157,6 +157,43 @@ describe("buildExport (Story 8.4)", () => {
     expect(rows).toEqual([]);
   });
 
+  it("[F2] neutralizes CSV formula-injection in string cells while keeping JSON exact", () => {
+    const recordsByTable: Record<string, RecordData[]> = {
+      clients: [
+        {
+          id: "c1",
+          version: 1,
+          data: {
+            full_name: '=HYPERLINK("http://evil","x")',
+            email: "+15550000",
+            notes: "-cmd|calc",
+          },
+        },
+      ],
+    };
+
+    const { csvs, jsonText } = buildExport({
+      slug: "acme",
+      exportedAt: "2026-10-05T00:00:00.000Z",
+      tables: [clientsTable],
+      recordsByTable,
+    });
+
+    const { rows } = parseCsv(csvs[0].content);
+    // Each formula-trigger cell is prefixed with a single quote so a spreadsheet
+    // renders it as text instead of evaluating it.
+    expect(rows[0][1]).toBe("'=HYPERLINK(\"http://evil\",\"x\")");
+    expect(rows[0][2]).toBe("'+15550000");
+    expect(rows[0][3]).toBe("'-cmd|calc");
+
+    // The JSON side keeps the exact stored value — faithfulness preserved there.
+    const json = JSON.parse(jsonText);
+    expect(json.tables[0].records[0].data.full_name).toBe(
+      '=HYPERLINK("http://evil","x")',
+    );
+    expect(json.tables[0].records[0].data.email).toBe("+15550000");
+  });
+
   it("includes every record of a table (no truncation in the pure layer)", () => {
     const many: RecordData[] = Array.from({ length: 2500 }, (_, i) => ({
       id: `c${i}`,

@@ -7,10 +7,7 @@ import type { ApiResponse } from "@/types/api";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendOffboardingReminderEmail } from "@/lib/resend/offboarding-reminder";
 import { cascadeDeleteOrganization } from "@/lib/offboarding/cascade-delete";
-import {
-  resolveAdminEmails,
-  resolveOrgLanguage,
-} from "@/lib/orgs/org-recipients";
+import { sendReminderStage } from "@/lib/cron/reminder-stage";
 import { json, handleError, authorizeCron } from "@/lib/api/route-helpers";
 import { reportError } from "@/lib/observability/report";
 
@@ -133,7 +130,22 @@ export async function GET(
         if (org[column]) {
           continue; // already sent — no duplicate.
         }
-        if (await sendStage(adminClient, org, stage, column, deletionDateMs, appOrigin)) {
+        const sent = await sendReminderStage({
+          adminClient,
+          orgId: org.id,
+          column,
+          route: "/api/cron/offboarding",
+          send: (to, language) =>
+            sendOffboardingReminderEmail({
+              to,
+              language,
+              stage,
+              slug: org.slug,
+              deletionDate: formatDeletionDate(deletionDateMs, language),
+              appOrigin,
+            }),
+        });
+        if (sent) {
           emailed += 1;
         }
       }
@@ -145,59 +157,6 @@ export async function GET(
     );
   } catch (err) {
     return handleError<OffboardingSweepSummary>(err, "/api/cron/offboarding");
-  }
-}
-
-/**
- * Send one warning stage to the org's admins in the org's language and, on success,
- * stamp the per-stage `*_sent_at` so it is never re-sent. A send/stamp failure is
- * logged (never aborts the sweep) and leaves the stamp unset so the stage retries
- * next run. Returns true when the email was sent AND the stamp advanced.
- */
-async function sendStage(
-  adminClient: ReturnType<typeof createAdminClient>,
-  org: OffboardingOrg,
-  stage: "day1" | "day7" | "day25",
-  column: string,
-  deletionDateMs: number,
-  appOrigin: string,
-): Promise<boolean> {
-  try {
-    const emails = await resolveAdminEmails(adminClient, org.id);
-    if (emails.length === 0) {
-      // No recipient to notify — nothing to stamp; retry next run in case an admin
-      // email becomes resolvable.
-      return false;
-    }
-    const language = await resolveOrgLanguage(adminClient, org.id);
-    const deletionDate = formatDeletionDate(deletionDateMs, language);
-
-    for (const to of emails) {
-      await sendOffboardingReminderEmail({
-        to,
-        language,
-        stage,
-        slug: org.slug,
-        deletionDate,
-        appOrigin,
-      });
-    }
-
-    const { error: stampError } = await adminClient
-      .from("organizations")
-      .update({ [column]: new Date().toISOString() })
-      .eq("id", org.id);
-    if (stampError) {
-      // The email went out but the stamp failed — log it. The next run may re-send
-      // (acceptable: a duplicate warning beats a silently dropped one).
-      reportError(stampError, { route: "/api/cron/offboarding" });
-      return true;
-    }
-    return true;
-  } catch (sendErr) {
-    // Resend failure: log and leave the stamp unset so it retries next run.
-    reportError(sendErr, { route: "/api/cron/offboarding" });
-    return false;
   }
 }
 

@@ -6,10 +6,7 @@ import { AppError } from "@/types/api";
 import type { ApiResponse } from "@/types/api";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendTrialReminderEmail } from "@/lib/resend/trial-reminder";
-import {
-  resolveAdminEmails,
-  resolveOrgLanguage,
-} from "@/lib/orgs/org-recipients";
+import { sendReminderStage } from "@/lib/cron/reminder-stage";
 import { json, handleError, authorizeCron } from "@/lib/api/route-helpers";
 import { reportError } from "@/lib/observability/report";
 
@@ -134,7 +131,22 @@ export async function GET(
         }
 
         if (!org.trial_reminder_day14_sent_at) {
-          if (await sendStage(adminClient, org, "day14", 0, appOrigin)) {
+          const sent = await sendReminderStage({
+            adminClient,
+            orgId: org.id,
+            column: "trial_reminder_day14_sent_at",
+            route: "/api/cron/trial-lifecycle",
+            send: (to, language) =>
+              sendTrialReminderEmail({
+                to,
+                language,
+                stage: "day14",
+                daysRemaining: 0,
+                slug: org.slug,
+                appOrigin,
+              }),
+          });
+          if (sent) {
             emailed += 1;
           }
         }
@@ -145,9 +157,22 @@ export async function GET(
             1,
             Math.ceil((expiry - nowMs) / (24 * 60 * 60 * 1000)),
           );
-          if (
-            await sendStage(adminClient, org, "day12", daysRemaining, appOrigin)
-          ) {
+          const sent = await sendReminderStage({
+            adminClient,
+            orgId: org.id,
+            column: "trial_reminder_day12_sent_at",
+            route: "/api/cron/trial-lifecycle",
+            send: (to, language) =>
+              sendTrialReminderEmail({
+                to,
+                language,
+                stage: "day12",
+                daysRemaining,
+                slug: org.slug,
+                appOrigin,
+              }),
+          });
+          if (sent) {
             emailed += 1;
           }
         }
@@ -207,57 +232,3 @@ export async function GET(
   }
 }
 
-/**
- * Send one reminder stage to the org's admins and, on success, stamp the per-stage
- * `*_sent_at` so it is never re-sent. A send/stamp failure is logged (never aborts
- * the sweep) and leaves the stamp unset so the stage retries next run. Returns true
- * when the email was sent AND the stamp advanced.
- */
-async function sendStage(
-  adminClient: ReturnType<typeof createAdminClient>,
-  org: TrialOrg,
-  stage: "day12" | "day14",
-  daysRemaining: number,
-  appOrigin: string,
-): Promise<boolean> {
-  try {
-    const emails = await resolveAdminEmails(adminClient, org.id);
-    if (emails.length === 0) {
-      // No recipient to notify — nothing to stamp; retry next run in case an admin
-      // email becomes resolvable.
-      return false;
-    }
-    const language = await resolveOrgLanguage(adminClient, org.id);
-
-    for (const to of emails) {
-      await sendTrialReminderEmail({
-        to,
-        language,
-        stage,
-        daysRemaining,
-        slug: org.slug,
-        appOrigin,
-      });
-    }
-
-    const column =
-      stage === "day12"
-        ? "trial_reminder_day12_sent_at"
-        : "trial_reminder_day14_sent_at";
-    const { error: stampError } = await adminClient
-      .from("organizations")
-      .update({ [column]: new Date().toISOString() })
-      .eq("id", org.id);
-    if (stampError) {
-      // The email went out but the stamp failed — log it. The next run may re-send
-      // (acceptable: a duplicate reminder beats a silently dropped one).
-      reportError(stampError, { route: "/api/cron/trial-lifecycle" });
-      return true;
-    }
-    return true;
-  } catch (sendErr) {
-    // Resend failure: log and leave the stamp unset so it retries next run.
-    reportError(sendErr, { route: "/api/cron/trial-lifecycle" });
-    return false;
-  }
-}

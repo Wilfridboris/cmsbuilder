@@ -1,3 +1,5 @@
+import "server-only";
+
 import Papa from "papaparse";
 
 import type { FieldDefinition, RecordData, TableDefinition } from "@/types/db";
@@ -68,6 +70,33 @@ export type BuildExportResult = {
 const UTF8_BOM = "﻿";
 
 /**
+ * CSV formula-injection triggers. A spreadsheet app (Excel/Sheets) evaluates a cell
+ * whose text starts with one of these, so an attacker-authored value like
+ * `=HYPERLINK("http://evil",...)` would execute on open.
+ */
+const CSV_FORMULA_TRIGGERS = ["=", "+", "-", "@", "\t", "\r"];
+
+/**
+ * Neutralize CSV formula injection: a STRING cell beginning with a formula trigger is
+ * prefixed with a single quote so the spreadsheet renders it as literal text rather
+ * than evaluating it. Only strings are guarded — numbers/booleans are never
+ * attacker-authored formula text. This is reachable because untrusted public-intake
+ * submissions (Epics 6/14) can store such values that an admin later opens in Excel.
+ * The CSV is the human-readable view; the JSON side carries the exact, unmodified
+ * value, so faithfulness is preserved there.
+ */
+function neutralizeCsvValue(value: unknown): unknown {
+  if (
+    typeof value === "string" &&
+    value.length > 0 &&
+    CSV_FORMULA_TRIGGERS.includes(value[0]!)
+  ) {
+    return `'${value}`;
+  }
+  return value;
+}
+
+/**
  * Serialize one logical table to a CSV string. Columns are the field `key`s in
  * `FieldDefinition` order with a leading `id` column; the header row shows the
  * field `label`s (with `id` for the id column). Rows are built POSITIONALLY
@@ -92,7 +121,9 @@ function tableToCsv(table: TableDefinition, records: RecordData[]): string {
     ...fields.map((field) => {
       const value = record.data?.[field.key];
       // Preserve a missing key faithfully: an absent value becomes an empty cell.
-      return value === undefined ? "" : value;
+      // Otherwise neutralize any spreadsheet formula-injection trigger (string cells
+      // only); the JSON export keeps the exact value.
+      return value === undefined ? "" : neutralizeCsvValue(value);
     }),
   ]);
 
