@@ -7,6 +7,7 @@ import type { ApiResponse } from "@/types/api";
 import type { RecordData } from "@/types/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { mutate } from "@/lib/data/mutate";
+import { assertRecordNotEmpty } from "@/lib/data/record-conformance";
 import {
   json,
   resolveWritableOrgIdentity,
@@ -111,6 +112,10 @@ export async function PATCH(
     const { slug, table, data, expectedVersion } = parsed.data;
 
     const identity = await resolveWritableOrgIdentity(slug, user.id);
+    // Story 3.10 (FR99): the PATCH payload is the FULL merged row `data`, so
+    // clearing the last populated field (merged → `{}`) is rejected here, before
+    // `mutate`, and the optimistic edit rolls back via the existing sequence.
+    assertRecordNotEmpty(data);
     const result = await mutate(identity, "update", table, data, {
       recordId: id,
       expectedVersion,

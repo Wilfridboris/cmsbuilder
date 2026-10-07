@@ -77,6 +77,8 @@ export function useRecordActions({
         return t("invalidReference");
       case "invalidSelectValue":
         return t("invalidSelectValue");
+      case "emptyRecord":
+        return t("emptyRecord");
       default:
         return t("genericError");
     }

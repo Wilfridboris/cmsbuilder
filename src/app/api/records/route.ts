@@ -8,6 +8,7 @@ import type { RecordData } from "@/types/db";
 import { getCurrentUser } from "@/lib/auth/session";
 import { listRecords } from "@/lib/data/records";
 import { mutate } from "@/lib/data/mutate";
+import { assertRecordNotEmpty } from "@/lib/data/record-conformance";
 import {
   json,
   resolveOrgIdentity,
@@ -88,6 +89,9 @@ export async function POST(
     const { slug, table, data, idempotencyKey } = parsed.data;
 
     const identity = await resolveWritableOrgIdentity(slug, user.id);
+    // Story 3.10 (FR99): reject an all-blank record before any write. Runs after
+    // identity resolution (a non-member already got 403) and before `mutate`.
+    assertRecordNotEmpty(data);
     const result = await mutate(identity, "insert", table, data, {
       idempotencyKey,
     });

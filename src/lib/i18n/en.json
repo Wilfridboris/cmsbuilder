@@ -547,6 +547,7 @@
     "deleteReferenceArchivedNote": "Those records keep their link and will show this as archived after you delete it.",
     "deleteReferenceCounting": "Checking for linked records…",
     "deleteReferenceUnavailable": "We couldn't check for linked records, but you can still delete.",
+    "emptyRecord": "Please fill in at least one field before saving.",
     "invalidReference": "That linked record no longer exists. Please pick another.",
     "invalidSelectValue": "That value is not one of this field's options. Please pick an option from the list.",
     "openRecord": "Open record",

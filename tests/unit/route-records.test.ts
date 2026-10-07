@@ -192,7 +192,7 @@ describe("POST /api/records", () => {
     mutate.mockResolvedValue({ data: null, error: "The write could not be completed." });
 
     const res = await POST(
-      postReq({ slug: "acme", table: "clients", data: {}, idempotencyKey: "k" }),
+      postReq({ slug: "acme", table: "clients", data: { name: "Acme" }, idempotencyKey: "k" }),
     );
 
     expect(res.status).toBe(500);
@@ -220,6 +220,26 @@ describe("POST /api/records", () => {
     const body = await res.json();
     expect(body.data).toBeNull();
     expect(body.error).toBe("invalidReference");
+  });
+
+  it("400 emptyRecord when every value is blank, before any mutate (Story 3.10)", async () => {
+    const { POST } = await import("@/app/api/records/route");
+
+    const res = await POST(
+      postReq({
+        slug: "acme",
+        table: "clients",
+        data: { name: "", note: "   ", ref: null },
+        idempotencyKey: "k",
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.data).toBeNull();
+    expect(body.error).toBe("emptyRecord");
+    // Rejected before the write: `mutate` is never called (FR99).
+    expect(mutate).not.toHaveBeenCalled();
   });
 });
 
@@ -402,7 +422,7 @@ describe("PATCH /api/records/[id]", () => {
     mutate.mockResolvedValue({ data: null, error: CONCURRENCY_MESSAGE });
 
     const res = await PATCH(
-      patchReq({ slug: "acme", table: "clients", data: {}, expectedVersion: 3 }),
+      patchReq({ slug: "acme", table: "clients", data: { name: "Acme" }, expectedVersion: 3 }),
       patchParams,
     );
 
@@ -417,11 +437,28 @@ describe("PATCH /api/records/[id]", () => {
     mutate.mockResolvedValue({ data: null, error: "The write could not be completed." });
 
     const res = await PATCH(
-      patchReq({ slug: "acme", table: "clients", data: {}, expectedVersion: 3 }),
+      patchReq({ slug: "acme", table: "clients", data: { name: "Acme" }, expectedVersion: 3 }),
       patchParams,
     );
 
     expect(res.status).toBe(500);
     expect((await res.json()).error).toBe("writeFailed");
+  });
+
+  it("400 emptyRecord when the merged row clears to all-blank, before any mutate (Story 3.10)", async () => {
+    const { PATCH } = await import("@/app/api/records/[id]/route");
+
+    const res = await PATCH(
+      patchReq({ slug: "acme", table: "clients", data: {}, expectedVersion: 3 }),
+      patchParams,
+    );
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.data).toBeNull();
+    expect(body.error).toBe("emptyRecord");
+    // Rejected before the write: the optimistic edit rolls back and `mutate`
+    // is never called (FR99).
+    expect(mutate).not.toHaveBeenCalled();
   });
 });
