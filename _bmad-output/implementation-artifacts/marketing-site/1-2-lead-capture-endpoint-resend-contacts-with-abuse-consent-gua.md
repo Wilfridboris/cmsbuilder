@@ -191,3 +191,14 @@ Review pass 1 (blind-hunter, edge-case-hunter, verification-gap). No intent_gap/
 **Manual checks (if no CLI):**
 - Inspect `capture-lead.ts`: reads secrets only via `cloudflare:workers`; returns `{data,error}`; no key/stack in any response branch.
 - Confirm no client-shipped file imports `resend.ts`/`turnstile.ts` or names a server-only secret.
+
+---
+
+## Course correction addendum — 2026-10-06
+
+*(Appended outside the frozen Intent per `sprint-change-proposal-2026-10-06.md`; original intent unchanged.)*
+
+The lead-capture path is **realized by `scheza-marketing-v1`** (`src/pages/api/waitlist.ts` → Resend Contacts), promoted into the `scheza-marketing` repo. Launch-cut deltas from the original AC (**interim risk accepted by PM**):
+- **No Turnstile at launch** — the server-side Turnstile verify (AD-10 / NFR-9) is **deferred**; launch relies on rate limiting + server-side payload validation only.
+- **Consent simplified** — the full **CASL server-witnessed consent** record (AD-9 / FR-14: topic subscription + witnessed timestamp/locale/evidence) is **deferred**. Until it lands, public copy must not assert CASL-compliant consent or Canadian data residency.
+Status remains `done` for the Resend path; Turnstile + witnessed consent return as a dedicated post-launch story.

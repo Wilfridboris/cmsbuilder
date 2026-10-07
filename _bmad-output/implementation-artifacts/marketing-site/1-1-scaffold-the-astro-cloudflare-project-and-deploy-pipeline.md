@@ -117,3 +117,14 @@ context:
 **Manual checks (if no CLI):**
 - Open built `/` and `/fr/` — placeholder homepage renders on-brand (navy/blue/cyan, Inter, logo), correct `<html lang>` and `hreflang`.
 - Confirm `git status` in the parent repo shows no `scheza-marketing/**` files tracked.
+
+---
+
+## Course correction addendum — 2026-10-06
+
+*(Appended outside the frozen Intent per `sprint-change-proposal-2026-10-06.md`; original intent unchanged.)*
+
+This story's scaffold is now **realized by `scheza-marketing-v1`**, promoted into the `scheza-marketing` repo (see new Story **1-0**). Two deltas from the original AC:
+- **Brand corrected:** tokens/assets come from **`scheza-brand-kit`** (Ink/Apricot/Vermilion, Manrope+Inter), **not** the navy/blue/cyan `docs/visual.png`. The "on-brand (navy/blue/cyan, Inter)" manual check above is superseded by Ink/Apricot + Manrope.
+- **EN-only at launch:** the `/fr/` route and `hreflang` EN/FR pairing are **deferred** (NFR-5). The `/fr/` manual check does not apply to the launch cut.
+Status remains `done` as the foundation is satisfied by v1; acceptance is against the brand-kit, not visual.png.

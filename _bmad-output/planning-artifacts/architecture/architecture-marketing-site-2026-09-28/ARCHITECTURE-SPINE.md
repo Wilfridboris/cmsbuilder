@@ -33,6 +33,16 @@ Layer → location:
 - **Shared logic** (framework-agnostic) → `src/lib/**`.
 - **Copy/content + i18n** → `src/content/**`, `src/i18n/**`.
 
+## Launch Profile (v1) — 2026-10-06 course correction
+
+Added by `sprint-change-proposal-2026-10-06.md`. The paradigm above is **unchanged** — the realized codebase (`scheza-marketing-v1`, promoted into the `scheza-marketing` repo) already follows static-first + Resend-Contacts + no-database. This note records what the **launch cut** does and does not yet include, so the invariants below are read with the right scope at launch:
+
+- **Canonical code:** `scheza-marketing-v1` → `scheza-marketing`. Astro `output: "static"`, `imageService: "passthrough"`, one Worker route `src/pages/api/waitlist.ts`. No D1, no R2 at launch (the `docs/cloudfare.md` D1+R2+SSR stack is a later/north-star profile, not this launch).
+- **Brand source of truth:** `scheza-brand-kit` (Ink/Apricot/Vermilion, Manrope+Inter). **Supersedes `docs/visual.png`.**
+- **Honored at launch:** AD-1 (static-first), AD-6 (secrets server-only + secret-leak gate), AD-15/16 (whitelist + upsert-by-normalized-email), Resend-Contacts lead store, zero-JS default, WCAG AA axe gate.
+- **Deferred (interim risk accepted by PM):** **AD-10 Turnstile** abuse guard and **AD-9 full CASL server-witnessed consent** are not in the launch cut (rate-limiting + server-side validation only). **NFR-5 EN/FR i18n** deferred (launch is EN-only; `src/i18n/**` not yet populated). Constraint: no public copy may assert data-residency or CASL-compliant consent until these land.
+- **SEO/AEO/GEO (2026-10-06-seo re-scope):** the launch homepage carries only a thin SEO baseline; **NFR-2/NFR-3** and the comparison/resource content are delivered by **Epic 6** under **AD-21** (`sprint-change-proposal-2026-10-06-seo.md`), demand-validated and scoped to a lean foundation. Static-first and no-database invariants are unchanged. Keyword/answer-engine direction: PRD §14.1.
+
 ## Invariants & Rules
 
 ### AD-1 — Static-first rendering
@@ -135,6 +145,11 @@ Layer → location:
 - **Prevents:** an undecided operational envelope (untracked deploys, unmanaged secrets, no rollback, stale blog).
 - **Rule:** GitHub → **Cloudflare Pages** deploy; **preview deploy per PR**, **production on merge to main**, **instant rollback** via Cloudflare deployment history. Secrets live in **Cloudflare project secrets/env** (never committed; `.env.example` with placeholders only). CI runs: build, type-check, the AD-6 secret-leak gate, and AD-19 a11y checks. Blog rebuilds trigger via a **PersonaPress webhook** (fallback: scheduled rebuild). Errors report to **Sentry**; traffic/perf via Cloudflare Web Analytics (privacy-friendly, non-PII).
 
+### AD-21 — Comparison & resource pages are static, slot-driven, schema-marked, AEO-extractable, honesty-gated
+- **Binds:** FR-17, FR-18; NFR-1, NFR-2, NFR-3. Added by `sprint-change-proposal-2026-10-06-seo.md` (Epic 6).
+- **Prevents:** SEO pages drifting into SSR/JS, fabricated competitor claims, coupling to the Epic 5 blog pipeline, and AI-uncitable content.
+- **Rule:** `/compare/**` and `/resources/**` are pre-rendered static pages (AD-1) built from Copy Deck slots (AD-14), each carrying content-matched structured data (FAQPage/HowTo/Article + SoftwareApplication/BreadcrumbList). They do **not** depend on PersonaPress (AD-8) or any runtime. For **AEO/GEO** (NFR-3) they MUST expose **extractable question-and-answer prose** and **consistent canonical facts** that answer/generative engines (Google AI Overviews, Bing Copilot, ChatGPT, Perplexity) can cite; crawlable static HTML (AD-1) is the enabling precondition, and no special AI markup / `llms.txt` is required (an optional `/llm-info` canonical-facts page may exist, never as a ranking tactic). Any competitor claim must be verified against that competitor's current public source before publish (PRD §5/§11); unverified claims are omitted, not guessed. Canonical facts must not assert data-residency or CASL-consent guarantees the launch cut has not earned (Launch Profile).
+
 **Dependency direction** (who may depend on whom):
 
 ```mermaid
@@ -199,7 +214,8 @@ scheza-marketing/               # own repo, own Cloudflare deploy (AD-12)
       how-it-works.astro        # Examples (FR-4..6)
       tools/invoice-calculator.astro   # mounts Calculator island (FR-7..10)
       early-access.astro        # waitlist + referral + demo + partner (FR-11..13)
-      compare/jobber.astro      # SEO/AEO asset (NFR-2/3)
+      compare/jobber.astro, compare/housecall-pro.astro, compare/servicem8.astro  # SEO/AEO (AD-21)
+      resources/[...].astro     # content-moat pages: checklist, templates, admin-cost (AD-21)
       blog/[...slug].astro      # build-time SSG from PersonaPress (FR-16/17)
       fr/**                     # FR mirror of the above
       api/
@@ -269,7 +285,8 @@ erDiagram
 | Testimonials (FR-15) | `components` + `content` | AD-1, AD-14 |
 | Blog (FR-16/17) | `pages/blog`, `lib/persona` | AD-8, AD-20 |
 | Copy/content (FR-18) | `content`, `i18n` | AD-14 |
-| Performance / SEO / AEO / GEO (NFR-1..3) | whole site | AD-1, AD-8 |
+| Performance / SEO / AEO / GEO (NFR-1..3) | whole site | AD-1, AD-8, AD-21 |
+| Comparison / resource SEO-AEO pages (FR-17) | `pages/compare/**`, `pages/resources/**` + `content` | AD-21, AD-1, AD-14 |
 | Accessibility (NFR-4) | whole site | AD-19 |
 | Bilingual (NFR-5) | whole site | AD-14 |
 | Analytics / instrumentation (NFR-6) | capture events + analytics tool | AD-11 (+ Deferred) |

@@ -14,6 +14,25 @@ This PRD is for the PM (Boris), whoever builds the marketing site, and the downs
 
 It builds on existing inputs rather than duplicating them: the **GTM & Traction Strategy** (`_bmad-output/gtm-traction-strategy.md` — waitlist copy, SERP intel, the calculator lead-magnet spec, the 8-week plan), the **Design Thinking session** (`_bmad-output/design-thinking-2026-09-24.md` — the retention/positioning insights), and the app PRD's positioning. Its architecture companion — framework (Astro on Cloudflare), the single Lead contract, capture/consent/referral safety, and the deploy/ops envelope — lives in `_bmad-output/planning-artifacts/architecture/architecture-marketing-site-2026-09-28/ARCHITECTURE-SPINE.md`; implementation decisions defer to it. Vocabulary is anchored in the Glossary (§3); features are grouped with globally numbered FRs nested under them; assumptions are tagged inline as `[ASSUMPTION]` and indexed in §9. **Copy is owner-supplied** — this document defines *content slots and constraints*, not finished words; Boris writes all marketing copy.
 
+## 0.1 Launch Profile v1 — course correction 2026-10-06
+
+> Added by the 2026-10-06 Sprint Change Proposal (`sprint-change-proposal-2026-10-06.md`). This section **re-baselines the launch MVP**; the full FR/NFR set below remains the product's north star and the deferred items are the post-launch roadmap.
+
+**Canonical code & brand.** The marketing site is realized by **`scheza-marketing-v1`**, promoted into the decoupled **`scheza-marketing`** repo (Astro 7 + Tailwind v4 + `@astrojs/cloudflare`, static output, one `/api/waitlist` Worker route). The old navy build is retired. Brand = **`scheza-brand-kit`** (Ink/Apricot/Vermilion, Manrope+Inter), which **supersedes `docs/visual.png`**. Domains: `scheza.com` (this site) and `app.scheza.com` (the existing Next.js app on Vercel); the hero switches modes on `PUBLIC_APP_URL`.
+
+**Ships at launch (v1):** FR-2 (waitlist email capture via **Resend Contacts**), FR-3 (positioning blocks), FR-18 (owner-supplied copy slots), and NFR-1/2/4/7 (performance, SEO, WCAG AA via the axe CI gate, resilience). EN-only.
+
+**Deferred to post-launch roadmap (re-mapped onto v1):**
+- FR-1 taste-of-magic trade+city preview (Story 1-4)
+- FR-9 / NFR-5 EN↔FR bilingual UI + output
+- FR-7/8/10 invoice calculator + PDF + bridge CTA (Epic 3)
+- FR-11/12/13 referral loop + demo/pilot + partner (Epic 4)
+- FR-4/5/6/15 demo video, screenshots, examples, testimonials (Epic 2)
+- FR-16 PersonaPress blog + per-post distribution metadata (Epic 5)
+- SEO/AEO/GEO re-scope (2026-10-06, `sprint-change-proposal-2026-10-06-seo.md`): NFR-3 (AEO/GEO) and the comparison/resource content are delivered by the new **Epic 6 (SEO/AEO/GEO foundation & comparison pages)**, demand-validated and scoped to a lean foundation (not the full strategy-doc content tree). Keyword/answer-engine direction: §14.1.
+
+**Interim risk accepted (lead capture).** v1 captures leads to **Resend Contacts** with rate limiting and server-side validation, but at launch it does **not** include **Cloudflare Turnstile** (AD-10 / NFR-9) nor the **full CASL server-witnessed consent** record (AD-9 / FR-14). This is acceptable for a pre-launch waitlist. Constraint: **public copy must not assert Canadian data-residency or CASL-compliant consent guarantees** until the Turnstile + witnessed-consent path lands. (Note: the Supabase ca-central-1 lead store named in NFR-8 was already superseded by the architecture spine's **Resend Contacts, no-database** decision; v1 follows the spine.)
+
 ## 1. Vision
 
 The Scheza marketing site is the **pre-launch conversion engine**: a fast, bilingual, credibility-first website that turns an Ontario trades owner (or a partner, or a curious peer) into a **named, warm signup** before the app is publicly available. It is the top of the funnel the GTM strategy calls "the conversion core" — a "taste-of-magic" landing experience, a genuinely useful free tool, real pilot testimonials, and a referral loop that gets trades to bring other trades onto the list.
@@ -341,7 +360,7 @@ Marketing consent is captured separately and explicitly at every capture point.
 **Secondary**
 - **SM-3 — Calculator conversion.** Calculator completions → PDF downloads → Marketing Opt-In rate. Target: a healthy opt-in share of completions (set baseline in first 2 weeks). Validates FR-7–FR-10, FR-14.
 - **SM-4 — Pilot/partner pipeline.** Pilot requests and partner conversations opened. Target: **5–7 active pilot recruits, 2–3 partner conversations** (per GTM). Validates FR-12, FR-13.
-- **SM-5 — Discoverability.** Indexation + presence for target queries (Jobber-comparison / bilingual invoice+tax terms) and evidence of AI-answer citation over time. Validates §10 (SEO/AEO/GEO). `[ASSUMPTION]` measured via search console + periodic AEO/GEO spot-checks.
+- **SM-5 — Discoverability.** Indexation + ranking presence for the validated priority clusters (see §14.1): (a) "<incumbent> alternative Canada" comparison intent, (b) long-tail Ontario invoice/template resource queries, (c) AI-answer citation of comparison/resource pages. De-prioritise generic high-CPC heads and geo-Ontario trades terms (demand-validated thin). Validates §10 (SEO/AEO/GEO). Measured via Google Search Console + Bing Webmaster Tools (incl. Bing AI Performance) + a periodic AEO/GEO citation spot-check across Google AI Overviews, Bing Copilot, ChatGPT, and Perplexity.
 - **SM-6 — Performance.** Core Web Vitals pass on mobile for all key pages (see §10). Validates §10.
 
 **Counter-metrics (do not optimize)**
@@ -418,7 +437,22 @@ Top-level surfaces (all under `scheza.com`, EN/FR):
 - `/tools/invoice-calculator` (+ `/fr/outils/...`) — Calculator
 - `/early-access` (or `/get-started`) — Early Access / Demo + Referral
 - `/blog` + `/blog/{slug}` — Blog (PersonaPress)
-- Comparison/alternative pages (e.g. `/compare/jobber`) — SEO/AEO assets, fed by the Copy Deck
+- Comparison / "alternative (Canada)" pages (`/compare/jobber`, `/compare/housecall-pro`, `/compare/servicem8`) — first-class SEO/AEO assets, fed by the Copy Deck
+- Resource / content-moat pages under `/resources/**` (Ontario invoice checklist, HVAC & plumbing templates, "cost of evening admin" mini-calculator) — long-tail + AEO/GEO assets
 - Standard: `/privacy`, `/terms`, footer with consent/unsubscribe info
 
 IA is designed so a future `agent.` or `community.` narrative *could* be linked without restructuring, but neither is built here.
+
+### 14.1 Keyword & Answer-Engine Architecture (demand-validated 2026-10-06)
+
+> Added by the 2026-10-06 SEO re-scope (`sprint-change-proposal-2026-10-06-seo.md`). Source: `seo-demand-validation-2026-10-06.md` (DataForSEO, Google Ads volume, Canada/Ontario).
+
+SEO/AEO/GEO is a **compounding secondary** asset (per §12); warm/referral/outbound stays primary. Because validated head-term volume is thin (especially Ontario), **answer-engine visibility is a first-class discovery channel here**, not an afterthought: buyers increasingly ask AI assistants ("best job/invoicing software for a small Ontario HVAC business") instead of typing a 10/mo head term. Classic SEO captures branded intent; AEO/GEO captures the discovery that is shifting to AI.
+
+**Three co-equal pillars:**
+
+1. **SEO** — branded "alternative (Canada)" intent, the only sizeable high-intent pool: `jobber` 40,500/mo, `housecall pro` 4,400/mo, `servicem8` 590/mo (Canada). Target with honest comparison pages + FAQ schema.
+2. **AEO (Answer Engine Optimization)** — be the cited answer in Google AI Overviews, Bing Copilot, ChatGPT, and Perplexity. Extractable question-and-answer prose, content-matched schema.org (FAQPage/HowTo/SoftwareApplication), crawlable-by-AI static HTML, and consistent canonical factual claims. Per Google's current guidance this needs **no** special AI markup or `llms.txt`; normal SEO + structure + unique evidence is the foundation. An optional `/llm-info` canonical-facts page may be added, never as a ranking tactic.
+3. **GEO (Generative Engine Optimization)** — the content moat (Ontario invoice checklist, trade templates, "cost of evening admin" estimator) gives generative engines unique, Ontario-specific, evidence-rich sources to cite, and earns backlinks.
+
+**Not a primary bet:** geo-Ontario trades landing pages and generic high-CPC heads (`job management software` 10/mo Ontario; `field service management software` $74 CPC). Do not build Ontario-trades geo pages for search traffic. The homepage keeps its positioning/conversion job; it is not optimised for a thin head term.

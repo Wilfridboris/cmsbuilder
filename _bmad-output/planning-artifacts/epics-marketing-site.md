@@ -7,11 +7,16 @@ stepsCompleted:
 inputDocuments:
   - _bmad-output/planning-artifacts/prds/prd-marketing-site-2026-09-28/prd.md
   - _bmad-output/planning-artifacts/architecture/architecture-marketing-site-2026-09-28/ARCHITECTURE-SPINE.md
-  - docs/visual.png  # AUTHORITATIVE brand guide: logo, navy/blue/cyan palette (exact hex), Inter typography
-  - docs/design.md  # UX philosophy / aesthetic (Spatial Clean, touch-first, a11y); visual.png wins on color/type conflicts
+  - scheza-brand-kit/  # AUTHORITATIVE brand guide (Ink #342350 / Apricot #FFC69A / Vermilion #D94B35, Manrope ExtraBold + Inter) — supersedes docs/visual.png as of the 2026-10-06 course correction
+  - docs/visual.png  # SUPERSEDED (old navy/blue/cyan). Retained for history only; do NOT use for new work.
+  - docs/design.md  # UX philosophy / aesthetic (Spatial Clean, touch-first, a11y); brand-kit wins on any color/type conflict
 ---
 
 # Scheza Marketing Site - Epic Breakdown
+
+> **Course correction — 2026-10-06 (see `sprint-change-proposal-2026-10-06.md`).**
+> The canonical marketing codebase is now **`scheza-marketing-v1`**, promoted into the **`scheza-marketing`** repo; the old navy build is retired. Brand is **`scheza-brand-kit`** (Ink/Apricot/Vermilion, Manrope+Inter), not `docs/visual.png`. Domains: marketing = `scheza.com`, app = `app.scheza.com` (existing Next.js on Vercel).
+> **Launch profile:** Epic 1's conversion core is realized by v1 as a **lean, EN-only, static** landing + Resend waitlist. Deferred to a post-launch roadmap (re-mapped onto v1): **1-4 taste-of-magic preview**, EN/FR (NFR-5), Turnstile abuse guard (AD-10), full CASL server-witnessed consent (AD-9/FR-14), and Epics 2–5 (examples/testimonials, calculator, referral/pilot, blog).
 
 ## Overview
 
@@ -91,10 +96,10 @@ FR-13: Epic 4 - Partner angle entry point
 FR-14: Epic 1 - CASL-safe, server-witnessed consent capture
 FR-15: Epic 2 - Real, attributed testimonials (real-or-hidden)
 FR-16: Epic 5 - Blog rendering from PersonaPress (build-time SSG)
-FR-17: Epic 5 - Blog distribution metadata + comparison/SEO assets
+FR-17: Epic 5 (blog post metadata) + Epic 6 (comparison / SEO-AEO pages, moved here 2026-10-06-seo)
 FR-18: Epic 1 - Owner-supplied copy via named Content Slots (foundation)
 
-NFRs are cross-cutting: NFR-1/2/4/5/7/8/9 are established in Epic 1 and honored across all epics; NFR-3 (AEO/GEO) is realized primarily in Epic 5; NFR-6 (analytics) is wired in Epic 1 with per-epic events added as capabilities land.
+NFRs are cross-cutting: NFR-1/2/4/5/7/8/9 are established in Epic 1 and honored across all epics; NFR-2 + NFR-3 (SEO/AEO/GEO) are realized primarily in Epic 6; NFR-6 (analytics) is wired in Epic 1 with per-epic events added as capabilities land.
 
 ## Epic List
 
@@ -114,9 +119,13 @@ The bilingual calculator island (deterministic tax math + client-side `pdf-lib`)
 The early-access page: the referral loop (server-issued opaque tokens, non-forgeable attribution), the demo/pilot request path, and the partner entry point. Reuses Epic 1's capture infra; stands alone.
 **FRs covered:** FR-11, FR-12, FR-13
 
-### Epic 5: Blog & SEO/AEO assets
-PersonaPress blog (build-time render + HTML sanitize + webhook/scheduled rebuild), share/distribution metadata, and the comparison pages ("Scheza vs Jobber") as SEO/AEO assets. Depends only on the Epic 1 scaffold, so it can be built early/in parallel to start blogging immediately.
-**FRs covered:** FR-16, FR-17 (delivers NFR-3)
+### Epic 5: Blog (PersonaPress)
+PersonaPress blog (build-time render + HTML sanitize + webhook/scheduled rebuild) and per-post share/distribution metadata. Depends only on the Epic 1 scaffold, so it can be built early/in parallel to start blogging immediately. *(Course correction 2026-10-06-seo: comparison/SEO-AEO pages moved OUT to Epic 6; this epic is now blog-only.)*
+**FRs covered:** FR-16, FR-17 (per-post blog metadata only — comparison/SEO assets now in Epic 6)
+
+### Epic 6: SEO/AEO/GEO foundation & comparison pages (demand-validated)
+A real technical SEO/AEO/GEO baseline across the static site, honest "alternative (Canada)" comparison pages for the three incumbents (the only sizeable high-intent demand pool), a small content-moat resource set, and an answer-engine (AEO/GEO) optimization + citation-tracking loop. Depends only on the Epic 1 scaffold; buildable now, in parallel. Captures the demand that `seo-demand-validation-2026-10-06.md` actually found — including the AI-answer discovery that matters most in a thin head-term market.
+**FRs covered:** FR-17 (comparison/SEO assets, moved from Epic 5), FR-18; delivers NFR-2, NFR-3 (AEO/GEO)
 
 ---
 
@@ -147,9 +156,10 @@ So that every later story ships onto a live, fast, safe foundation.
 **When** the repo is inspected
 **Then** only `.env.example` with placeholders is committed; real secrets live in Cloudflare project secrets; Sentry error reporting and Cloudflare Web Analytics are wired (AD-20).
 
-**Given** the Scheza brand guide (`docs/visual.png`)
+**Given** the Scheza brand kit (`scheza-brand-kit/`)
 **When** the Tailwind v4 theme is configured
-**Then** the brand color palette (navy/blue/cyan, exact hex from the guide) and **Inter** as the primary typeface are set as design tokens, and the Scheza logo/wordmark assets are added — so all later stories build on-brand (brand = visual.png; aesthetic approach = design.md).
+**Then** the brand palette (Ink `#342350`, Apricot `#FFC69A`, Vermilion `#D94B35`, plus the extended web tokens Cream/Apricot-tint/Ink-muted/Vermilion-text) and **Manrope ExtraBold** (headings) + **Inter** (body) are set as design tokens, and the Scheza logo/wordmark/icon assets are added from the kit — so all later stories build on-brand (brand = `scheza-brand-kit`, supersedes `docs/visual.png`; aesthetic approach = design.md).
+> *Realized by `scheza-marketing-v1` (`src/styles/global.css` `@theme` + `public/brand/**`). This AC is satisfied by the promoted v1 code.*
 
 ### Story 1.2: Lead capture endpoint (Resend Contacts) with abuse/consent guard
 
@@ -455,9 +465,9 @@ So that the referral loop is measurable and not gameable.
 
 ---
 
-## Epic 5: Blog & SEO/AEO assets
+## Epic 5: Blog (PersonaPress)
 
-An owned content + discoverability asset, live early so blogging can start during the app build. Realizes UJ-4 and amplifier reach.
+An owned content asset, live early so blogging can start during the app build. Realizes UJ-4 and amplifier reach. *(The comparison / SEO-AEO pages that previously lived here as Story 5.4 moved to Epic 6, Story 6.2, in the 2026-10-06-seo course correction.)*
 
 ### Story 5.1: Blog rendering from PersonaPress (build-time, sanitized)
 
@@ -500,14 +510,114 @@ So that new posts appear without a manual deploy.
 **When** its webhook fires
 **Then** a rebuild/redeploy is triggered; a scheduled rebuild exists as a fallback (AD-20, FR-16).
 
-### Story 5.4: Comparison / SEO-AEO pages
+### Story 5.4: Comparison / SEO-AEO pages — MOVED
+
+> Moved to **Epic 6, Story 6.2** in the 2026-10-06-seo course correction (`sprint-change-proposal-2026-10-06-seo.md`). Comparison pages are now demand-justified (branded "alternative Canada" intent) and pulled forward out of the PersonaPress-dependent blog epic. See Epic 6.
+
+---
+
+## Epic 6: SEO/AEO/GEO foundation & comparison pages
+
+Make the site findable where demand actually exists — in classic search AND in AI answer/generative engines (where thin head-term search shifts discovery). Realizes SM-5; delivers NFR-2 and NFR-3 (AEO/GEO). Depends only on the Epic 1 scaffold; all work is static HTML on the existing Astro/Cloudflare pipeline. Keyword/answer-engine direction: PRD §14.1; evidence: `seo-demand-validation-2026-10-06.md`.
+
+### Story 6.1: Technical SEO + structured-data baseline (site-wide)
+
+As the site owner,
+I want every static page crawlable, canonical, and schema-marked,
+So that the SEO/AEO guarantee is real and not deferred.
+
+**Acceptance Criteria:**
+
+**Given** any indexable page
+**When** audited
+**Then** it emits correct title/meta/canonical, a valid XML sitemap + robots.txt, Open Graph/Twitter cards, and descriptive alt text (NFR-2).
+
+**Given** the homepage and comparison/resource pages
+**When** rendered
+**Then** Organization + SoftwareApplication + (where applicable) FAQPage/BreadcrumbList schema.org data is present and matches visible content (NFR-3, AD-21).
+
+**Given** CI
+**When** it runs
+**Then** a structured-data sanity check runs; pages stay static (AD-1) and within the Core Web Vitals budget (NFR-1).
+
+> Closes the NFR-3 gap left open when Story 1-6 shipped under the deferred launch cut.
+
+### Story 6.2: "Alternative (Canada)" comparison pages — Jobber, Housecall Pro, ServiceM8
 
 As an in-market visitor comparing tools,
-I want an honest "Scheza vs Jobber" page,
+I want an honest "<incumbent> alternative in Canada" page,
 So that I can decide — and Scheza gets found for that intent.
 
 **Acceptance Criteria:**
 
-**Given** the comparison page(s) (e.g. `/compare/jobber`)
+**Given** `/compare/jobber`, `/compare/housecall-pro`, `/compare/servicem8` (+ `/fr/**` when FR lands)
 **When** rendered
-**Then** they are first-class static pages driven by owner-supplied Content Slots, with SEO metadata and AEO/GEO structured data (FAQ/comparison), meeting the performance + a11y baseline (NFR-2/3/1/4, FR-17).
+**Then** each is a first-class static page from owner-supplied Content Slots (FR-18), with a factual comparison table and FAQPage schema (AEO), canonical, and the NFR-1/2/4 baseline.
+
+**Given** the honesty guardrail (PRD §5, §11)
+**When** a competitor claim is authored
+**Then** it is published only after verification against that competitor's current public plan; unverified rows are omitted, not guessed.
+
+**Given** a visitor on a comparison page
+**When** they act on the CTA
+**Then** it routes to the Epic 1 waitlist capture.
+
+### Story 6.3: AEO/GEO content-moat resource pages
+
+As an Ontario trades owner searching a specific task,
+I want a genuinely useful resource,
+So that I find Scheza via long-tail and AI answers.
+
+**Acceptance Criteria:**
+
+**Given** `/resources/ontario-hvac-invoice-checklist`, `/resources/trade-invoice-templates`, and a lightweight `/resources/cost-of-evening-admin` mini-calculator
+**When** rendered
+**Then** each is static, Content-Slot-driven, carries HowTo/FAQ/Article schema, and meets the baseline.
+
+**Given** the mini-calculator
+**When** used
+**Then** it is a simple static estimator (NOT the full Epic 3 invoice calculator) and bridges to the waitlist.
+
+**Given** the invoice checklist
+**When** rendered
+**Then** it carries the "not tax advice" + "as of" disclaimer (consistent with FR-7).
+
+### Story 6.4: Search-console registration & internal linking (owner task)
+
+As the site owner,
+I want the site registered and internally linked,
+So that indexation starts.
+
+**Acceptance Criteria:**
+
+**Given** Google Search Console + Bing Webmaster Tools
+**When** set up (owner-executed)
+**Then** the property is verified and the sitemap submitted; documented in the repo README.
+
+**Given** the new pages
+**When** published
+**Then** crawlable HTML internal links connect homepage ↔ comparison ↔ resource pages (no orphan pages).
+
+### Story 6.5: AEO/GEO optimization & answer-engine citation tracking
+
+As the site owner,
+I want Scheza to be the cited answer in AI engines,
+So that we win discovery where thin head-term search cannot.
+
+**Acceptance Criteria:**
+
+**Given** comparison + resource + homepage content
+**When** authored
+**Then** key sections use extractable question-and-answer framing and self-contained factual statements an answer engine can quote (NFR-3), with content-matched FAQPage/HowTo/SoftwareApplication schema.
+
+**Given** canonical product facts (what Scheza is, who it is for, pricing posture, Canadian data stance)
+**When** stated
+**Then** they are consistent across pages; an optional `/llm-info` canonical-facts page MAY be added (never as a ranking tactic; Google needs no AI markup or llms.txt — PRD §14.1).
+
+**Given** a measurement loop
+**When** run periodically
+**Then** it queries Google AI Overviews, Bing Copilot, ChatGPT, and Perplexity for the category and records whether Scheza / its comparison/resource pages are cited (feeds SM-5); Bing AI Performance is monitored in Bing Webmaster Tools.
+
+**Given** the honesty + launch-cut guardrails (PRD §5/§11, §0.1)
+**When** canonical facts are authored
+**Then** they do not assert data-residency or CASL-consent guarantees the launch cut has not yet earned.
