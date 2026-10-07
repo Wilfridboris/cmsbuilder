@@ -100,7 +100,7 @@ development_status:
 
   epic-6: in-progress  # added by sprint-change-proposal-2026-10-06-seo.md (demand-validated SEO/AEO/GEO)
   6-1-technical-seo-structured-data-baseline: review
-  6-2-alternative-canada-comparison-pages: backlog  # was Epic 5 story 5-4
+  6-2-alternative-canada-comparison-pages: review  # was Epic 5 story 5-4
   6-3-aeo-content-moat-resource-pages: backlog
   6-4-search-console-registration-internal-linking: backlog
   6-5-aeo-geo-optimization-and-citation-tracking: backlog
