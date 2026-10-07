@@ -50,3 +50,31 @@ export function invalidateOrgRecords(
   void queryClient.invalidateQueries({ queryKey: ["records", slug] });
   void queryClient.invalidateQueries({ queryKey: ["relation-labels", slug] });
 }
+
+/**
+ * Decide whether a Realtime subscribe status should trigger a reconcile
+ * (`invalidateOrgRecords` → `GET /api/records` refetch).
+ *
+ * Returns `true` for:
+ * - `"SUBSCRIBED"` — initial subscribe AND every post-reconnect rejoin (catch up
+ *   on changes missed during the gap).
+ * - `"CHANNEL_ERROR"` / `"TIMED_OUT"` — an errored or timed-out socket. The
+ *   refetch runs over HTTP, independent of the WebSocket, so the dashboard
+ *   reconciles authoritative state even while the socket is down instead of
+ *   silently staling (epic-3 retro D6). supabase-js still owns reconnection; when
+ *   it auto-rejoins, `SUBSCRIBED` fires again and reconciles once more.
+ *
+ * Returns `false` for everything else, including `"CLOSED"` — the intentional
+ * `removeChannel`/unmount teardown path, where refetching a disappearing view is
+ * wasted work — and any unknown/future status string.
+ *
+ * Pure and socket-free so the status→reconcile decision is node-testable without
+ * a WebSocket; the hook composes it.
+ */
+export function shouldReconcileOnStatus(status: string): boolean {
+  return (
+    status === "SUBSCRIBED" ||
+    status === "CHANNEL_ERROR" ||
+    status === "TIMED_OUT"
+  );
+}

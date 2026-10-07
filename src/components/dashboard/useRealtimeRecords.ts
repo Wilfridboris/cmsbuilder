@@ -8,6 +8,7 @@ import {
   invalidateOrgRecords,
   recordsChangeFilter,
   recordsChannelName,
+  shouldReconcileOnStatus,
 } from "@/lib/data/realtime";
 
 /**
@@ -16,9 +17,15 @@ import {
  * Subscribes the mounted dashboard to a Supabase Realtime `postgres_changes`
  * channel on `public.records`, scoped to the caller's org. On ANY received
  * change event (INSERT/UPDATE — app deletes are soft UPDATEs of `deleted_at`)
- * and on every `SUBSCRIBED` status (initial subscribe AND post-reconnect
- * rejoin), it calls `invalidateQueries(["records", slug])` so the cache refetches
- * authoritative state through the existing `GET /api/records` path. It NEVER
+ * and on every reconcile-worthy subscribe status (`SUBSCRIBED` — initial
+ * subscribe AND post-reconnect rejoin — plus `CHANNEL_ERROR` / `TIMED_OUT`, a
+ * fallback refetch when the socket errors or times out so a dropped connection
+ * never leaves the dashboard silently stale; see `shouldReconcileOnStatus`), it
+ * calls `invalidateQueries(["records", slug])` so the cache refetches
+ * authoritative state through the existing `GET /api/records` path. That refetch
+ * runs over HTTP independent of the WebSocket, so it reconciles even while the
+ * socket is down; supabase-js still owns reconnection (no bespoke retry loop). It
+ * NEVER
  * calls `setQueryData` or applies the event payload to rows — the refetch is the
  * single source of truth (mandatory epic pattern), and a self-echoed event just
  * triggers an idempotent no-op refetch.
@@ -63,10 +70,13 @@ export function useRealtimeRecords({
         () => invalidate(),
       )
       .subscribe((status) => {
-        // On initial subscribe AND every post-reconnect rejoin, reconcile any
-        // changes missed during the gap — supabase-js auto-rejoins the socket;
-        // no manual reload, no bespoke retry loop.
-        if (status === "SUBSCRIBED") {
+        // Reconcile on SUBSCRIBED (initial subscribe AND every post-reconnect
+        // rejoin, catching up on changes missed during the gap) and on
+        // CHANNEL_ERROR / TIMED_OUT (an HTTP fallback refetch so an errored/
+        // timed-out socket does not silently stale the view). Not on CLOSED (the
+        // intentional teardown) or any unknown status. supabase-js auto-rejoins
+        // the socket; no manual reload, no bespoke retry loop.
+        if (shouldReconcileOnStatus(status)) {
           invalidate();
         }
       });

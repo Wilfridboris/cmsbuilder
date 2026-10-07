@@ -318,7 +318,7 @@ action_items:
     action: "Handle CHANNEL_ERROR/TIMED_OUT in the realtime subscription with a fallback/refresh
       so a dropped socket does not silently stale the dashboard. [D6]"
     owner: "Dev"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-27.md"
   - id: "epic-3-retro-item-20-add-a-dangling-reference-repair-cleanup"
     epic: 3

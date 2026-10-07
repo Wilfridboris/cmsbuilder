@@ -4,6 +4,7 @@ import {
   invalidateOrgRecords,
   recordsChangeFilter,
   recordsChannelName,
+  shouldReconcileOnStatus,
 } from "@/lib/data/realtime";
 import type { QueryClient } from "@tanstack/react-query";
 
@@ -78,5 +79,31 @@ describe("invalidateOrgRecords", () => {
       const arg = call[0] as { queryKey: unknown[] };
       expect(arg.queryKey).toHaveLength(2);
     }
+  });
+});
+
+describe("shouldReconcileOnStatus", () => {
+  // Pins the frozen I/O & edge-case matrix for the status→reconcile decision
+  // (epic-3 D6): an errored/timed-out socket must trigger the HTTP fallback
+  // refetch, while an intentional close (or any unknown status) must not.
+
+  it("reconciles on SUBSCRIBED (initial subscribe AND post-reconnect rejoin)", () => {
+    expect(shouldReconcileOnStatus("SUBSCRIBED")).toBe(true);
+  });
+
+  it("reconciles on CHANNEL_ERROR (socket error → HTTP catch-up refetch)", () => {
+    expect(shouldReconcileOnStatus("CHANNEL_ERROR")).toBe(true);
+  });
+
+  it("reconciles on TIMED_OUT (join timeout → HTTP catch-up refetch)", () => {
+    expect(shouldReconcileOnStatus("TIMED_OUT")).toBe(true);
+  });
+
+  it("does NOT reconcile on CLOSED (intentional removeChannel/unmount teardown)", () => {
+    expect(shouldReconcileOnStatus("CLOSED")).toBe(false);
+  });
+
+  it("does NOT reconcile on an unknown/future status string", () => {
+    expect(shouldReconcileOnStatus("SOME_FUTURE_STATUS")).toBe(false);
   });
 });
