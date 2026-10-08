@@ -95,7 +95,7 @@ export function ChatPanel({
   // The header bot's mood (Story 15.2): a pure function of whether a request is
   // in flight and the most recent assistant message's `uiKind`. The pill uses
   // the same `moodForEditor` source of truth, so the bot reflects editor state
-  // (listening → thinking → proud/oops) identically in both places.
+  // (waiting → focused → proud/oops) identically in both places.
   const lastAssistant = [...messages]
     .reverse()
     .find((m) => m.role === "assistant");
@@ -339,7 +339,7 @@ export function ChatPanel({
           <header className="flex items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
             <div className="flex items-center gap-2">
               {/* The assistant's face reflects editor state by mood (Story
-                  15.2): listening → thinking → proud/oops. Decorative — the
+                  15.2): waiting → focused → proud/oops. Decorative — the
                   dialog Title names the assistant for screen readers. */}
               <SchezaBot mood={botMood} size={40} label={t("botLabel")} />
               <DialogPrimitive.Title className="text-sm font-semibold">

@@ -11,15 +11,15 @@ import type { AssistantUiKind } from "@/components/chat/chat-message";
  * env with no DOM and no component state.
  *
  * Mapping (per the story's Boundaries + I/O matrix):
- *   - request in flight            → `thinking`
+ *   - request in flight            → `focused`
  *   - last reply was an applied op → `proud`   (success/proud family)
  *   - last reply declined/failed   → `oops`    (declined / degraded / rejected)
  *   - idle, or an offer / plain /
- *     greeting / clarify reply      → `listening`
+ *     greeting / clarify reply      → `waiting`
  *
  * `pending` wins over any prior message (the bot is actively working). With no
  * assistant message yet (a fresh panel) and nothing pending, the bot rests in
- * `listening`.
+ * `waiting`.
  */
 
 /** The `uiKind`s that represent a successfully applied schema change. */
@@ -42,12 +42,12 @@ export function moodForEditor(
   pending: boolean,
   lastAssistantUiKind: AssistantUiKind | null,
 ): SchezaMood {
-  // A request in flight: the bot is thinking, regardless of prior state.
+  // A request in flight: the bot is focused on the work, regardless of prior state.
   if (pending) {
-    return "thinking";
+    return "focused";
   }
   if (lastAssistantUiKind === null) {
-    return "listening";
+    return "waiting";
   }
   if (APPLIED_KINDS.has(lastAssistantUiKind)) {
     return "proud";
@@ -56,6 +56,6 @@ export function moodForEditor(
     return "oops";
   }
   // `offer-hide-table` and `plain` (greeting, clarify, rejection) → the bot is
-  // waiting for the owner's next move: a calm, attentive listening pose.
-  return "listening";
+  // waiting for the owner's next move: a calm, attentive waiting pose.
+  return "waiting";
 }

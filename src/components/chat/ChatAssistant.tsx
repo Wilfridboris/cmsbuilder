@@ -58,7 +58,7 @@ export function ChatAssistant({ slug }: { slug: string }) {
         >
           {/* The resting bot is the assistant's face (decorative — the button
               already carries `aria-label`/`pillLabel` for screen readers). */}
-          <SchezaBot mood="listening" size={32} />
+          <SchezaBot mood="waiting" size={32} />
           <span className="sr-only">{t("pillLabel")}</span>
         </button>
       ) : null}

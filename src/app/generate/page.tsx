@@ -143,7 +143,7 @@ export default function GeneratePage() {
 
   // initializing | generating → the bot narrates while the single POST is in
   // flight. `aria-busy`/`aria-live` + the loading label are preserved on the
-  // region; GenerativeReveal supplies the bot (`thinking`) and the honest,
+  // region; GenerativeReveal supplies the bot (`focused`) and the honest,
   // non-gating phase lines.
   return (
     <main

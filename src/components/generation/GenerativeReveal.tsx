@@ -15,7 +15,7 @@ import { readIntent } from "@/lib/generation/intent";
  * single-POST guard, the accessibility attributes, and the fallback /
  * `StartOver` degradations; it drives THIS component by `status`:
  *
- *   - `working`  — the in-flight `POST /api/generate`. The bot plays `thinking`
+ *   - `working`  — the in-flight `POST /api/generate`. The bot plays `focused`
  *     and honest phase lines rotate in an `aria-live="polite"` region. The
  *     narration is PURELY ambient: it never gates progression, so a fast
  *     response reveals immediately and a slow one simply shows more lines. No
@@ -96,7 +96,7 @@ export function GenerativeReveal({ status, children }: GenerativeRevealProps) {
       ? "proud"
       : status === "degraded"
         ? "oops"
-        : "thinking";
+        : "focused";
 
   const botLabel = t("botLabel");
 
