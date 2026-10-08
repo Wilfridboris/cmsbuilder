@@ -82,7 +82,7 @@
     "phaseDesigning": "Designing your tables",
     "phaseSeeding": "Adding Ontario-ready sample data",
     "phaseFinishing": "Putting it all together",
-    "fallbackBanner": "We used a starter template — you can customize it using the chat.",
+    "fallbackBanner": "We used a starter template. You can customize it using the chat.",
     "failedTitle": "Let's try that again",
     "failedBody": "We couldn't finish building your dashboard just now. Head back and give it another try.",
     "cellEmpty": "Empty",
@@ -131,7 +131,7 @@
     "removeTable": "Remove the {table} table",
     "renamePlaceholder": "New name",
     "renameEmpty": "Please enter a name.",
-    "lastTable": "This is your last table — rename it instead of removing it so your dashboard stays populated."
+    "lastTable": "This is your last table, so rename it instead of removing it to keep your dashboard populated."
   },
   "Demo": {
     "title": "Live demo dashboard",
@@ -142,7 +142,7 @@
   "Claim": {
     "cta": "Make it Real",
     "ctaHeadline": "Make this dashboard yours",
-    "ctaSubtext": "Keep your dashboard and start using it — no password needed.",
+    "ctaSubtext": "Keep your dashboard and start using it, no password needed.",
     "title": "Make it Real",
     "subtitle": "Enter your email and we'll send you a secure link to claim this dashboard. No password required.",
     "emailLabel": "Email address",
@@ -193,7 +193,7 @@
   },
   "Settings": {
     "title": "Invite your team",
-    "subtitle": "Add a teammate by email and choose what they can do. They'll get a secure link to join — no password needed.",
+    "subtitle": "Add a teammate by email and choose what they can do. They'll get a secure link to join, no password needed.",
     "emailLabel": "Teammate's email",
     "emailPlaceholder": "teammate@yourbusiness.ca",
     "roleLabel": "Role",

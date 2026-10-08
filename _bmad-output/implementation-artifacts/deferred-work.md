@@ -314,3 +314,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-15-2-schezabot-assistant-signature-generative-reveal.md`
   summary: Wire the SchezaBot mascot mood into the remaining dashboard/forms empty-and-error states (FormsList loading+error, RecordsView empty-table + filtered-empty, RecordDetail unresolvable-relation fallback).
   evidence: Story 15.2 scoped the mascot to the two signature surfaces (the /generate reveal and the Epic 5 chat editor) per the approved Open-Question decision, to keep the MVP go-live review surface small. The component is vendored into src/components/scheza-bot, so adding it to these remaining states is a trivial later follow-up.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-15-3-mvp-polish-quick-wins-copy-inputs-icons-promo-codes.md`
+  summary: Add a render-level test for the issued invoice / credit-note on-screen money (asserting the view derives `language` from the frozen document and renders the locale-correct currency string), covering what the direct `formatMoney` unit test cannot.
+  evidence: No test renders `IssuedInvoiceView`/`IssuedCreditNoteView`; inverting the view's language ternary keeps the whole suite green. These are async server components the repo verifies via post-commit Playwright MCP rather than unit tests (mirrors 15-2), so the gap is covered manually now; a render harness stubbing `getTranslations` would close it automatically. Settles when such a harness exists.

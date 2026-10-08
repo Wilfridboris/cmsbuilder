@@ -114,6 +114,8 @@ describe("POST /api/stripe/checkout", () => {
     expect(args.line_items).toEqual([{ price: "price_solo_123", quantity: 1 }]);
     expect(args.client_reference_id).toBe("org-1");
     expect(args.metadata).toEqual({ org_id: "org-1", tier: "solo" });
+    // Launch coupons (Story 15.3): the hosted page exposes a promotion-code field.
+    expect(args.allow_promotion_codes).toBe(true);
     // The subscription itself (not just the session) carries the org linkage so
     // later stories (7.3 portal / 7.4 gating) can resolve the org from it.
     expect(args.subscription_data).toEqual({

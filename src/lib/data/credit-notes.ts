@@ -49,6 +49,7 @@ export type CreditNoteSummary = Pick<
   | "share_token"
   | "pdf_path"
   | "created_at"
+  | "language"
 >;
 
 /**
@@ -64,7 +65,7 @@ export async function listCreditNotesForInvoice(
   const { data, error } = await client
     .from("credit_notes")
     .select(
-      "id, status, credit_note_number, total, issue_date, share_token, pdf_path, created_at",
+      "id, status, credit_note_number, total, issue_date, share_token, pdf_path, created_at, language",
     )
     .eq("organization_id", orgId)
     .eq("invoice_id", invoiceId)

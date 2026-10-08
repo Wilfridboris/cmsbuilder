@@ -16,10 +16,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-import { formatInvoiceNumber } from "@/lib/invoicing/tax";
+import { formatInvoiceNumber, formatMoney } from "@/lib/invoicing/tax";
 import { invoiceShareUrl } from "@/lib/invoicing/share";
 import { InvoiceApiError } from "@/lib/data/invoices-client";
-import { money } from "@/lib/invoicing/format";
 import { useIsClient } from "@/components/invoices/use-is-client";
 import {
   listCreditNotesForInvoice,
@@ -162,7 +161,10 @@ export function InvoiceCreditNotes({
                       </Badge>
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-foreground">
-                      {money(creditNote.total)}
+                      {formatMoney(
+                        Number(creditNote.total),
+                        creditNote.language === "fr" ? "fr" : "en",
+                      )}
                     </TableCell>
                     <TableCell className="text-right">
                       <div className="flex justify-end gap-2">

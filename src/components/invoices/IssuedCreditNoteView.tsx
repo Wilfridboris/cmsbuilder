@@ -4,8 +4,8 @@ import { FileMinus2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { PaymentInstructionsBlock } from "@/components/invoices/PaymentInstructionsBlock";
 import { CreditNoteDeliveryActions } from "@/components/invoices/CreditNoteDeliveryActions";
-import { formatInvoiceNumber } from "@/lib/invoicing/tax";
-import { formatIssueDate, money } from "@/lib/invoicing/format";
+import { formatInvoiceNumber, formatMoney } from "@/lib/invoicing/tax";
+import { formatIssueDate } from "@/lib/invoicing/format";
 import type {
   CreditNoteLineItemRow,
   CreditNoteRow,
@@ -179,10 +179,10 @@ export async function IssuedCreditNoteView({
                   {String(item.quantity)}
                 </span>
                 <span className="text-sm tabular-nums text-muted-foreground sm:text-right">
-                  {money(item.unit_price)}
+                  {formatMoney(Number(item.unit_price), language)}
                 </span>
                 <span className="text-sm font-medium tabular-nums text-foreground sm:text-right">
-                  {money(item.amount)}
+                  {formatMoney(Number(item.amount), language)}
                 </span>
               </li>
             ))}
@@ -198,7 +198,7 @@ export async function IssuedCreditNoteView({
               {tInvoices("subtotalLabel")}
             </dt>
             <dd className="tabular-nums text-foreground">
-              {money(creditNote.subtotal)}
+              {formatMoney(Number(creditNote.subtotal), language)}
             </dd>
           </div>
           {taxLines.map((line) => (
@@ -214,7 +214,7 @@ export async function IssuedCreditNoteView({
                 })}
               </dt>
               <dd className="tabular-nums text-foreground">
-                {money(line.tax_amount)}
+                {formatMoney(Number(line.tax_amount), language)}
               </dd>
             </div>
           ))}
@@ -223,7 +223,7 @@ export async function IssuedCreditNoteView({
               {tInvoices("totalLabel")}
             </dt>
             <dd className="text-base font-semibold tabular-nums text-foreground">
-              {money(creditNote.total)}
+              {formatMoney(Number(creditNote.total), language)}
             </dd>
           </div>
         </dl>

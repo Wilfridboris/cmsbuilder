@@ -3,9 +3,10 @@ import { FileCheck2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { PaymentInstructionsBlock } from "@/components/invoices/PaymentInstructionsBlock";
-import { formatInvoiceNumber } from "@/lib/invoicing/tax";
-import { formatIssueDate, money } from "@/lib/invoicing/format";
+import { formatInvoiceNumber, formatMoney } from "@/lib/invoicing/tax";
+import { formatIssueDate } from "@/lib/invoicing/format";
 import type {
+  InvoiceLanguage,
   InvoiceLineItemRow,
   InvoiceRow,
   InvoiceStatus,
@@ -58,6 +59,11 @@ export async function IssuedInvoiceView({
 
   const supplier = invoice.supplier_snapshot;
   const customer = invoice.customer_snapshot;
+  // Money renders with a currency symbol + locale thousands grouping keyed off
+  // the invoice's FROZEN language (Story 15.3), so the on-screen figures match the
+  // frozen PDF exactly (en `$1,234.50`, fr `1 234,50 $`). Derived the same way the
+  // credit-note view does.
+  const language: InvoiceLanguage = invoice.language === "fr" ? "fr" : "en";
   const numberDisplay = formatInvoiceNumber(
     typeof invoice.invoice_number === "string"
       ? Number(invoice.invoice_number)
@@ -169,10 +175,10 @@ export async function IssuedInvoiceView({
                   {String(item.quantity)}
                 </span>
                 <span className="text-sm tabular-nums text-muted-foreground sm:text-right">
-                  {money(item.unit_price)}
+                  {formatMoney(Number(item.unit_price), language)}
                 </span>
                 <span className="text-sm font-medium tabular-nums text-foreground sm:text-right">
-                  {money(item.amount)}
+                  {formatMoney(Number(item.amount), language)}
                 </span>
               </li>
             ))}
@@ -188,7 +194,7 @@ export async function IssuedInvoiceView({
               {t("subtotalLabel")}
             </dt>
             <dd className="tabular-nums text-foreground">
-              {money(invoice.subtotal)}
+              {formatMoney(Number(invoice.subtotal), language)}
             </dd>
           </div>
           {taxLines.map((line) => (
@@ -207,7 +213,7 @@ export async function IssuedInvoiceView({
                 })}
               </dt>
               <dd className="tabular-nums text-foreground">
-                {money(line.tax_amount)}
+                {formatMoney(Number(line.tax_amount), language)}
               </dd>
             </div>
           ))}
@@ -216,7 +222,7 @@ export async function IssuedInvoiceView({
               {t("totalLabel")}
             </dt>
             <dd className="text-base font-semibold tabular-nums text-foreground">
-              {money(invoice.total)}
+              {formatMoney(Number(invoice.total), language)}
             </dd>
           </div>
         </dl>

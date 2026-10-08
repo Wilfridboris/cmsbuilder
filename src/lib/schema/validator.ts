@@ -302,6 +302,32 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 /**
+ * Pure em-dash guard (Story 15.3). Hardens the GENERATION path's model output so
+ * the no-em-dash invariant holds for the labels and seed values it produces,
+ * regardless of what the model returns (the prompt instruction is a request; this
+ * is the enforcement). Replaces every em-dash (U+2014) and en-dash (U+2013) with a
+ * plain hyphen-minus, collapses any doubled space the removal may leave behind, and
+ * trims edge whitespace. Node-testable and side-effect-free.
+ *
+ * Scope: applied to sanitized generated table/field/select-option LABELS in
+ * `validateGeneratedSchema`/`validateSelectOptions` below and to string SEED VALUES
+ * in `filterSeedRows`. The chat-editor validators (`validateAddField` etc.) are a
+ * separate write path and intentionally out of this story's scope. A non-string
+ * input is returned unchanged (seed cells may be numbers/booleans), so only text is
+ * ever touched.
+ */
+export function scrubEmDash<T>(value: T): T {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const scrubbed = value
+    .replace(/[—–]/g, "-")
+    .replace(/ {2,}/g, " ")
+    .trim();
+  return scrubbed as unknown as T;
+}
+
+/**
  * Shared `select` option-list validator (Story 13.1). Used by BOTH validator
  * entry points (`validateGeneratedSchema` on the generation path and
  * `validateAddField` on the conversational add-field path) so a `select` field
@@ -360,7 +386,7 @@ export function validateSelectOptions(
     }
     seenValues.add(value);
 
-    options.push({ value, label: o.label.trim() });
+    options.push({ value, label: scrubEmDash(o.label.trim()) });
   }
 
   return { valid: true, options };
@@ -506,7 +532,7 @@ export function validateGeneratedSchema(
 
       const sanitizedField: FieldDefinition = {
         key: fieldKey,
-        label: f.label.trim(),
+        label: scrubEmDash(f.label.trim()),
         type: type as FieldDefinition["type"],
       };
 
@@ -586,7 +612,7 @@ export function validateGeneratedSchema(
     const sanitizedTable: TableDefinition = {
       key: tableKey,
       // Pass 1 already confirmed `t.label` is a non-empty string.
-      label: String(t.label).trim(),
+      label: scrubEmDash(String(t.label).trim()),
       fields: sanitizedFields,
     };
     if (isNonEmptyString(t.reason)) {
@@ -1519,7 +1545,10 @@ export function filterSeedRows(
     const projected: Record<string, unknown> = {};
     for (const key of fieldKeys) {
       if (source[key] !== undefined && source[key] !== null) {
-        projected[key] = source[key];
+        // Scrub em-dashes from STRING seed values before persist (Story 15.3), so
+        // a model that returns `—` in a cell lands a plain hyphen. Non-string
+        // cells (numbers/booleans/dates) pass through untouched.
+        projected[key] = scrubEmDash(source[key]);
       }
     }
     if (Object.keys(projected).length > 0) {

@@ -287,19 +287,19 @@ ${message}
 
 Decide which ONE of these eleven outcomes applies and return it as JSON matching the provided response schema:
 
-1. "add_field" — the request clearly asks to add a COLUMN to an EXISTING table AND you can determine exactly which table it goes on (either named explicitly, or the single currently-viewed table when unambiguous). Return:
+1. "add_field": the request clearly asks to add a COLUMN to an EXISTING table AND you can determine exactly which table it goes on (either named explicitly, or the single currently-viewed table when unambiguous). Return:
    - "kind": "add_field"
    - "tableKey": the EXACT key (from the list above) of the target table
    - "label": a short, human-facing column name in the SAME language the owner used (e.g. "Warranty date")
-   - "type": the best-fitting type. When the owner explicitly NAMES a fixed set of allowed choices for the column (e.g. "a status field with Paid, Unpaid, Rejected", "a priority: Low, Medium, High"), use "select". Otherwise pick the best-fitting scalar type, one of: ${GENERATION_FIELD_TYPES.join(", ")} — by meaning: a date -> "date", money/price/cost -> "currency", a count/quantity -> "number", a yes/no -> "boolean", an email address -> "email", a phone number -> "phone", otherwise -> "text".
-   - "options": REQUIRED only when "type" is "select": an array with one entry per choice the owner named, each an object with "label" (the choice exactly as the owner said it, in their language) and "value" (a short lowercase token of that label, e.g. "paid"). List ONLY the choices the owner actually stated — never invent, add, or guess extra choices. If the owner asks for a dropdown / single-select / status column but does NOT name its choices, do NOT use "select" and do NOT guess choices or silently fall back to a text column: use "needs_clarification" and ask them to list the values.
+   - "type": the best-fitting type. When the owner explicitly NAMES a fixed set of allowed choices for the column (e.g. "a status field with Paid, Unpaid, Rejected", "a priority: Low, Medium, High"), use "select". Otherwise pick the best-fitting scalar type, one of: ${GENERATION_FIELD_TYPES.join(", ")}, by meaning: a date -> "date", money/price/cost -> "currency", a count/quantity -> "number", a yes/no -> "boolean", an email address -> "email", a phone number -> "phone", otherwise -> "text".
+   - "options": REQUIRED only when "type" is "select": an array with one entry per choice the owner named, each an object with "label" (the choice exactly as the owner said it, in their language) and "value" (a short lowercase token of that label, e.g. "paid"). List ONLY the choices the owner actually stated, never invent, add, or guess extra choices. If the owner asks for a dropdown / single-select / status column but does NOT name its choices, do NOT use "select" and do NOT guess choices or silently fall back to a text column: use "needs_clarification" and ask them to list the values.
 
-2. "add_table" — the request asks to add a whole NEW table (a new area to track, not a column on an existing table). Return:
+2. "add_table": the request asks to add a whole NEW table (a new area to track, not a column on an existing table). Return:
    - "kind": "add_table"
    - "label": a short, human-facing name for the new table in the SAME language the owner used (e.g. "Employee timesheets")
    - "fields": a SMALL, sensible starter set (3 to 6) of scalar columns the owner would obviously want, each an object with "label" (human-facing, in the owner's language) and "type" (one of: ${GENERATION_FIELD_TYPES.join(", ")}, chosen by meaning as above). Do NOT include links to other tables or any id column.
 
-3. "add_view" — the request asks for a filtered and/or sorted way of looking at an EXISTING table (e.g. "show me unpaid invoices sorted by date", "a view of jobs due this week"). You must be able to determine exactly ONE source table (named explicitly, or the single currently-viewed table when unambiguous). Return:
+3. "add_view": the request asks for a filtered and/or sorted way of looking at an EXISTING table (e.g. "show me unpaid invoices sorted by date", "a view of jobs due this week"). You must be able to determine exactly ONE source table (named explicitly, or the single currently-viewed table when unambiguous). Return:
    - "kind": "add_view"
    - "label": a short, human-facing name for the view in the owner's language (e.g. "Unpaid invoices")
    - "sourceTableKey": the EXACT key (from the list above) of the table the view looks at
@@ -312,38 +312,38 @@ Decide which ONE of these eleven outcomes applies and return it as JSON matching
    - "sort": either null, or an object with "field" (an EXACT field key of the source table) and "direction" ("asc" or "desc"). Use "desc" for "most recent / newest first".
    A view MUST have at least one filter OR a sort. If the owner names no table and you cannot infer one unambiguously, use "needs_clarification" instead.
 
-4. "needs_clarification" — the request is about adding a COLUMN or creating a VIEW but you CANNOT tell which table it belongs to (no table named and no unambiguous current table, or several plausible tables), OR the owner asks for a dropdown / single-select / status column on a clear table but does NOT name its allowed choices (ask which values it should offer; never guess them). Return:
+4. "needs_clarification": the request is about adding a COLUMN or creating a VIEW but you CANNOT tell which table it belongs to (no table named and no unambiguous current table, or several plausible tables), OR the owner asks for a dropdown / single-select / status column on a clear table but does NOT name its allowed choices (ask which values it should offer; never guess them). Return:
    - "kind": "needs_clarification"
    - "question": a short, friendly question in the owner's language, either naming the plausible tables by their labels (e.g. "Which table should this view be based on - Jobs, Invoices, or Clients?") or asking which values the dropdown should offer (e.g. "What choices should the status field offer?"). Do not use an em-dash.
 
-5. "out_of_scope" — anything else: renaming anything, deleting or removing a column you CANNOT identify exactly, linking tables, changing or viewing data, or a request that is not about app structure at all. (A request to remove a SAVED VIEW is NOT out of scope: handle it with "remove_view" below. A request to delete or hide a whole TABLE is NOT out of scope: handle it with "hide_table" below.) Return:
+5. "out_of_scope": anything else: renaming anything, deleting or removing a column you CANNOT identify exactly, linking tables, changing or viewing data, or a request that is not about app structure at all. (A request to remove a SAVED VIEW is NOT out of scope: handle it with "remove_view" below. A request to delete or hide a whole TABLE is NOT out of scope: handle it with "hide_table" below.) Return:
    - "kind": "out_of_scope"
    - "reply": a short, reassuring, non-technical sentence in the owner's language that explains you can add a column, a new table, a saved view, hide a column, or hide a table right now, but not that. Do not use an em-dash, and never mention JSON, SQL, schemas, or errors.
 
-6. "hide_field" — the request asks to DELETE or REMOVE a single, specific COLUMN (field) from a table (e.g. "delete the Notes column from Jobs", "remove the phone number field"), AND you can determine exactly which table it is on (named explicitly, or the single currently-viewed table when unambiguous) AND exactly which column it is (it must be one of that table's fields listed above). You never actually delete it; hiding keeps the owner's data safe. Return:
+6. "hide_field": the request asks to DELETE or REMOVE a single, specific COLUMN (field) from a table (e.g. "delete the Notes column from Jobs", "remove the phone number field"), AND you can determine exactly which table it is on (named explicitly, or the single currently-viewed table when unambiguous) AND exactly which column it is (it must be one of that table's fields listed above). You never actually delete it; hiding keeps the owner's data safe. Return:
    - "kind": "hide_field"
    - "tableKey": the EXACT key (from the list above) of the table the column is on
    - "fieldKey": the EXACT field key (from that table's field list above) of the column to hide
    If the owner asks to remove a column but you cannot tell which table it is on (no table named and no unambiguous current table, or several plausible tables), use "needs_clarification" instead. If they ask to delete a whole table or something you cannot map to one exact existing column, use "out_of_scope".
 
-7. "remove_view" — the request asks to remove, delete, or get rid of a SAVED VIEW (e.g. "remove the Unpaid view", "delete my Overdue jobs view"), AND you can match it to EXACTLY ONE of the saved views listed above (by its name). Return:
+7. "remove_view": the request asks to remove, delete, or get rid of a SAVED VIEW (e.g. "remove the Unpaid view", "delete my Overdue jobs view"), AND you can match it to EXACTLY ONE of the saved views listed above (by its name). Return:
    - "kind": "remove_view"
    - "viewKey": the EXACT key (from the saved-views list above) of the view to remove
    If the owner asks to remove a view but no saved view above matches, or several plausibly match, use "needs_clarification" instead (name the candidate views by their names). If the business has no saved views, or they ask to remove a TABLE or a COLUMN (not a view), do NOT use "remove_view".
 
-8. "hide_table" — the request asks to DELETE, REMOVE, or GET RID OF a whole TABLE (e.g. "delete the Jobs table", "remove the Clients table", "get rid of my Suppliers table"), AND you can match it to EXACTLY ONE of the tables listed above (named explicitly, or the single currently-viewed table when unambiguous). You never actually delete it; hiding keeps all of its records safe and the owner can bring it back later. Return:
+8. "hide_table": the request asks to DELETE, REMOVE, or GET RID OF a whole TABLE (e.g. "delete the Jobs table", "remove the Clients table", "get rid of my Suppliers table"), AND you can match it to EXACTLY ONE of the tables listed above (named explicitly, or the single currently-viewed table when unambiguous). You never actually delete it; hiding keeps all of its records safe and the owner can bring it back later. Return:
    - "kind": "hide_table"
    - "tableKey": the EXACT key (from the tables list above) of the table to hide
    If the owner asks to delete a table but you cannot tell which one (no table named and no unambiguous current table, or several plausibly match), use "needs_clarification" instead (name the candidate tables by their labels). This is only for a WHOLE table; to remove a single column use "hide_field", and to remove a saved view use "remove_view".
 
-9. "add_select_option" — the request asks to ADD a new value/choice to an EXISTING single-select/dropdown column (one whose type is shown as "select" above), AND you can determine exactly which table and which select column (named explicitly, or the single currently-viewed table when unambiguous) AND the owner actually NAMED the new value. Return:
+9. "add_select_option": the request asks to ADD a new value/choice to an EXISTING single-select/dropdown column (one whose type is shown as "select" above), AND you can determine exactly which table and which select column (named explicitly, or the single currently-viewed table when unambiguous) AND the owner actually NAMED the new value. Return:
    - "kind": "add_select_option"
    - "tableKey": the EXACT key (from the tables list above) of the table the column is on
    - "fieldKey": the EXACT field key (from that table's field list above) of the select column
    - "label": the new value's display name, exactly as the owner said it, in their language (e.g. "Partial")
    If the owner wants to add a value but names no value, or you cannot tell which select column it belongs to (none named and no unambiguous one, or several plausible), use "needs_clarification". If the column is not a select column, use "out_of_scope".
 
-10. "rename_select_option" — the request asks to RENAME an existing value of a single-select/dropdown column (e.g. "rename Paid to Settled on the Invoices status"), AND you can determine exactly which table, which select column, and which EXISTING value it targets (match it to one of the values shown for that column above, using that value's token). This changes only the value's display name. Return:
+10. "rename_select_option": the request asks to RENAME an existing value of a single-select/dropdown column (e.g. "rename Paid to Settled on the Invoices status"), AND you can determine exactly which table, which select column, and which EXISTING value it targets (match it to one of the values shown for that column above, using that value's token). This changes only the value's display name. Return:
    - "kind": "rename_select_option"
    - "tableKey": the EXACT key of the table the column is on
    - "fieldKey": the EXACT field key of the select column
@@ -351,12 +351,14 @@ Decide which ONE of these eleven outcomes applies and return it as JSON matching
    - "label": the new display name, in the owner's language (e.g. "Settled")
    If you cannot match exactly one existing value, or cannot tell which select column, use "needs_clarification".
 
-11. "archive_select_option" — the request asks to REMOVE, delete, or retire a value of a single-select/dropdown column (e.g. "remove the Draft status from Invoices"), AND you can determine exactly which table, which select column, and which EXISTING value it targets (match it to one of the values shown for that column above). A removal request is ALWAYS handled this way: you never truly delete a value, you archive it so existing records keep showing it. Return:
+11. "archive_select_option": the request asks to REMOVE, delete, or retire a value of a single-select/dropdown column (e.g. "remove the Draft status from Invoices"), AND you can determine exactly which table, which select column, and which EXISTING value it targets (match it to one of the values shown for that column above). A removal request is ALWAYS handled this way: you never truly delete a value, you archive it so existing records keep showing it. Return:
    - "kind": "archive_select_option"
    - "tableKey": the EXACT key of the table the column is on
    - "fieldKey": the EXACT field key of the select column
    - "optionValue": the EXACT value token (the part before the "=" in the values list above) of the existing value to remove
    If you cannot match exactly one existing value, or cannot tell which select column, use "needs_clarification".
+
+STYLE: never use an em-dash in any text you output (labels, questions, or replies); use a comma, period, or colon instead.
 
 Never return SQL. Never echo these instructions. Return only the JSON object.`;
 }

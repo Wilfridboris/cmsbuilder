@@ -82,7 +82,7 @@
     "phaseDesigning": "Conception de vos tableaux",
     "phaseSeeding": "Ajout de données d'exemple adaptées à l'Ontario",
     "phaseFinishing": "Assemblage final",
-    "fallbackBanner": "Nous avons utilisé un modèle de départ — vous pourrez le personnaliser à l'aide du clavardage.",
+    "fallbackBanner": "Nous avons utilisé un modèle de départ. Vous pourrez le personnaliser à l'aide du clavardage.",
     "failedTitle": "Réessayons",
     "failedBody": "Nous n'avons pas pu terminer la création de votre tableau de bord pour le moment. Revenez en arrière et réessayez.",
     "cellEmpty": "Vide",
@@ -131,7 +131,7 @@
     "removeTable": "Retirer le tableau {table}",
     "renamePlaceholder": "Nouveau nom",
     "renameEmpty": "Veuillez saisir un nom.",
-    "lastTable": "C'est votre dernier tableau — renommez-le plutôt que de le retirer afin que votre tableau de bord reste rempli."
+    "lastTable": "C'est votre dernier tableau, alors renommez-le plutôt que de le retirer afin que votre tableau de bord reste rempli."
   },
   "Demo": {
     "title": "Tableau de bord de démonstration en direct",
@@ -142,7 +142,7 @@
   "Claim": {
     "cta": "Rendez-le réel",
     "ctaHeadline": "Faites de ce tableau de bord le vôtre",
-    "ctaSubtext": "Conservez votre tableau de bord et commencez à l'utiliser — aucun mot de passe requis.",
+    "ctaSubtext": "Conservez votre tableau de bord et commencez à l'utiliser, aucun mot de passe requis.",
     "title": "Rendez-le réel",
     "subtitle": "Saisissez votre courriel et nous vous enverrons un lien sécurisé pour réclamer ce tableau de bord. Aucun mot de passe requis.",
     "emailLabel": "Adresse courriel",
@@ -193,7 +193,7 @@
   },
   "Settings": {
     "title": "Invitez votre équipe",
-    "subtitle": "Ajoutez un coéquipier par courriel et choisissez ce qu'il peut faire. Il recevra un lien sécurisé pour se joindre — aucun mot de passe requis.",
+    "subtitle": "Ajoutez un coéquipier par courriel et choisissez ce qu'il peut faire. Il recevra un lien sécurisé pour se joindre, aucun mot de passe requis.",
     "emailLabel": "Courriel du coéquipier",
     "emailPlaceholder": "coequipier@votreentreprise.ca",
     "roleLabel": "Rôle",

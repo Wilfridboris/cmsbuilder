@@ -116,6 +116,10 @@ export async function POST(
       mode: "subscription",
       customer: customerId,
       line_items: [{ price: priceId, quantity: 1 }],
+      // Launch/early-adopter coupons (Story 15.3): surface Stripe's hosted
+      // promotion-code field so a visitor can redeem a launch coupon. The
+      // success/cancel return flows below are unchanged.
+      allow_promotion_codes: true,
       client_reference_id: identity.orgId,
       metadata: { org_id: identity.orgId, tier },
       subscription_data: {
