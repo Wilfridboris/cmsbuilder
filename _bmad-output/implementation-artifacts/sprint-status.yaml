@@ -1,5 +1,5 @@
 # generated: 2026-09-23
-# last_updated: 2026-10-08 (15-1 review)
+# last_updated: 2026-10-08 (15-1 done, manual review passed)
 # project: Scheza
 # project_key: NOKEY
 # tracking_system: file-system
@@ -181,7 +181,7 @@ development_status:
   # ── Epic 15: First-Run Polish & Post-Testing Fixes ───────────────────────
   # Added via sprint-change-proposal-2026-10-08-mvp-polish.md (FR105-110)
   epic-15: in-progress
-  15-1-first-run-overhaul-business-name-slug-auth-aware-home: review
+  15-1-first-run-overhaul-business-name-slug-auth-aware-home: done
   15-2-schezabot-assistant-signature-generative-reveal: backlog
   15-3-mvp-polish-quick-wins-copy-inputs-icons-promo-codes: backlog
   15-4-google-sign-in: backlog

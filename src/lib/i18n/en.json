@@ -53,7 +53,7 @@
     "cityLabel": "Which city or town do you serve?",
     "cityPlaceholder": "e.g. Ottawa",
     "descriptionLabel": "Describe your business",
-    "descriptionPlaceholder": "Tell us what you do and what you need to keep track of, in your own words. For example: I run a plumbing business and need to track jobs, quotes, customers, and which invoices are still unpaid.",
+    "descriptionPlaceholder": "Tell us what your business does and how it works, in your own words. For example: I run a residential plumbing company. I handle service calls and renovations, send quotes, and bill customers once the work is done.",
     "explicitItemsLabel": "Anything specific to track?",
     "explicitItemsOptional": "(optional)",
     "explicitItemsPlaceholder": "e.g. warranties, service areas, equipment",
