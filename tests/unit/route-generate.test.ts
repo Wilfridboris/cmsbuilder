@@ -18,8 +18,23 @@ const validateGeneratedSchema = vi.fn();
 const provisionGeneration = vi.fn();
 const getSchema = vi.fn();
 const listRecords = vi.fn();
+const reportError = vi.fn();
+const reportCritical = vi.fn();
 
-vi.mock("@/lib/gemini/client", () => ({ callGeminiWithTimeout }));
+// REAL classifier + model id: the route branches on `isModelNotFoundError` and
+// tags the critical report with `GEMINI_MODEL`, so the mock forwards to the
+// actual module for both rather than stubbing the decision. Only the network
+// entry point (`callGeminiWithTimeout`) is replaced with a spy.
+vi.mock("@/lib/gemini/client", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/gemini/client")>(
+    "@/lib/gemini/client",
+  );
+  return {
+    callGeminiWithTimeout,
+    isModelNotFoundError: actual.isModelNotFoundError,
+    GEMINI_MODEL: actual.GEMINI_MODEL,
+  };
+});
 vi.mock("@/lib/gemini/prompts", () => ({
   buildGenerationPrompt: () => "inflated prompt",
   GENERATION_RESPONSE_SCHEMA: {},
@@ -29,7 +44,8 @@ vi.mock("@/lib/generation/provision", () => ({ provisionGeneration }));
 vi.mock("@/lib/data/records", () => ({ getSchema, listRecords }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => ({}) }));
 vi.mock("@/lib/observability/report", () => ({
-  reportError: vi.fn(),
+  reportError,
+  reportCritical,
   reportRejection: vi.fn(),
 }));
 
@@ -162,6 +178,63 @@ describe("POST /api/generate", () => {
     // A session cookie is still set on the fallback reveal.
     const cookie = res.cookies.get(SESSION_COOKIE_NAME);
     expect(decodeSessionValue(cookie!.value)).toBe("org-fallback");
+  });
+
+  it("escalates a double model-not-found failure to reportCritical (with the model id), still serving the 200 fallback", async () => {
+    const { POST } = await import("@/app/api/generate/route");
+    // A retired/unresolvable model: the live API returns 404 on every call.
+    const modelNotFound = Object.assign(
+      new Error("models/gemini-3.8-flash is not found for API version v1beta"),
+      { status: 404 },
+    );
+    callGeminiWithTimeout.mockRejectedValue(modelNotFound);
+
+    const res = await POST(makeReq(VALID_INTENT));
+
+    // User-facing behavior is unchanged: still the 200 fallback reveal.
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.isFallback).toBe(true);
+
+    // Both attempt failures paged at CRITICAL severity, carrying the offending
+    // model id + the stable reason marker so the alert is actionable.
+    expect(reportCritical).toHaveBeenCalledTimes(2);
+    expect(reportCritical).toHaveBeenCalledWith(
+      modelNotFound,
+      expect.objectContaining({
+        reason: "gemini-model-unresolved",
+        model: "gemini-3.8-flash",
+      }),
+    );
+    // A model-not-found failure must NOT also go through the ordinary path.
+    expect(reportError).not.toHaveBeenCalledWith(
+      modelNotFound,
+      expect.anything(),
+    );
+  });
+
+  it("keeps a generic double failure on ordinary reportError (never reportCritical), still serving the 200 fallback", async () => {
+    const { POST } = await import("@/app/api/generate/route");
+    const transient = new Error("Gemini timeout");
+    callGeminiWithTimeout.mockRejectedValue(transient);
+
+    const res = await POST(makeReq(VALID_INTENT));
+
+    // Still the 200 fallback reveal — no error screen.
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.data.isFallback).toBe(true);
+
+    // A transient failure stays at ordinary severity: no false page.
+    expect(reportCritical).not.toHaveBeenCalled();
+    expect(reportError).toHaveBeenCalledWith(
+      transient,
+      expect.objectContaining({ attempt: 1 }),
+    );
+    expect(reportError).toHaveBeenCalledWith(
+      transient,
+      expect.objectContaining({ attempt: 2 }),
+    );
   });
 
   it("degrades to a last-resort 502 only if the fallback provisioning itself throws", async () => {

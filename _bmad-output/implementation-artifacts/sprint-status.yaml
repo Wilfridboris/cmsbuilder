@@ -191,7 +191,7 @@ action_items:
     action: "Add a model-resolves smoke/CI check so a wrong/retired Gemini model id
       fails loud instead of silently falling back on 100% of generations."
     owner: "Dev"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-24.md"
   - id: "epic-1-retro-item-3-fix-the-schema-validator-blocked-keyword"
     epic: 1

@@ -10,7 +10,11 @@ import {
   buildGenerationPrompt,
   GENERATION_RESPONSE_SCHEMA,
 } from "@/lib/gemini/prompts";
-import { callGeminiWithTimeout } from "@/lib/gemini/client";
+import {
+  GEMINI_MODEL,
+  callGeminiWithTimeout,
+  isModelNotFoundError,
+} from "@/lib/gemini/client";
 import { validateGeneratedSchema } from "@/lib/schema/validator";
 import { provisionGeneration } from "@/lib/generation/provision";
 import {
@@ -25,7 +29,11 @@ import {
 } from "@/lib/generation/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSchema, listRecords } from "@/lib/data/records";
-import { reportError } from "@/lib/observability/report";
+import {
+  reportCritical,
+  reportError,
+  type ReportContext,
+} from "@/lib/observability/report";
 
 /**
  * `POST /api/generate` (Story 1.4) — the anonymous generation endpoint.
@@ -76,6 +84,30 @@ function json(
   status: number,
 ): NextResponse<ApiResponse<GenerateResponse>> {
   return NextResponse.json(body, { status });
+}
+
+/**
+ * Report a generation-attempt failure, escalating ONLY a retired/unresolvable
+ * Gemini model to a paging `reportCritical` (epic-1 retro item 2, FR45). If the
+ * configured `GEMINI_MODEL` is retired after deploy, every call returns 404 and
+ * the pipeline silently serves the Story 1.5 fallback for 100% of generations —
+ * the core "aha" is dead, yet indistinguishable from a transient timeout at
+ * ordinary severity. A model-not-found failure pages a human (carrying the
+ * offending model id + a stable reason marker so the alert is actionable); every
+ * other failure (timeout, invalid JSON, validator rejection) stays on ordinary
+ * `reportError` — no false paging. User-facing behavior is unchanged; this is an
+ * ops-only signal.
+ */
+function reportAttemptFailure(err: unknown, context: ReportContext): void {
+  if (isModelNotFoundError(err)) {
+    reportCritical(err, {
+      ...context,
+      reason: "gemini-model-unresolved",
+      model: GEMINI_MODEL,
+    });
+  } else {
+    reportError(err, context);
+  }
 }
 
 /**
@@ -210,11 +242,17 @@ export async function POST(
     try {
       generation = await attemptGeneration(prompt, existingOrgId ?? undefined);
     } catch (firstErr) {
-      reportError(firstErr, { id: existingOrgId ?? undefined, attempt: 1 });
+      reportAttemptFailure(firstErr, {
+        id: existingOrgId ?? undefined,
+        attempt: 1,
+      });
       try {
         generation = await attemptGeneration(prompt, existingOrgId ?? undefined);
       } catch (secondErr) {
-        reportError(secondErr, { id: existingOrgId ?? undefined, attempt: 2 });
+        reportAttemptFailure(secondErr, {
+          id: existingOrgId ?? undefined,
+          attempt: 2,
+        });
         // Double failure → provision the hardcoded fallback template (Story 1.5)
         // instead of an error screen. It runs the SAME success tail with
         // `isFallback: true`. Last-resort safety: if the fallback provisioning

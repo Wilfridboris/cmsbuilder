@@ -42,6 +42,49 @@ function getClient(): GoogleGenAI {
 // live API now returns 404 and recommends this model. See spec ratification note.
 export const GEMINI_MODEL = "gemini-3.8-flash";
 
+/**
+ * Pure, tolerant classifier for a Gemini "model not found" / retired-model error
+ * (epic-1 retro item 2, FR45). If `GEMINI_MODEL` is retired after deploy, the
+ * live API returns 404 on every call and `/api/generate` degrades to the Story
+ * 1.5 hard-fallback template for 100% of generations — a dead generative "aha"
+ * that today is logged only at ordinary severity, indistinguishable from a
+ * transient timeout. The route uses this to escalate ONLY this case to a paging
+ * `reportCritical`; every other failure stays on ordinary `reportError`.
+ *
+ * Kept pure (no SDK, no network) so the decision is node-testable. The exact
+ * `@google/genai` 404 shape is duck-typed: a numeric `404` on `status`/`code`,
+ * OR a message indicating a not-found model. Returns `false` for anything it
+ * cannot positively identify as model-not-found — a false negative merely keeps
+ * the status-quo ordinary report; a false positive only pages on a rare
+ * unrelated 404. Both are preferable to silently swallowing a dead pipeline.
+ */
+export function isModelNotFoundError(err: unknown): boolean {
+  if (err === null || typeof err !== "object") {
+    return false;
+  }
+
+  const record = err as Record<string, unknown>;
+
+  // Numeric 404 on `status` or `code` (the SDK surfaces the HTTP status there).
+  for (const key of ["status", "code"] as const) {
+    const value = record[key];
+    if (value === 404 || value === "404") {
+      return true;
+    }
+  }
+
+  // Message-only heuristic: a not-found phrasing that also mentions a model.
+  const message = typeof record.message === "string" ? record.message : "";
+  if (
+    /not[\s_-]?found/i.test(message) &&
+    /\bmodels?\b|models\//i.test(message)
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 export async function callGeminiWithTimeout<T>(
   userPrompt: string,
   responseSchema: object,
