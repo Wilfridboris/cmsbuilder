@@ -98,8 +98,13 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
 export const config = {
   // Run on application routes, excluding Next internals, static assets, API,
-  // and the auth callback (which manages its own session exchange).
+  // and the auth callback (which manages its own session exchange). The trailing
+  // `.*\.(?:png|svg|ico|webmanifest)` alternative keeps the public brand assets
+  // (`manifest.webmanifest`, `apple-touch-icon.png`, `favicon.svg`, the sized
+  // favicon/icon PNGs — Story 15.3 / Epic 8.2) reachable without auth, so the
+  // "Add to Home Screen" install and its icons are never bounced to `/login` for a
+  // signed-out first-run visitor. These are branding files with no tenant data.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|icons/|sw.js|api/|auth/).*)",
+    "/((?!_next/static|_next/image|favicon.ico|icons/|sw.js|api/|auth/|.*\\.(?:png|svg|ico|webmanifest)).*)",
   ],
 };
