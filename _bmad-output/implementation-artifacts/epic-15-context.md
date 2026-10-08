@@ -4,84 +4,54 @@
 
 ## Goal
 
-This epic fixes the only churn-grade defect found in hands-on MVP testing (a signed-in owner lands on an auto-derived slug like `/other-toronto` and has no way to navigate back to log in) and polishes the first-run journey around trust and the "aha" moment. It captures the business name as a first-class identity, reshapes the generative intake so owners describe their business in their own words instead of enumerating fields, turns the quiet generation skeleton into a bot-led signature reveal, enables launch promo codes at checkout, and clears a batch of small trust/polish items. It also hardens the launch surface (rate limiting, server-side validation, bounded queries) and verifies the statutory data-retention cascade. It builds on the existing intake/generation flow, magic-link auth, and the `business_profiles` table; it adds no new database table or migration.
+This epic hardens the first-run journey, trust, and the generative "aha" moment using findings from post-launch testing. It fixes the only churn-grade defect found (a signed-in owner lands on an auto-derived slug and cannot navigate back to log in), promotes the business name to a first-class identity that drives both the display name and the dashboard slug, reshapes the generative intake so owners describe their business in their own words instead of enumerating fields, turns the quiet generation skeleton into a bot-led signature reveal, enables launch promo codes, adds Google sign-in, and closes a batch of small trust/polish and launch-hardening items. It builds on existing foundations (anonymous intake/generation, magic-link auth, the business-profile identity capture, the locale engine) and introduces no new architectural layers.
 
 ## Stories
 
-- Story 15.1: First-run overhaul (business name, confirmed slug, reshaped intake, auth-aware home)
-- Story 15.2: SchezaBot assistant and signature generative reveal
-- Story 15.3: MVP polish quick-wins (copy, inputs, icons, promo codes)
-- Story 15.4: Google sign-in (fast-follow)
-- Story 15.5: Launch hardening
-- Story 15.6: Offboarding retention cascade verification
+- Story 15.1: First-Run Overhaul — Business Name, Confirmed Slug, Reshaped Intake & Auth-Aware Home
+- Story 15.2: SchezaBot Assistant & Signature Generative Reveal
+- Story 15.3: MVP Polish Quick-Wins — Copy, Inputs, Icons & Promo Codes
+- Story 15.4: Google Sign-In (Fast-Follow)
+- Story 15.5: Launch Hardening
+- Story 15.6: Offboarding Retention Cascade Verification
 
 ## Requirements & Constraints
 
-- The landing intake must collect a business name and promote it to the organization's first-class display name, replacing the previously derived trade+city title value.
-- The dashboard slug must be derived from the business name (slugified), made globally unique across organizations via collision suffixing (`-2`, `-3`…), and shown to the owner as their dashboard URL before claim, editable before confirmation. Duplicate business *names* are allowed; the name is a display heading, never a uniqueness key. The slug is globally unique only because it also keys the public intake-form URLs that anonymous visitors hit. After login the owner must always be shown their final dashboard URL so a same-name collision never strands or misdirects them.
-- A reserved-word guard must prevent a slug from shadowing a system top-level route (login, auth, forms, generate, demo, i, api, the home route) or resolving to an empty/degenerate value.
-- The landing route must be authentication-aware: a signed-in owner is routed to (or offered a prominent card to) their dashboard with a sign-out affordance, never the empty claim form; a returning signed-out visitor always has a visible "log in" path so someone who did not memorize their slug is not stranded.
-- An EN/FR locale toggle must be available on public, unauthenticated surfaces (landing, login, legal), extending the existing locale engine beyond the authenticated nav.
-- The reshaped intake must invite a free-form business description plus optional explicit items; generation must infer the schema from the description while also honoring any explicitly listed items.
-- The subscription checkout must accept promotion codes so launch/early-adopter coupons created in the Stripe dashboard redeem at the hosted checkout, with success and cancel flows unchanged.
-- An owner must be able to authenticate with Google (Supabase OAuth) in addition to the passwordless magic link; first-time consent handling matches the existing claim consent model, and routing stays consistent with the magic-link flow.
-- Launch hardening: per-IP/per-email rate limiting on the magic-link claim and teammate-invite endpoints; server-side validation that written keys match the table field schema and that select values are on the field's option list; bounded (paginated/capped/streamed) high-fan-in reverse-relation lists and full-data export; and a confirmed green production build and type-check before go-live.
-- Retention verification: a test against a live-schema fixture must prove the offboarding hard-delete cascade excludes invoices, credit notes, invoice payments, and their frozen PDF objects (six-year retention) while deleting forms rows, and must exercise the `ON DELETE SET NULL` guarantee on customer-record references so purging records never orphans a retained invoice. This is wired into CI as a hard gate on the offboarding story reaching production.
-- Non-functional constraints applying throughout: no em-dash in any user-facing copy or AI-generated labels/values; new or changed copy wired through the i18n layer (en + fr); form validation on submit (not per keystroke) with accessible inline messages; animations hold 60fps with no layout shift and honor reduced-motion; no new runtime dependency introduced by the mascot.
+- The landing intake must capture a business name that becomes the organization's first-class display name (persisted as the business profile's operating name), replacing the previously derived trade+city value.
+- The dashboard slug must be derived from the business name (slugified), made globally unique across organizations with a collision suffix (`-2`, `-3`…), previewed to the owner before claim, and editable before confirmation. Duplicate business *names* are allowed; only the slug is a uniqueness key. The slug must be global-unique because it also keys the *public* intake-form URLs that anonymous visitors hit without auth; it is a routing label, not the security boundary (access remains auth-scoped).
+- A reserved-word guard must prevent a business-name-derived slug from shadowing a system/top-level route or resolving to an empty/degenerate value.
+- The landing route must be authentication-aware: a signed-in owner is routed to (or offered a prominent link to) their dashboard with a sign-out affordance; a returning signed-out visitor always has a visible "log in" path so a user who did not memorize their slug is never stranded. The owner must always be shown their final dashboard URL after login.
+- The intake must invite a free-form business description plus an optional "anything specific to track?" field; generation must infer tables from the description while also honoring any explicitly listed items.
+- The claim finalization sequence must be atomic (transaction or compensating rollback) so a mid-sequence failure cannot leave a half-provisioned organization.
+- Subscription checkout must accept promotion codes so launch/early-adopter coupons can be redeemed.
+- Owners must be able to authenticate with Google in addition to the passwordless magic link, with consent handling matching the existing claim consent model and routing consistent with the magic-link flow.
+- Launch-hardening: rate-limit the magic-link dispatch and teammate-invite endpoints (per-IP/per-email) without blocking legitimate requests; server-validate record/select-write payload keys and select values against the field schema; bound high-fan-in reverse-relation lists and full data export (pagination/cap/streaming) so a large org cannot OOM or time out; and confirm production build + type-check exit cleanly.
+- Offboarding verification: a CI gate must prove, against a live-schema fixture, that the hard-delete cascade EXCLUDES invoices, credit notes, payments, and frozen PDFs (six-year retention) while deleting forms rows, and that purging customer records sets referencing invoice/credit-note links to null rather than orphaning retained documents.
 
 ## Technical Decisions
 
-- **No new platform table, no migration, no CI/IaC change.** Reuse `business_profiles` for the operating/display name, the existing auth-confirm redirect and primary-org-slug resolution for routing, the existing Gemini prompt for generation, and the existing Stripe checkout route for promo codes. Google OAuth is a new Supabase provider config (credentials + redirect URL) only.
-- **Slug is a routing label, not a security boundary.** Access is auth-scoped (RLS + org membership), so two same-named businesses are fully isolated regardless of slug; typing another org's slug is blocked. Global uniqueness is required solely because the slug also keys the public, anonymous intake-form URLs. Per-tenant subdomains and opaque public-form tokens are explicitly post-MVP options, not part of this epic.
-- **Slug derivation pipeline:** slugify the business name, apply the reserved-word guard, preview as best-effort (checked when shown and when edited), then resolve the authoritative unique slug at finalize via the existing uniqueness guard.
-- **Atomic claim finalization:** the claim-finalization sequence (membership, slug, record clearing, token consumption) must be made atomic via transaction or compensating rollback, so a mid-sequence failure cannot leave a half-provisioned org.
-- **Mascot integration:** the existing standalone 22-mood animated SVG mascot (zero deps, SSR-safe, reduced-motion-aware) is vendored into the app components tree, exported for app use, and its screen-reader label wired through i18n. State drives mood (e.g. thinking/focused while generating, success/proud on completion, oops/error on failure, listening/speaking in the schema editor). After vendoring, the top-level mascot distribution folder must be added to `.gitignore`, mirroring the sibling decoupled sub-project pattern, so only the integrated copy is tracked.
-- **Clean reveal from reused session org:** when an anonymous visitor re-generates in the same browser session (the session org is reused), the reveal must read back only the current generation's tables and rows, never a merge of a prior session's soft-deleted or differently-keyed records.
-- **AI output guard:** the generation prompt's own instruction text must contain no em-dash, and a guard or test must assert AI-generated table labels, field labels, and seed values never contain an em-dash.
-- **Money formatting:** issued invoice amounts on screen and in the frozen PDF must render with a currency symbol and locale thousands grouping, not a bare two-decimal string.
-- **Build blocker to confirm:** the previously deferred typed-routes build blocker around the policy-version constant must be explicitly verified resolved; if it reproduces, relocate the constant out of the route module.
+- The business name promotes to the organization display name by persisting into the existing business-profile operating-name field; the claim finalization logic that previously derived a title-cased trade+city value is rewritten to use it.
+- Slug uniqueness reuses the existing unique-slug guard; previewed URLs are best-effort (availability checked on display and on edit) with the authoritative unique slug resolved at finalize.
+- Google auth is backed by Supabase OAuth; the callback reuses the existing auth-confirm redirect logic and the existing primary-org-slug resolution for post-login routing (dashboard if an org exists, otherwise claim).
+- SchezaBot is an existing standalone mascot (multi-mood animated SVG, zero runtime deps, SSR-safe, reduced-motion-aware). It must be vendored into the app's components, exported, and its screen-reader label wired through the i18n engine, adding no new runtime dependency. The top-level standalone distribution folder must be gitignored, mirroring the existing decoupled sibling sub-project pattern, so only the integrated copy is tracked.
+- The generation reveal replaces the quiet pulse skeleton with a bot-narrated sequence paced to the *actual* generation phases (never artificially padded); it must degrade gracefully to the existing fallback banner on generation error.
+- When an anonymous session org is reused across re-generations, the reveal must read back only the current generation's tables and rows — never a merge of a prior session's soft-deleted or differently-keyed records.
+- Promo codes are enabled by setting the allow-promotion-codes flag on the Stripe Checkout Session; success/cancel return flows are unchanged.
+- The public-surface EN/FR toggle extends the existing locale engine beyond the authenticated dashboard nav to the landing, login, and legal surfaces.
+- All new or changed user-facing copy must be wired through the i18n catalogs (en + fr), contain no em-dash (the rule is re-applied to newly found i18n banner/CTA/subtitle instances and to the generation prompt text, with a guard/test asserting AI-generated labels and seed values carry no em-dash), and validate on submit (not per keystroke) with accessible inline messages.
+- Rate limiting reuses the existing Edge-Middleware pattern already applied to generation and intake endpoints.
 
 ## UX & Interaction Patterns
 
-- **First-run spine:** landing prompt collects business name + trade type + city, plus a free-form "describe your business" prompt and an optional "anything specific you want to track?" field (inviting description over enumeration). The owner sees and can edit the previewed dashboard URL before confirming, and is always shown the final URL after login.
-- **Signature generative reveal:** the bot-led reveal replaces the quiet pulse skeleton. The mascot narrates the real generation phases while the dashboard assembles (tables, then fields, then seed rows streaming in), ending on a proud/success pose showing the captured business name. Pacing follows actual latency and is never artificially padded; a fast response resolves fast. On a generation error it degrades gracefully (mascot oops pose) and the existing starter-template fallback banner shows, with no stuck or broken animation. Under reduced-motion the bot shows a calm still pose and the reveal is instant.
-
-## Key Code Touchpoints
-
-Concrete reuse anchors verified against the codebase. Reuse these rather than re-deriving; keep existing field names, cookie keys, and response-schema enum values stable.
-
-**Claim finalization & slug (15.1 backend):**
-- `finalizeClaim` (`src/lib/claim/claim.ts`) runs five sequential service-role writes (membership insert, slug + display-name set on `organizations`, trial set, synthetic-record soft-delete, claim-consume) with no wrapping transaction. Make it atomic by wrapping finalization in a Postgres RPC, modeling the existing `issue_invoice()` RPC (SECURITY INVOKER, single transaction, deterministic conflict error).
-- Slug helpers in `src/lib/claim/slug.ts`: `deriveSlug` (currently trade+city → kebab, fallback `"app"`), `ensureUniqueSlug` (appends `-2`, `-3`… until free, excludes the claiming org's own id for idempotency), `slugBaseToName` (title-cases the base for the display name). For 15.1: derive the slug and display name from the business name instead; reuse `ensureUniqueSlug` as-is; add a reserved-word guard (there is no centralized reserved-route list today — add a constant covering the top-level route folders and `/api/*` and check both).
-- Data model: `organizations.name` is the display name and `organizations.slug` is `UNIQUE`; `business_profiles.operating_name` (Epic 12, one row per org, currently nullable) is the typed home for the business display name and should be promoted into `organizations.name`.
-- `POST /api/claim` (`src/app/api/claim/route.ts`) body is `{ email, consent: true, schema, intent?: { tradeType, city } }` — no business name yet. Thread a `businessName` through the intent into `pending_claims` and `finalizeClaim` (the `pending_claims` row needs a `business_name` column).
-
-**Landing intake form (15.1 / 15.3):**
-- `PromptBuilder` (`src/components/generation/PromptBuilder.tsx`) collects `tradeType` (enum), `city` (text), and `whatYouTrack` (textarea), validated on submit (not per keystroke) via react-hook-form + Zod. For 15.1 add the business name field and reshape `whatYouTrack` into a free-form description plus an optional explicit-items field; keep submit-only validation and the i18n-namespaced labels. For 15.3 change the textarea from the current `resize-y` to `resize-none` (making it non-draggable is the explicit 15.3 requirement, not a preserved behavior).
-- Intake payload seam: on valid submit, `saveIntent()` (`src/lib/generation/intent.ts`) persists the `GenerationIntent` (`{ tradeType, city, whatYouTrack, submittedLocale }`) to sessionStorage, then routes to `/generate`; `/api/generate` validates the POST body against the mirrored intent schema. When extending the intent, update all three Zod schemas (stored intent, prompt-build input, generation body) and keep the storage key and POST payload shape stable (or bump the API version).
-- Copy namespaces in `src/lib/i18n/en.json` / `fr.json`: `PromptBuilder` (field labels/placeholders/validation), `Home` (hero/tagline), `Generate` (skeleton + reveal + fallback). Add new field copy to the `PromptBuilder` namespace in both locales.
-
-**Generation reveal (15.2):**
-- `/generate` page (`src/app/generate/page.tsx`) reads the intent, POSTs to `/api/generate`, shows `DashboardSkeleton` (from `src/components/dashboard/DemoDashboard.tsx`, uses shadcn `Skeleton` with `aria-busy`/`aria-live`) while waiting, then reveals via `DemoDashboard` using Framer Motion grow gated on `useReducedMotion`. The bot-led reveal (15.2) replaces this skeleton; `/api/generate` already does one Gemini call with a single retry and falls back to a hardcoded universal template (`isFallback: true`) on double failure, which the reveal must degrade to gracefully.
-
-**Auth-aware home & sign-out (15.1 / 15.4):**
-- `src/app/page.tsx` renders the client-side claim form (`PromptBuilder`) to everyone with no auth check; convert to a server component that branches on session. Use `getCurrentUser()` (`src/lib/auth/session.ts`) for identity and `resolveUserPrimaryOrgSlug()` (`src/lib/auth/org.ts`, returns `{ slug } | null`) for routing — the same resolver the login callback already uses. Follow the RLS-safe pattern in `src/app/[slug]/page.tsx`. Leave `resolveUserPrimaryOrgSlug` and the middleware gate on `/{slug}` unchanged.
-- Login redirect decision tree lives in `src/app/auth/confirm/route.ts` (verify OTP → resolve primary org slug → else first-time claim → else `/login?login=no-org`); the Google OAuth callback should route through this same resolver.
-- No sign-out affordance exists anywhere yet — add one (e.g. a logout route calling `supabase.auth.signOut()`) and wire it into `DashboardNav` (`src/components/layout/DashboardNav.tsx`) and the home-page signed-in branch.
-
-**Public-surface locale toggle (15.1 / G8):**
-- `next-intl` v4, cookie-based (`NEXT_LOCALE`, mirrored to localStorage), no URL prefix. `LocaleProvider` already wraps the whole root layout, so locale is hydrated on `/`, `/login`, and the legal pages; the `LocaleToggle` component is currently rendered only inside the authenticated `DashboardNav`. Surface it on the public pages. Landing and login are client components (use the locale-switcher hook directly); legal pages are server components and need a small client wrapper.
-
-**Em-dash scrub & AI guard (15.3):**
-- Message bundles are `src/lib/i18n/en.json` and `src/lib/i18n/fr.json`; live em-dash strings are at the fallback-banner, last-table, cta-subtext, and settings-subtitle keys (same positions in both en and fr).
-- The no-em-dash instruction already exists in the Gemini prompt; 15.3 adds a guard/test over AI output.
-
-**Gemini prompt reshape (15.1 / 15.3):**
-- `buildGenerationPrompt()` in `src/lib/gemini/prompts.ts` injects the free-form "what you track" text verbatim; the generation intent is defined in `src/lib/generation/intent.ts` and read by `/api/generate`. For 15.1, extend the intent with optional explicit items as model hints while keeping the free-form description path. The prompt already detects and outputs in the user's language.
+- The landing prompt shifts from field enumeration to invitation: business name + trade type + city + a free-form "describe your business" prompt + an optional explicit-items field.
+- The dashboard URL is previewed in plain language ("your dashboard will live at scheza.com/{slug}") before claim and is editable.
+- SchezaBot reflects app state by mood across generation, the conversational schema editor, and error/empty states (e.g. thinking/focused while working, success/proud on completion, oops/error on failure, listening/speaking in the editor). The generation reveal ends on a proud/success pose showing the captured business name.
+- Under reduced-motion, the bot shows a calm still pose and the reveal is instant; in all cases animation must hold 60fps and introduce no layout shift. Inputs must meet accessible touch-target and label standards; landing textareas must not be drag-resizable.
+- Icons/favicon: the Scheza brand favicon and the full companion icon set (apple-touch-icon, PWA manifest icons, metadata icons export) must be present so the "Add to Home Screen" PWA experience is unbroken.
+- On-screen and PDF invoice money must render with a currency symbol and locale thousands grouping (e.g. `$1,234.50`), not a bare two-decimal number.
 
 ## Cross-Story Dependencies
 
-- Story 15.2's reveal finale depends on Story 15.1's captured business name (shown at the end of the reveal).
-- Build-order: 15.1 is the spine and goes first; 15.2 (vendor then reveal) can run in parallel; 15.3 anytime; 15.4 sequenced last to keep OAuth off the launch critical path; 15.5 and 15.6 must complete before go-live.
-- 15.6 is a hard CI gate on the Epic 8 offboarding story reaching production, and verifies retention carve-outs tied to Epic 12 invoicing data.
-- The first-run changes touch the magic-link auth redirect path; verify magic-link routing still resolves correctly after 15.1 and 15.4.
+- Depends on prior epics: Epic 1 (intake/generation pipeline), Epic 2 (magic-link auth + claim/consent), Epic 8 (locale engine, PWA, offboarding cascade), and Epic 12 (business profiles, issued-invoice view and PDF template).
+- Story 15.1 is the first-run spine (business name → confirmed slug → auth-aware home → reshaped intake) that the other stories build around; 15.2 depends on the reshaped-intake business name for the reveal copy.
+- Story 15.6 gates Epic 8's offboarding story reaching production "done"; Story 15.5's build/type-check gate guards `main` before go-live.

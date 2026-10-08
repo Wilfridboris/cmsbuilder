@@ -12,6 +12,8 @@ import {
   DemoDashboard,
   DashboardSkeleton,
 } from "@/components/dashboard/DemoDashboard";
+import { GenerativeReveal } from "@/components/generation/GenerativeReveal";
+import { SchezaBot } from "@/components/scheza-bot";
 
 /**
  * Generation surface — the visible "aha moment".
@@ -104,44 +106,45 @@ export default function GeneratePage() {
   }
 
   if (phase === "ready" && result) {
+    // Story 15.2: the bot-led reveal owns the proud headline (greeting the
+    // owner by the captured business name) and the bounded staged assembly. The
+    // fallback banner settles the bot to `oops`/calm; a real generation lands
+    // on `proud`. The interactive dashboard flows in as the reveal body.
     return (
       <main className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-16">
-        <header className="flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold tracking-tight text-balance">
-            {t("readyTitle")}
-          </h1>
-          <p className="text-base text-muted-foreground text-pretty">
-            {t("readySubtitle")}
-          </p>
-        </header>
+        <GenerativeReveal status={result.isFallback ? "degraded" : "ready"}>
+          {/* Fallback banner (Story 1.5): a subtle, non-alarming, dismiss-free
+              note shown only when the hardcoded starter template was
+              provisioned. `role="status"` announces it to assistive tech
+              without stealing focus; it is informational only (customization is
+              Epic 5's chat). */}
+          {result.isFallback ? (
+            <div
+              role="status"
+              className="mb-6 flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground/80"
+            >
+              <Sparkles
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0 text-primary"
+              />
+              <p className="text-pretty">{t("fallbackBanner")}</p>
+            </div>
+          ) : null}
 
-        {/* Fallback banner (Story 1.5): a subtle, non-alarming, dismiss-free
-            note shown only when the hardcoded starter template was provisioned.
-            `role="status"` announces it to assistive tech without stealing
-            focus; it is informational only (customization is Epic 5's chat). */}
-        {result.isFallback ? (
-          <div
-            role="status"
-            className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground/80"
-          >
-            <Sparkles
-              aria-hidden="true"
-              className="mt-0.5 size-4 shrink-0 text-primary"
-            />
-            <p className="text-pretty">{t("fallbackBanner")}</p>
-          </div>
-        ) : null}
-
-        {/* Story 1.6: the interactive demo dashboard consumes the response in
-            hand — no second generation call. It owns the skeleton→content grow,
-            tab browse, responsive table/card, open-a-record, and the optimistic
-            client-side-only edit. */}
-        <DemoDashboard response={result} />
+          {/* Story 1.6: the interactive demo dashboard consumes the response in
+              hand — no second generation call. It owns the skeleton→content
+              grow, tab browse, responsive table/card, open-a-record, and the
+              optimistic client-side-only edit. */}
+          <DemoDashboard response={result} />
+        </GenerativeReveal>
       </main>
     );
   }
 
-  // initializing | generating → skeleton that "grows" into the dashboard.
+  // initializing | generating → the bot narrates while the single POST is in
+  // flight. `aria-busy`/`aria-live` + the loading label are preserved on the
+  // region; GenerativeReveal supplies the bot (`thinking`) and the honest,
+  // non-gating phase lines.
   return (
     <main
       aria-busy="true"
@@ -149,16 +152,12 @@ export default function GeneratePage() {
       aria-label={t("loadingLabel")}
       className="mx-auto flex w-full max-w-5xl flex-1 flex-col gap-8 px-6 py-16"
     >
-      <header className="flex flex-col gap-2">
-        <h1 className="text-3xl font-semibold tracking-tight text-balance">
-          {t("title")}
-        </h1>
-        <p className="text-base text-muted-foreground text-pretty">
-          {t("subtitle")}
-        </p>
-      </header>
-
-      <DashboardSkeleton />
+      <GenerativeReveal status="working">
+        {/* The skeleton reserves the dashboard's footprint beneath the bot so
+            the surface never shifts when the real tables assemble in. */}
+        <span className="sr-only">{t("subtitle")}</span>
+        <DashboardSkeleton />
+      </GenerativeReveal>
     </main>
   );
 }
@@ -175,6 +174,10 @@ function StartOver({
 }) {
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-4 px-6 py-16 text-center">
+      {/* Story 15.2: the degradation screen carries a calm `oops` bot (per the
+          I/O matrix) so a failed/missing reveal is never a bare, bot-less error.
+          Decorative — the title/body already name the state for screen readers. */}
+      <SchezaBot mood="oops" size={72} className="mx-auto" />
       <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
       <p className="text-base text-muted-foreground">{body}</p>
       <Link

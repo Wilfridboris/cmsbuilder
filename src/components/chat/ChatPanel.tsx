@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { Loader2, SendHorizontal, Sparkles, X } from "lucide-react";
+import { Loader2, SendHorizontal, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { SchezaBot } from "@/components/scheza-bot";
+import { moodForEditor } from "@/components/chat/assistant-mood";
 import {
   postEditorChat,
   postHideTable,
@@ -89,6 +91,18 @@ export function ChatPanel({
 
   const listEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLInputElement>(null);
+
+  // The header bot's mood (Story 15.2): a pure function of whether a request is
+  // in flight and the most recent assistant message's `uiKind`. The pill uses
+  // the same `moodForEditor` source of truth, so the bot reflects editor state
+  // (listening → thinking → proud/oops) identically in both places.
+  const lastAssistant = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant");
+  const botMood = moodForEditor(
+    pending,
+    lastAssistant?.role === "assistant" ? lastAssistant.uiKind : null,
+  );
 
   // Auto-scroll to the newest message / the thinking bubble.
   useEffect(() => {
@@ -324,7 +338,10 @@ export function ChatPanel({
         >
           <header className="flex items-center justify-between gap-2 border-b border-border/60 px-4 py-3">
             <div className="flex items-center gap-2">
-              <Sparkles aria-hidden="true" className="size-4 text-primary" />
+              {/* The assistant's face reflects editor state by mood (Story
+                  15.2): listening → thinking → proud/oops. Decorative — the
+                  dialog Title names the assistant for screen readers. */}
+              <SchezaBot mood={botMood} size={40} label={t("botLabel")} />
               <DialogPrimitive.Title className="text-sm font-semibold">
                 {t("title")}
               </DialogPrimitive.Title>

@@ -70,14 +70,18 @@
     }
   },
   "Generate": {
-    "title": "Building your dashboard…",
     "subtitle": "We're turning your description into a working, Ontario-ready dashboard. This only takes a few seconds.",
     "missingTitle": "Let's start with your business",
     "missingBody": "We couldn't find a business description to build from. Head back and tell us about your trade.",
     "restart": "Start over",
     "loadingLabel": "Building your dashboard",
     "readyTitle": "Your dashboard is ready",
-    "readySubtitle": "Here's a first look at your business, pre-filled with Ontario-ready sample data. You can make it your own after you create an account.",
+    "readyWithName": "Here's your dashboard, {businessName}",
+    "botLabel": "Scheza assistant building your dashboard",
+    "phaseReading": "Reading your description",
+    "phaseDesigning": "Designing your tables",
+    "phaseSeeding": "Adding Ontario-ready sample data",
+    "phaseFinishing": "Putting it all together",
     "fallbackBanner": "We used a starter template — you can customize it using the chat.",
     "failedTitle": "Let's try that again",
     "failedBody": "We couldn't finish building your dashboard just now. Head back and give it another try.",
@@ -595,6 +599,7 @@
   },
   "ChatAssistant": {
     "pillLabel": "Open the AI Assistant",
+    "botLabel": "AI Assistant",
     "title": "AI Assistant",
     "close": "Close assistant",
     "greeting": "Hi! I can add a new column to one of your tables, add a whole new table, or create a saved view of a table. Try something like \"add a warranty date to Jobs\", \"add a table for employee timesheets\", or \"show me unpaid invoices sorted by date\".",

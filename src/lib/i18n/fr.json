@@ -70,14 +70,18 @@
     }
   },
   "Generate": {
-    "title": "Création de votre tableau de bord…",
     "subtitle": "Nous transformons votre description en un tableau de bord fonctionnel et adapté à l'Ontario. Cela ne prend que quelques secondes.",
     "missingTitle": "Commençons par votre entreprise",
     "missingBody": "Nous n'avons trouvé aucune description d'entreprise à partir de laquelle démarrer. Revenez en arrière et parlez-nous de votre métier.",
     "restart": "Recommencer",
     "loadingLabel": "Création de votre tableau de bord",
     "readyTitle": "Votre tableau de bord est prêt",
-    "readySubtitle": "Voici un premier aperçu de votre entreprise, prérempli avec des données d'exemple adaptées à l'Ontario. Vous pourrez le personnaliser après avoir créé un compte.",
+    "readyWithName": "Voici votre tableau de bord, {businessName}",
+    "botLabel": "L'assistant Scheza crée votre tableau de bord",
+    "phaseReading": "Lecture de votre description",
+    "phaseDesigning": "Conception de vos tableaux",
+    "phaseSeeding": "Ajout de données d'exemple adaptées à l'Ontario",
+    "phaseFinishing": "Assemblage final",
     "fallbackBanner": "Nous avons utilisé un modèle de départ — vous pourrez le personnaliser à l'aide du clavardage.",
     "failedTitle": "Réessayons",
     "failedBody": "Nous n'avons pas pu terminer la création de votre tableau de bord pour le moment. Revenez en arrière et réessayez.",
@@ -595,6 +599,7 @@
   },
   "ChatAssistant": {
     "pillLabel": "Ouvrir l'assistant IA",
+    "botLabel": "Assistant IA",
     "title": "Assistant IA",
     "close": "Fermer l'assistant",
     "greeting": "Bonjour ! Je peux ajouter une nouvelle colonne à l'une de vos tables, ajouter une toute nouvelle table, ou créer une vue enregistrée d'une table. Essayez par exemple « ajouter une date de garantie aux Travaux », « ajouter une table pour les feuilles de temps des employés » ou « montre-moi les factures impayées triées par date ».",

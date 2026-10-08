@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { Sparkles } from "lucide-react";
 
+import { SchezaBot } from "@/components/scheza-bot";
 import { cn } from "@/lib/utils";
 import { useActiveTable } from "@/components/dashboard/ActiveTableProvider";
 import { ChatPanel } from "@/components/chat/ChatPanel";
@@ -56,7 +56,9 @@ export function ChatAssistant({ slug }: { slug: string }) {
             "fixed bottom-6 right-6 z-50 flex size-14 items-center justify-center rounded-full border border-white/40 bg-white/70 text-primary shadow-xl shadow-black/5 backdrop-blur-xl transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/10 dark:bg-zinc-900/70",
           )}
         >
-          <Sparkles aria-hidden="true" className="size-6" />
+          {/* The resting bot is the assistant's face (decorative — the button
+              already carries `aria-label`/`pillLabel` for screen readers). */}
+          <SchezaBot mood="listening" size={32} />
           <span className="sr-only">{t("pillLabel")}</span>
         </button>
       ) : null}

@@ -113,6 +113,41 @@ async function resolveOrg(
   return id;
 }
 
+/**
+ * Clear a reused session org's prior synthetic reveal rows (Story 15.2).
+ *
+ * When a session re-generates in the same browser, the org is reused and
+ * `upsertSchema` REPLACES the single schema definition — but the prior
+ * generation's seed ROWS are still live. `getSchema` returns only the new
+ * definition, so a read-back then surfaces stale rows under any table key the
+ * two generations share (e.g. `clients`): a mixed, dirty reveal.
+ *
+ * Fix: before persisting the new schema, HARD-delete every `SYSTEM_ACTOR_ID`
+ * row for this org. A hard delete (not the usual soft `deleted_at`) is
+ * mandatory because the partial-unique index `records_idempotency_key_idx`
+ * (`unique (organization_id, table_key, idempotency_key) where idempotency_key
+ * is not null`) still sees a soft-deleted row's `idempotency_key`, so reseeding
+ * the same `${prefix}-${table.key}-${i}` key would collide (23505).
+ *
+ * Scoped to `SYSTEM_ACTOR_ID` ONLY: `INTAKE_ACTOR_ID` intake leads and any
+ * claimed org's real rows are never touched. A delete failure throws so the
+ * caller surfaces a provisioning error rather than serving a silently-mixed
+ * reveal.
+ */
+async function clearPriorSystemRows(
+  admin: SupabaseClient,
+  orgId: string,
+): Promise<void> {
+  const { error } = await admin
+    .from("records")
+    .delete()
+    .eq("organization_id", orgId)
+    .eq("actor_id", SYSTEM_ACTOR_ID);
+  if (error) {
+    throw new Error(`Failed to clear prior session rows: ${error.message}`);
+  }
+}
+
 async function upsertSchema(
   admin: SupabaseClient,
   orgId: string,
@@ -146,6 +181,14 @@ export async function provisionGeneration(
   // Default any omitted `displayField` (Story 1.8) so the persisted schema (and
   // the reveal) always names a canonical label field per table.
   const schema = withDefaultedDisplayFields(input.schema);
+
+  // Reused session org (Story 15.2): hard-delete the prior generation's
+  // synthetic rows BEFORE replacing the schema, so the read-back shows ONLY the
+  // current generation's tables and rows — never a merge with stale leftovers.
+  // A fresh org (no `input.orgId`) has nothing to clear, so we skip the query.
+  if (input.orgId) {
+    await clearPriorSystemRows(admin, orgId);
+  }
 
   // Persist the schema BEFORE any rows — a bad seed batch must never prevent the
   // visitor from landing on a populated (or at least structured) view.

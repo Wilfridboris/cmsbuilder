@@ -6,6 +6,7 @@ import {
   FALLBACK_SEED_ROWS,
   UNIVERSAL_FIELD_SERVICE_TEMPLATE,
 } from "@/lib/generation/fallback";
+import { INTAKE_ACTOR_ID, SYSTEM_ACTOR_ID } from "@/lib/data/mutate";
 import type { SchemaDefinition } from "@/types/db";
 
 /**
@@ -29,6 +30,7 @@ type RecordRow = {
   table_key: string;
   data: Record<string, unknown>;
   idempotency_key: string | null;
+  actor_id: string;
   version: number;
   deleted_at: string | null;
 };
@@ -42,6 +44,8 @@ class FakeAdmin {
   orgUpserts: Array<Record<string, unknown>> = [];
   schemaUpserts: Array<Record<string, unknown>> = [];
   records: RecordRow[] = [];
+  /** When set, the next `records` DELETE resolves with this error (Story 15.2). */
+  deleteError: string | null = null;
   private seq = 0;
 
   from(table: string) {
@@ -106,7 +110,7 @@ class SchemaQuery {
 type Filter = { col: keyof RecordRow; val: unknown };
 
 class RecordsQuery {
-  private mode: "select" | "insert" = "select";
+  private mode: "select" | "insert" | "delete" = "select";
   private filters: Filter[] = [];
   private insertPayload: Partial<RecordRow> | null = null;
   private inFilter: { col: keyof RecordRow; vals: unknown[] } | null = null;
@@ -119,6 +123,12 @@ class RecordsQuery {
   insert(payload: Partial<RecordRow>) {
     this.mode = "insert";
     this.insertPayload = payload;
+    return this;
+  }
+  // Story 15.2: the reuse-clear hard-deletes `SYSTEM_ACTOR_ID` rows for the org
+  // via `.delete().eq("organization_id", …).eq("actor_id", …)` then awaits.
+  delete() {
+    this.mode = "delete";
     return this;
   }
   eq(col: keyof RecordRow, val: unknown) {
@@ -144,9 +154,22 @@ class RecordsQuery {
     return true;
   }
 
-  // The Story 3.8 referential-integrity guard terminates its verification query
-  // by awaiting after `.in("id", ids)`. Resolve the matching rows' ids.
+  // Terminates two awaited chains:
+  //   - the Story 3.8 referential-integrity SELECT (`.in("id", ids)`) → ids;
+  //   - the Story 15.2 reuse-clear DELETE (hard-removes matching rows) → ok.
   then<T>(resolve: (value: { data: unknown[]; error: null }) => T) {
+    if (this.mode === "delete") {
+      if (this.admin.deleteError) {
+        return Promise.resolve(
+          resolve({
+            data: [],
+            error: { message: this.admin.deleteError } as unknown as null,
+          }),
+        );
+      }
+      this.admin.records = this.admin.records.filter((r) => !this.matches(r));
+      return Promise.resolve(resolve({ data: [], error: null }));
+    }
     const data = this.admin.records
       .filter((r) => this.matches(r))
       .map((r) => ({ id: r.id }));
@@ -162,6 +185,9 @@ class RecordsQuery {
         table_key: (this.insertPayload!.table_key as string) ?? "",
         data: (this.insertPayload!.data as Record<string, unknown>) ?? {},
         idempotency_key: (this.insertPayload!.idempotency_key as string | null) ?? null,
+        // Story 15.2: the reuse-clear scopes on `actor_id`, so the fake must
+        // carry the inserted actor (provisioning writes SYSTEM_ACTOR_ID).
+        actor_id: (this.insertPayload!.actor_id as string) ?? "",
         version: 1,
         deleted_at: null,
       };
@@ -409,5 +435,130 @@ describe("provisionGeneration — Story 1.8: relations resolve to target ids", (
       expect(typeof invoice.data.job).toBe("string");
       expect(jobIds.has(invoice.data.job as string)).toBe(true);
     }
+  });
+});
+
+describe("provisionGeneration — Story 15.2: reuse clears only prior synthetic rows", () => {
+  const REUSED_ORG = "22222222-2222-2222-2222-222222222222";
+
+  /** Seed a `records` row directly (as a prior generation / intake would). */
+  function seedRow(
+    admin: FakeAdmin,
+    partial: Partial<RecordRow> & { actor_id: string },
+  ): void {
+    admin.records.push({
+      id: admin.nextId(),
+      organization_id: REUSED_ORG,
+      table_key: "clients",
+      data: { name: "stale" },
+      idempotency_key: "gen-seed-clients-0",
+      version: 1,
+      deleted_at: null,
+      ...partial,
+    } as RecordRow);
+  }
+
+  it("hard-deletes the prior generation's SYSTEM_ACTOR_ID rows before reseeding", async () => {
+    const admin = new FakeAdmin();
+    // A prior generation left synthetic rows in this reused org.
+    seedRow(admin, { actor_id: SYSTEM_ACTOR_ID, data: { name: "old client A" } });
+    seedRow(admin, { actor_id: SYSTEM_ACTOR_ID, data: { name: "old client B" } });
+
+    await provisionGeneration(
+      {
+        orgId: REUSED_ORG,
+        schema: SCHEMA,
+        seedRows: { clients: [{ name: "fresh client" }] },
+      },
+      asClient(admin),
+    );
+
+    // The two stale rows are GONE (hard-deleted, not soft) and only the current
+    // generation's single row remains — a clean read-back.
+    const live = admin.records.filter((r) => r.actor_id === SYSTEM_ACTOR_ID);
+    expect(live).toHaveLength(1);
+    expect(live[0].data).toEqual({ name: "fresh client" });
+    // No row was merely soft-deleted (its idempotency key would still collide).
+    expect(admin.records.every((r) => r.deleted_at === null)).toBe(true);
+  });
+
+  it("never touches INTAKE_ACTOR_ID intake leads on reuse", async () => {
+    const admin = new FakeAdmin();
+    seedRow(admin, { actor_id: SYSTEM_ACTOR_ID, data: { name: "old synthetic" } });
+    seedRow(admin, {
+      actor_id: INTAKE_ACTOR_ID,
+      idempotency_key: null,
+      data: { name: "real intake lead" },
+    });
+
+    await provisionGeneration(
+      {
+        orgId: REUSED_ORG,
+        schema: SCHEMA,
+        seedRows: { clients: [{ name: "fresh client" }] },
+      },
+      asClient(admin),
+    );
+
+    // The intake lead survives the clear; the stale synthetic row is gone.
+    const intake = admin.records.filter((r) => r.actor_id === INTAKE_ACTOR_ID);
+    expect(intake).toHaveLength(1);
+    expect(intake[0].data).toEqual({ name: "real intake lead" });
+    expect(
+      admin.records.some(
+        (r) => r.actor_id === SYSTEM_ACTOR_ID && r.data.name === "old synthetic",
+      ),
+    ).toBe(false);
+  });
+
+  it("does NOT issue a clear for a fresh org (nothing to delete)", async () => {
+    const admin = new FakeAdmin();
+    // A pre-existing row from an UNRELATED org would be wiped if the clear ran
+    // unscoped on a fresh mint; it must be left untouched (no orgId → no clear).
+    admin.records.push({
+      id: admin.nextId(),
+      organization_id: "99999999-9999-9999-9999-999999999999",
+      table_key: "clients",
+      data: { name: "other org" },
+      idempotency_key: null,
+      version: 1,
+      deleted_at: null,
+      actor_id: SYSTEM_ACTOR_ID,
+    });
+
+    await provisionGeneration(
+      { schema: SCHEMA, seedRows: { clients: [{ name: "fresh" }] } },
+      asClient(admin),
+    );
+
+    // The other org's row is intact; the fresh generation added exactly one row.
+    expect(
+      admin.records.some((r) => r.data.name === "other org"),
+    ).toBe(true);
+    expect(
+      admin.records.filter((r) => r.data.name === "fresh"),
+    ).toHaveLength(1);
+  });
+
+  it("surfaces a clear failure as a provisioning error (never a silent mixed reveal)", async () => {
+    const admin = new FakeAdmin();
+    seedRow(admin, { actor_id: SYSTEM_ACTOR_ID });
+    admin.deleteError = "delete blew up";
+
+    await expect(
+      provisionGeneration(
+        {
+          orgId: REUSED_ORG,
+          schema: SCHEMA,
+          seedRows: { clients: [{ name: "fresh" }] },
+        },
+        asClient(admin),
+      ),
+    ).rejects.toThrow(/clear prior session rows/i);
+
+    // The schema was NOT replaced and no fresh rows were seeded after the failed
+    // clear — provisioning aborted cleanly.
+    expect(admin.schemaUpserts).toHaveLength(0);
+    expect(admin.records.some((r) => r.data.name === "fresh")).toBe(false);
   });
 });
