@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { Info } from "lucide-react";
 
 import { LoginForm } from "@/components/auth/LoginForm";
+import { LocaleToggle } from "@/components/i18n/LocaleToggle";
 
 /**
  * `/login` (Story 2.2) — the returning-user login entry point.
@@ -23,6 +24,9 @@ import { LoginForm } from "@/components/auth/LoginForm";
 export default function LoginPage() {
   return (
     <main className="mx-auto flex w-full max-w-md flex-1 flex-col justify-center gap-8 px-6 py-16">
+      <div className="flex justify-end">
+        <LocaleToggle />
+      </div>
       <Suspense fallback={null}>
         <LoginNotice />
       </Suspense>

@@ -2073,3 +2073,205 @@ So that a widely shared link does not become a spam funnel.
 **Given** rate limiting or honeypot logic
 **When** it runs
 **Then** it never blocks or drops a legitimate submission's data capture (non-blocking, consistent with Epic 6's non-blocking-email rule)
+
+## Epic 15: First-Run Polish & Post-Testing Fixes *(MVP — added via sprint-change-proposal-2026-10-08-mvp-polish)*
+
+Post-launch-testing adjustments to the first-run journey, trust, and the "aha" moment. Fixes the only churn-grade defect found in testing (a signed-in owner lands on an auto-derived slug like `/other-toronto` and cannot navigate back to log in), captures the business name as a first-class identity, reshapes the generative intake so owners describe their business rather than enumerate fields, turns the quiet generation skeleton into a bot-led signature reveal, enables launch promo codes, and clears a batch of small trust/polish items. Builds on Epic 1 (intake/generation), Epic 2 (magic-link auth), and Epic 12 (`business_profiles`).
+
+> **Four grouped stories by work-unit, not one-per-fix.** 15.1 is the first-run spine (business name → confirmed friendly slug → auth-aware home → reshaped intake). 15.2 vendors and wires the existing standalone `scheza-bot` mascot as the app's AI assistant and the generation reveal. 15.3 bundles the small, low-risk polish items. 15.4 is the Google sign-in fast-follow. The no-em-dash rule and the sibling-gitignore rule (closed earlier as retro-item-81 / retro-item-83 for the then-known cases) are re-applied here to newly-found instances.
+
+*(Covers FR105, FR106, FR107, FR108, FR109, FR110. NFRs woven in: NFR-A2, NFR-A4 (accessible inputs + reduced-motion), NFR-FC copy standard (no em-dash), NFR-P (60fps, no layout shift). Addresses deferred-work "business/display name" and gaps G1/G2/G3/G4 from the testing review.)*
+
+### Story 15.1: First-Run Overhaul — Business Name, Confirmed Slug, Reshaped Intake & Auth-Aware Home
+
+As a trades owner starting from the landing page,
+I want to give my business name, describe my business in my own words, see and confirm my dashboard address, and always be able to get back in,
+So that my workspace is recognizably mine and I never get stranded after logging in.
+
+**Acceptance Criteria:**
+
+**Given** the landing prompt (`PromptBuilder`)
+**When** it loads
+**Then** it collects a business name field alongside trade type and city, and reshapes the single "what you track" field into a free-form "describe your business" prompt plus an optional "anything specific you want to track?" field — inviting a description rather than demanding the owner enumerate every element (FR105, FR108)
+
+**Given** a visitor who submits the prompt
+**When** the claim is created
+**Then** the business name is captured and promoted to the organization's first-class display name (persisted to the Epic 12 `business_profiles` operating name), replacing the title-cased trade+city value previously derived in `finalizeClaim` (FR105)
+
+**Given** a business name
+**When** the dashboard slug is derived
+**Then** it is slugified from the business name instead of `tradeType + city` and made **globally unique** across `organizations` via the existing `ensureUniqueSlug` guard (appending `-2`, `-3`… on collision, so two businesses with the same name get `joes-plumbing` and `joes-plumbing-2`); duplicate business *names* are allowed (the name is only the display heading, never a uniqueness key) (FR106)
+
+**Given** the derived slug
+**When** it is shown to the owner before claim ("your dashboard will live at `scheza.com/{slug}`")
+**Then** the previewed URL is treated as best-effort (availability is checked when shown and when the owner edits it), the authoritative unique slug is resolved at finalize (`ensureUniqueSlug`), and the owner is always shown their final dashboard URL after login so a same-name collision never strands or misdirects them (FR106, FR107)
+
+**Given** slug derivation from a business name
+**When** the name slugifies to a reserved top-level route (`login`, `auth`, `forms`, `generate`, `demo`, `i`, `api`, the home route) or to an empty/degenerate value
+**Then** a reserved-word guard re-derives or suffixes so an org can never shadow a system route — closing the open reserved-word gap (G6), which business-name-derived slugs would otherwise worsen (FR106)
+
+> **Model note (recorded decision):** the slug is a routing label, not the security boundary. Access is already auth-scoped (RLS + `org_members`): typing another org's `/{slug}` is blocked regardless of name, so two same-named businesses are fully isolated. The slug must be globally unique only because it also keys the *public* intake-form URLs, which anonymous visitors hit with no auth to disambiguate. Salesforce reaches the same place with a per-tenant subdomain (`acme.my.salesforce.com`) — still globally unique, just prettier. Per-tenant subdomains and opaque public-form tokens (like the existing invoice `/i/[token]`) are the post-MVP paths if the `-2` suffix ever grates; neither is an MVP change.
+
+**Given** `finalizeClaim` (which this story already rewrites for business name + slug)
+**When** it promotes the session org across its writes (membership, slug, record clearing, token consumption)
+**Then** the sequence is made atomic (transaction or compensating rollback) so a mid-sequence failure can never leave a half-provisioned org (hardens the non-transactional claim path, deferred-work line 24)
+
+**Given** the reshaped intake (description + optional explicit items)
+**When** generation runs
+**Then** the Gemini prompt infers the tables from the free-form description and also honors any explicitly listed items, mixing both inputs rather than relying on enumeration alone (FR108)
+
+**Given** an authenticated owner
+**When** they visit `/`
+**Then** they are routed to their dashboard (or shown a prominent "Go to my dashboard" card) instead of the empty claim form, and a sign-out affordance is available (FR107, gap G2)
+
+**Given** a returning, signed-out visitor on `/`
+**When** they want to get back into their dashboard
+**Then** a clear "Already have a dashboard? Log in" entry is visible and routes to the magic-link login, so a user who did not memorize their slug is never stranded (FR107, gap G1)
+
+**Given** a visitor on any public, unauthenticated surface (the landing page, login, legal)
+**When** they want to read in their language
+**Then** an EN/FR toggle is available there, extending the Epic 8 locale engine beyond the authenticated `DashboardNav` so a French-first owner is not forced through an English-only first run (closes the public-surface i18n gap G8)
+
+**Given** any new or changed copy in this story
+**When** it is shown
+**Then** it is wired through `next-intl` (en + fr), contains no em-dash, and validates on submit (not per keystroke) with accessible inline messages
+
+### Story 15.2: SchezaBot Assistant & Signature Generative Reveal
+
+As a new visitor watching my app being built,
+I want a friendly assistant that reacts while the AI works and reveals my dashboard as it is created,
+So that the moment feels alive, bespoke, and worth sharing.
+
+**Acceptance Criteria:**
+
+**Given** the existing standalone `scheza-bot` mascot (22-mood animated SVG, zero runtime deps, SSR-safe, reduced-motion-aware)
+**When** it is integrated
+**Then** its component is vendored into `src/components/scheza-bot`, exported for app use, and its screen-reader `label` is wired through `next-intl`, adding no new runtime dependency
+
+**Given** the AI acts across the app (generation, the Epic 5 conversational schema editor, error and empty states)
+**When** app state changes
+**Then** SchezaBot reflects it by mood — for example `thinking`/`focused` while generating, `success`/`proud` on completion, `oops`/`error` on failure, and `listening`/`speaking` in the editor
+
+**Given** a visitor on `/generate` while Gemini builds the schema
+**When** generation is in progress
+**Then** the bot-led reveal replaces the quiet `animate-pulse` skeleton: the bot narrates the real generation phases while the dashboard assembles (tables, fields, then seed rows stream in), ending on the bot's `proud`/`success` pose with the captured business name shown ("Here's your dashboard, {businessName}")
+
+**Given** real generation latency
+**When** the reveal plays
+**Then** it is paced to the actual phases and never artificially padded; a fast response resolves fast
+
+**Given** the starter-template fallback path
+**When** generation errors
+**Then** the reveal degrades gracefully (bot `oops`) and the existing fallback banner shows, with no stuck or broken animation
+
+**Given** a visitor who re-generates in the same browser session (the anonymous session org is reused)
+**When** the new schema and rows are read back for the reveal
+**Then** the reveal shows only the current generation's tables and rows, never a merge of a prior session's soft-deleted or differently-keyed records, so the aha moment is always clean (fixes the reused-session-org mixing, deferred-work lines 12 / 74)
+
+**Given** a user with `prefers-reduced-motion` set
+**When** the bot and reveal render
+**Then** the bot shows a calm still pose and the reveal is instant; in all cases the animation holds 60fps and introduces no layout shift (NFR-A2, NFR-A4, NFR-P)
+
+**Given** the component is now vendored under `src/components`
+**When** the repo is committed
+**Then** the top-level `scheza-bot/` distribution folder is added to `.gitignore`, mirroring the sibling decoupled sub-project pattern (scheza-marketing-v1), so only the integrated copy is tracked (re-applies the retro-item-83 rule to this newer sibling)
+
+### Story 15.3: MVP Polish Quick-Wins — Copy, Inputs, Icons & Promo Codes
+
+As an owner,
+I want the small rough edges from testing smoothed out,
+So that the app reads clean, feels solid, and can run a launch offer.
+
+**Acceptance Criteria:**
+
+**Given** the user-facing i18n bundles (`src/lib/i18n/en.json` and `fr.json`)
+**When** audited for the no-em-dash rule
+**Then** the remaining em-dashes in the banner, CTA, and subtitle strings are replaced with a comma, period, or colon (retro-item-81 closed the `fallback.ts`/`prompts.ts` reason strings; this finishes the i18n banners)
+
+**Given** the Gemini generation prompt (`src/lib/gemini/prompts.ts`)
+**When** it instructs the model
+**Then** the instruction text itself contains no em-dash, and a guard or test asserts that AI-generated table labels, field labels, and seed values never contain an em-dash
+
+**Given** the landing prompt textarea(s)
+**When** a user interacts with them
+**Then** they cannot be resized by dragging (`resize-none`), and other user-facing textareas are consistent with that behavior
+
+**Given** the app loaded in a browser tab and installed as a PWA
+**When** icons are requested
+**Then** the Scheza brand favicon is served and the companion icon set is present (apple-touch-icon, PWA manifest icons, and the metadata icons export) so the Epic 8.2 "Add to Home Screen" experience is unbroken (gap G4)
+
+**Given** the subscription Stripe Checkout Session (`src/app/api/stripe/checkout/route.ts`)
+**When** it is created
+**Then** `allow_promotion_codes: true` is set so launch and early-adopter coupons created in the Stripe dashboard can be redeemed at checkout, with the success and cancel return flows unchanged (FR109)
+
+**Given** issued invoice amounts on screen and in the frozen PDF (`IssuedInvoiceView` and the `@react-pdf/renderer` template)
+**When** money is rendered
+**Then** it shows a currency symbol and locale thousands grouping (for example `$1,234.50`) rather than a bare `.toFixed(2)`, so the document a client receives looks professional (Epic 12 invoicing; gap G7)
+
+### Story 15.4: Google Sign-In (Fast-Follow)
+
+As a returning owner,
+I want to sign in with Google,
+So that getting back into my dashboard is one tap and I am not stranded when my magic-link session expires.
+
+**Acceptance Criteria:**
+
+**Given** the login and claim surfaces
+**When** a user chooses how to authenticate
+**Then** a "Continue with Google" option is available alongside the passwordless magic link, backed by Supabase Google OAuth (FR110)
+
+**Given** a first-time Google sign-in
+**When** the account is created
+**Then** consent handling matches the existing claim consent model (current policy version recorded), and the user is routed consistently with the magic-link flow (to their dashboard via `resolveUserPrimaryOrgSlug`, or into claim if none)
+
+**Given** a returning owner whose magic-link session has expired
+**When** they re-authenticate with Google
+**Then** re-login is a single tap, mitigating the session-expiry stranding gap (gap G3)
+
+**Given** the provider configuration
+**When** it is set up
+**Then** the Google OAuth redirect URLs are configured for the app domain and the callback reuses the existing `auth/confirm` redirect logic; no em-dash appears in any new user-facing copy (en + fr)
+
+### Story 15.5: Launch Hardening
+
+As the platform operator,
+I want the known pre-go-live safety gaps closed,
+So that launch day is not the day an abuse vector or an unbounded query bites.
+
+**Acceptance Criteria:**
+
+**Given** `POST /api/claim` (magic-link dispatch) and `POST /api/invite` (teammate invites)
+**When** requests arrive
+**Then** per-IP / per-email rate limiting is applied to both (reusing the Edge-Middleware pattern already used for generation and Epic 14 intake), so neither endpoint can be used for email-bombing or duplicate-invite spam, and a legitimate claim or invite is never blocked (gap G10; deferred-work line 36 for invite)
+
+**Given** the authed add-record and single-select write paths (`POST /api/records`, inline edit, and public intake)
+**When** a payload is written
+**Then** the server validates keys against the table's field schema and that a select value is one of the field's options (matching the referential guard relations already have), rejecting arbitrary or off-list values rather than storing them verbatim (gap G9)
+
+**Given** high-fan-in reverse-relation lists and full data export
+**When** they load or run
+**Then** they are bounded (pagination or a sane cap / streamed export) so a large org cannot OOM or time out the serverless function (gap G12)
+
+**Given** `main` before go-live
+**When** `npm run build` and `npm run type-check` run
+**Then** both exit 0 — explicitly confirming the deferred `CURRENT_POLICY_VERSION` typed-routes build-blocker is resolved rather than assumed; if it reproduces, relocate the const out of the route module (gap G11)
+
+### Story 15.6: Offboarding Retention Cascade Verification
+
+As the platform operator,
+I want the offboarding hard-delete cascade proven against a live schema,
+So that we meet the statutory six-year retention obligation without deleting data we must keep or keeping data we must purge.
+
+**Acceptance Criteria:**
+
+**Given** the Epic 8 account-offboarding hard-delete cascade
+**When** it runs against a live-schema fixture
+**Then** a test proves `invoices`, `credit_notes`, `invoice_payments`, and their frozen PDF objects are EXCLUDED from deletion (six-year retention), while `forms` rows ARE deleted (no retention carve-out) (deferred-work lines 140 / 143)
+
+**Given** an offboarded org whose invoices or credit notes reference customer records
+**When** the records are purged
+**Then** the `customer_record_id` `ON DELETE SET NULL` guarantee is exercised against the live schema (not asserted only in prose), so purging records can never orphan or break a retained invoice (deferred-work line 267)
+
+**Given** this verification
+**When** it is wired into CI
+**Then** it is a hard gate on Epic 8 Story 8.5 (offboarding) reaching `done` in production

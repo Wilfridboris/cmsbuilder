@@ -1,75 +1,104 @@
-"use client";
-
-import { Suspense } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
-import { Info } from "lucide-react";
+import { getTranslations } from "next-intl/server";
+import { ArrowRight } from "lucide-react";
 
-import { PromptBuilder } from "@/components/generation/PromptBuilder";
+import { getCurrentUser } from "@/lib/auth/session";
+import { resolveUserPrimaryOrgSlug } from "@/lib/auth/org";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { LocaleToggle } from "@/components/i18n/LocaleToggle";
+import { SignOutButton } from "@/components/auth/SignOutButton";
+import { HomeClaimView } from "@/components/home/HomeClaimView";
 
 /**
- * Landing "conversation" screen (Story 1.3, extended in 2.1).
+ * Landing route (Story 1.3, extended 2.1, reshaped auth-aware in 15.1).
  *
- * A hyper-minimalist single-focus hero: a short headline + subhead (from the
- * `Home` namespace) above the guided "Mad Libs" prompt and its one primary CTA.
+ * A SERVER component that branches on the session:
+ *   - signed-in owner with a resolved org → a "go to my dashboard" card (links
+ *     `/{slug}`) + a sign-out affordance, never the empty claim form;
+ *   - signed-out visitor, or a signed-in user with no org yet (first-time) →
+ *     the client claim UI (`HomeClaimView`) with the strengthened log-in entry.
  *
- * Story 2.1 adds the claim re-request surface: when the magic-link callback
- * fails (expired/invalid link, used claim, cross-device open) it redirects here
- * with `?claim=expired|error`, and when middleware bounces an unauthenticated
- * tenant-route visit it redirects with `?auth=required`. Both render a
- * translated, non-alarming notice with the natural re-request path (describe
- * your business → generate → claim again). Never a raw error screen.
+ * A signed-in visitor is never auto-redirected off `/` (the sign-out affordance
+ * must stay reachable). The EN/FR toggle is surfaced top-right on both branches.
  */
-export default function Home() {
-  const t = useTranslations("Home");
-  const tLogin = useTranslations("Login");
+
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const t = await getTranslations("Home");
+
+  // Guarded like the resolver below: an auth-provider / cookie fault degrades to
+  // the claim UI rather than crashing the home route (its most-hit surface).
+  let user = null;
+  try {
+    user = await getCurrentUser();
+  } catch {
+    user = null;
+  }
+
+  let signedIn: { slug: string; name: string } | null = null;
+  if (user) {
+    const admin = createAdminClient();
+    try {
+      const resolved = await resolveUserPrimaryOrgSlug(user.id, admin);
+      if (resolved) {
+        // Fetch the display name for the greeting; fall back to the slug if the
+        // name read fails (never block the card on it).
+        const { data: org } = await admin
+          .from("organizations")
+          .select("name")
+          .eq("slug", resolved.slug)
+          .maybeSingle();
+        signedIn = {
+          slug: resolved.slug,
+          name: (org?.name as string | undefined) ?? resolved.slug,
+        };
+      }
+    } catch {
+      // A resolver fault degrades to the claim UI rather than crashing the home
+      // route; the user can still reach their dashboard via /login.
+      signedIn = null;
+    }
+  }
 
   return (
     <main className="mx-auto flex w-full max-w-xl flex-1 flex-col justify-center gap-8 px-6 py-16">
-      <Suspense fallback={null}>
-        <ClaimNotice />
-      </Suspense>
-      <header className="flex flex-col gap-3 text-center">
-        <h1 className="text-4xl font-semibold tracking-tight">{t("tagline")}</h1>
-        <p className="text-base text-muted-foreground">{t("description")}</p>
-      </header>
-      <PromptBuilder />
-      {/* Story 2.2: discoverable returning-user login path. */}
-      <p className="text-center text-sm text-muted-foreground">
-        {tLogin("linkPrompt")}{" "}
-        <Link
-          href="/login"
-          className="font-medium text-primary underline underline-offset-4"
-        >
-          {tLogin("linkCta")}
-        </Link>
-      </p>
+      <div className="flex justify-end">
+        <LocaleToggle />
+      </div>
+
+      {signedIn ? (
+        <section className="mx-auto w-full max-w-md animate-in fade-in slide-in-from-bottom-2 motion-reduce:animate-none">
+          <div className="flex flex-col items-center gap-6 rounded-2xl border bg-card p-8 text-center shadow-xl shadow-black/5">
+            <header className="flex flex-col gap-2">
+              <h1 className="text-2xl font-semibold tracking-tight text-balance">
+                {t("signedInTitle", { name: signedIn.name })}
+              </h1>
+              <p className="text-sm text-muted-foreground text-pretty">
+                {t("signedInBody")}
+              </p>
+            </header>
+            <Link
+              href={`/${signedIn.slug}`}
+              className={cn(
+                buttonVariants({ size: "lg" }),
+                "group min-h-12 w-full gap-2 text-base",
+              )}
+            >
+              <span>{t("signedInCta")}</span>
+              <ArrowRight
+                aria-hidden="true"
+                className="size-4 transition-transform group-hover:translate-x-1 motion-reduce:transition-none"
+              />
+            </Link>
+            <SignOutButton />
+          </div>
+        </section>
+      ) : (
+        <HomeClaimView />
+      )}
     </main>
-  );
-}
-
-/** Translated claim/auth notice driven by the callback / middleware redirect. */
-function ClaimNotice() {
-  const tClaim = useTranslations("Claim");
-  const params = useSearchParams();
-  const claim = params.get("claim");
-  const auth = params.get("auth");
-
-  let message: string | null = null;
-  if (claim === "expired") message = tClaim("linkExpired");
-  else if (claim === "error") message = tClaim("linkError");
-  else if (auth === "required") message = tClaim("authRequired");
-
-  if (!message) return null;
-
-  return (
-    <div
-      role="status"
-      className="flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground/80"
-    >
-      <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
-      <p className="text-pretty">{message}</p>
-    </div>
   );
 }

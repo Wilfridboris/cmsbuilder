@@ -10,6 +10,9 @@
       "fr": "Passer en français"
     }
   },
+  "SignOut": {
+    "label": "Se déconnecter"
+  },
   "PwaInstall": {
     "label": "Installer Scheza",
     "title": "Ajoutez Scheza à votre écran d'accueil",
@@ -26,10 +29,15 @@
     "tagline": "Décrivez votre entreprise. Obtenez un tableau de bord fonctionnel en quelques secondes.",
     "description": "Indiquez-nous votre métier, votre ville et ce que vous suivez. Nous créons un tableau de bord entièrement rempli et adapté à l'Ontario avant même la création d'un compte.",
     "cta": "Créer mon tableau de bord",
-    "localeLabel": "Langue"
+    "localeLabel": "Langue",
+    "signedInTitle": "Bon retour chez {name}",
+    "signedInBody": "Vous êtes connecté. Accédez directement à votre tableau de bord.",
+    "signedInCta": "Aller à mon tableau de bord"
   },
   "PromptBuilder": {
     "legend": "Décrivez votre entreprise",
+    "businessNameLabel": "Comment s'appelle votre entreprise?",
+    "businessNamePlaceholder": "p. ex. Plomberie Feuille d'Érable",
     "tradeLabel": "Quel est votre métier?",
     "tradePlaceholder": "Sélectionnez votre métier",
     "trade": {
@@ -44,15 +52,21 @@
     },
     "cityLabel": "Quelle ville desservez-vous?",
     "cityPlaceholder": "p. ex. Ottawa",
-    "trackLabel": "Que devez-vous suivre?",
-    "trackPlaceholder": "p. ex. les travaux, les devis, les clients et les factures impayées",
+    "descriptionLabel": "Décrivez votre entreprise",
+    "descriptionPlaceholder": "Expliquez ce que vous faites et ce que vous devez suivre, dans vos propres mots. Par exemple : je dirige une entreprise de plomberie et je dois suivre les travaux, les devis, les clients et les factures impayées.",
+    "explicitItemsLabel": "Quelque chose de précis à suivre?",
+    "explicitItemsOptional": "(facultatif)",
+    "explicitItemsPlaceholder": "p. ex. garanties, zones de service, équipement",
     "cta": "Créer mon tableau de bord",
     "validation": {
+      "businessNameRequired": "Veuillez saisir le nom de votre entreprise.",
+      "businessNameTooLong": "Veuillez limiter le nom de votre entreprise à moins de 80 caractères.",
       "tradeRequired": "Veuillez choisir votre métier.",
       "cityRequired": "Veuillez indiquer la ville que vous desservez.",
       "cityTooLong": "Veuillez limiter la ville à moins de 80 caractères.",
-      "trackRequired": "Précisez un peu ce que vous suivez (au moins 3 caractères).",
-      "trackTooLong": "Veuillez limiter ce champ à 280 caractères."
+      "descriptionRequired": "Précisez un peu votre entreprise (au moins 3 caractères).",
+      "descriptionTooLong": "Veuillez limiter votre description à moins de 280 caractères.",
+      "explicitItemsTooLong": "Veuillez limiter ce champ à 280 caractères."
     }
   },
   "Generate": {
@@ -129,6 +143,13 @@
     "subtitle": "Saisissez votre courriel et nous vous enverrons un lien sécurisé pour réclamer ce tableau de bord. Aucun mot de passe requis.",
     "emailLabel": "Adresse courriel",
     "emailPlaceholder": "vous@votreentreprise.ca",
+    "slugLabel": "L'adresse de votre tableau de bord",
+    "slugPrefix": "scheza.com/",
+    "slugHint": "C'est là que vivra votre tableau de bord. Vous pouvez modifier cette adresse.",
+    "slugChecking": "Vérification de la disponibilité",
+    "slugAvailable": "Cette adresse est disponible.",
+    "slugTaken": "Cette adresse est déjà prise.",
+    "slugUseSuggestion": "Utiliser {suggestion}",
     "consentLabel": "J'accepte la <privacy>politique de confidentialité</privacy> et les <terms>conditions d'utilisation</terms>.",
     "submit": "Envoyer mon lien sécurisé",
     "close": "Fermer",
@@ -140,6 +161,7 @@
     "error": {
       "consentRequired": "Veuillez accepter la politique de confidentialité et les conditions d'utilisation pour continuer.",
       "invalidEmail": "Veuillez saisir une adresse courriel valide.",
+      "businessNameRequired": "Veuillez décrire à nouveau votre entreprise afin que nous connaissions son nom.",
       "noSession": "Votre démonstration a expiré. Veuillez décrire à nouveau votre entreprise pour recommencer.",
       "sendFailed": "Nous n'avons pas pu envoyer votre lien pour le moment. Veuillez réessayer dans un instant.",
       "invalidBody": "Une erreur est survenue. Veuillez réessayer.",

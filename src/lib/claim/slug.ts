@@ -2,59 +2,27 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { kebabCase } from "@/lib/utils";
+// Pure, client-safe derivation + reserved-word guard live in a sibling module so
+// the claim modal can compute the slug preview in the browser without pulling in
+// this server-only module. Re-exported here so server callers keep one import.
+export {
+  SLUG_FALLBACK,
+  RESERVED_SLUGS,
+  deriveSlugFromName,
+  guardReservedSlug,
+} from "@/lib/claim/slug-derive";
 
 /**
- * Slug provisioning for the claim flow (Story 2.1).
+ * Slug provisioning for the claim flow (Story 2.1, name-based since 15.1).
  *
- * The public URL is AUTO-DERIVED from the generation intent (trade + city) — the
- * visitor never chooses it in this story. `deriveSlug` produces a stable,
- * kebab-case base (e.g. `plumbing-laval`); `ensureUniqueSlug` appends `-2`,
- * `-3`… on an `organizations.slug` collision so every claimed org lands on a
- * unique, human-readable URL.
+ * The dashboard slug is derived from the business name the owner typed
+ * (`deriveSlugFromName`), passed through the reserved-word guard
+ * (`guardReservedSlug`, both re-exported from the client-safe `slug-derive`
+ * module above), then resolved to a globally-unique value by `ensureUniqueSlug`
+ * at finalize (appends `-2`, `-3`… on an `organizations.slug` collision). This
+ * module owns only the service-role uniqueness check; the pure derivation is
+ * client-safe so the claim modal can preview it.
  */
-
-/**
- * Kebab-case a single segment. Thin alias over the shared {@link kebabCase} util so
- * the claim flow and the Epic-14 form slug derivation share one normalizer (behavior
- * is identical to the previous private implementation). Returns "" for input with no
- * usable characters (caller handles the fallback).
- */
-function kebab(input: string): string {
-  return kebabCase(input);
-}
-
-/** A safe, non-empty base used when trade + city yield nothing usable. */
-const SLUG_FALLBACK = "app";
-
-/**
- * Derive the base slug from the generation intent. Uses the stable trade-type
- * key (never a translated label, so the slug is locale-stable) plus the city.
- * A purely non-Latin / empty result degrades to a safe constant rather than an
- * empty slug.
- */
-export function deriveSlug(intent: { tradeType: string; city: string }): string {
-  const base = [intent.tradeType, intent.city]
-    .map((part) => kebab(part ?? ""))
-    .filter((part) => part.length > 0)
-    .join("-");
-  return base.length > 0 ? base : SLUG_FALLBACK;
-}
-
-/**
- * Turn a kebab-case slug base (e.g. `plumbing-laval`) into a human-readable
- * display name (`Plumbing Laval`) for the org heading. The visitor never typed a
- * business name in this story, so this title-cased trade+city basis is a sensible
- * default until an explicit rename lands (see deferred-work). Returns "" only for
- * an empty base, which the caller guards.
- */
-export function slugBaseToName(base: string): string {
-  return base
-    .split("-")
-    .filter((word) => word.length > 0)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
 
 /**
  * Return `base` if free, else the first `base-N` (N ≥ 2) that is not already an

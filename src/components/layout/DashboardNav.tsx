@@ -5,6 +5,7 @@ import { ClipboardList, FileText, LayoutDashboard, Settings, Upload } from "luci
 import { cn } from "@/lib/utils";
 import { buttonVariants } from "@/components/ui/button";
 import { LocaleToggle } from "@/components/i18n/LocaleToggle";
+import { SignOutButton } from "@/components/auth/SignOutButton";
 import { InstallPrompt } from "@/components/pwa/InstallPrompt";
 import type { MemberRole } from "@/types/db";
 
@@ -101,6 +102,10 @@ export async function DashboardNav({
             `ml-auto`. A client component rendered from this Server Component;
             RBAC link-gating above is untouched (role stays server-side). */}
         <LocaleToggle />
+
+        {/* Story 15.1: sign-out affordance (a POST form to /auth/signout). The
+            first sign-out surface anywhere; sits after the locale toggle. */}
+        <SignOutButton />
       </div>
 
       {/* Story 8.2: the PWA "Add to Home Screen" banner, dashboard-scoped by

@@ -10,6 +10,9 @@
       "fr": "Switch to French"
     }
   },
+  "SignOut": {
+    "label": "Sign out"
+  },
   "PwaInstall": {
     "label": "Install Scheza",
     "title": "Add Scheza to your home screen",
@@ -26,10 +29,15 @@
     "tagline": "Describe your business. Get a working dashboard in seconds.",
     "description": "Tell us your trade, your town, and what you track. We build a fully populated, Ontario-ready dashboard before you ever create an account.",
     "cta": "Build my dashboard",
-    "localeLabel": "Language"
+    "localeLabel": "Language",
+    "signedInTitle": "Welcome back to {name}",
+    "signedInBody": "You're signed in. Jump straight into your dashboard.",
+    "signedInCta": "Go to my dashboard"
   },
   "PromptBuilder": {
     "legend": "Describe your business",
+    "businessNameLabel": "What's your business called?",
+    "businessNamePlaceholder": "e.g. Maple Leaf Plumbing",
     "tradeLabel": "What's your trade?",
     "tradePlaceholder": "Select your trade",
     "trade": {
@@ -44,15 +52,21 @@
     },
     "cityLabel": "Which city or town do you serve?",
     "cityPlaceholder": "e.g. Ottawa",
-    "trackLabel": "What do you need to keep track of?",
-    "trackPlaceholder": "e.g. jobs, quotes, customers, and which invoices are still unpaid",
+    "descriptionLabel": "Describe your business",
+    "descriptionPlaceholder": "Tell us what you do and what you need to keep track of, in your own words. For example: I run a plumbing business and need to track jobs, quotes, customers, and which invoices are still unpaid.",
+    "explicitItemsLabel": "Anything specific to track?",
+    "explicitItemsOptional": "(optional)",
+    "explicitItemsPlaceholder": "e.g. warranties, service areas, equipment",
     "cta": "Build my dashboard",
     "validation": {
+      "businessNameRequired": "Please enter your business name.",
+      "businessNameTooLong": "Please keep your business name under 80 characters.",
       "tradeRequired": "Please choose your trade.",
       "cityRequired": "Please enter the city or town you serve.",
       "cityTooLong": "Please keep the city or town under 80 characters.",
-      "trackRequired": "Tell us a little more about what you track (at least 3 characters).",
-      "trackTooLong": "Please keep this under 280 characters."
+      "descriptionRequired": "Tell us a little more about your business (at least 3 characters).",
+      "descriptionTooLong": "Please keep your description under 280 characters.",
+      "explicitItemsTooLong": "Please keep this under 280 characters."
     }
   },
   "Generate": {
@@ -129,6 +143,13 @@
     "subtitle": "Enter your email and we'll send you a secure link to claim this dashboard. No password required.",
     "emailLabel": "Email address",
     "emailPlaceholder": "you@yourbusiness.ca",
+    "slugLabel": "Your dashboard address",
+    "slugPrefix": "scheza.com/",
+    "slugHint": "This is where your dashboard will live. You can edit it.",
+    "slugChecking": "Checking availability",
+    "slugAvailable": "This address is available.",
+    "slugTaken": "That address is taken.",
+    "slugUseSuggestion": "Use {suggestion}",
     "consentLabel": "I agree to the <privacy>Privacy Policy</privacy> and <terms>Terms of Service</terms>.",
     "submit": "Send my secure link",
     "close": "Close",
@@ -140,6 +161,7 @@
     "error": {
       "consentRequired": "Please agree to the Privacy Policy and Terms of Service to continue.",
       "invalidEmail": "Please enter a valid email address.",
+      "businessNameRequired": "Please describe your business again so we have its name.",
       "noSession": "Your demo has expired. Please describe your business again to start over.",
       "sendFailed": "We couldn't send your link just now. Please try again in a moment.",
       "invalidBody": "Something went wrong. Please try again.",

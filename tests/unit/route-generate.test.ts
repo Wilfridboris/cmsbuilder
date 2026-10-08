@@ -50,9 +50,10 @@ vi.mock("@/lib/observability/report", () => ({
 }));
 
 const VALID_INTENT = {
+  businessName: "Barrie HVAC Co",
   tradeType: "hvac",
   city: "Barrie",
-  whatYouTrack: "jobs, quotes, clients",
+  description: "jobs, quotes, clients",
   submittedLocale: "en",
 };
 

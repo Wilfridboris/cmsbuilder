@@ -34,16 +34,36 @@ export type TradeType = (typeof TRADE_KEYS)[number];
  * from the prompt text itself).
  */
 export type GenerationIntent = {
+  /**
+   * The business name the owner typed on the landing prompt (Story 15.1). This
+   * becomes the org's first-class display name (`organizations.name`) and the
+   * basis for the derived dashboard slug. Preserved verbatim (capitalization /
+   * punctuation) — never round-tripped through a slug.
+   */
+  businessName: string;
   tradeType: TradeType;
   city: string;
-  whatYouTrack: string;
+  /**
+   * The free-form business description (Story 15.1, formerly `whatYouTrack`).
+   * Drives the OUTPUT language (FR35) and the inferred schema.
+   */
+  description: string;
+  /**
+   * Optional explicit list of things the owner wants to track (Story 15.1).
+   * Blended into generation as an additional hint the model honors alongside
+   * inference. Empty / absent when the owner did not add any.
+   */
+  explicitItems?: string;
   submittedLocale: Locale;
 };
 
 /** Field length bounds — mirrored by the I/O matrix and unit tests. */
+export const BUSINESS_NAME_MIN = 1;
+export const BUSINESS_NAME_MAX = 80;
 export const CITY_MAX = 80;
-export const TRACK_MIN = 3;
-export const TRACK_MAX = 280;
+export const DESCRIPTION_MIN = 3;
+export const DESCRIPTION_MAX = 280;
+export const EXPLICIT_ITEMS_MAX = 280;
 
 /**
  * Build the prompt-intent validation schema, injecting a translation resolver
@@ -57,17 +77,29 @@ export const TRACK_MAX = 280;
  */
 export const createPromptIntentSchema = (t: (key: string) => string) =>
   z.object({
+    businessName: z
+      .string()
+      .trim()
+      .min(BUSINESS_NAME_MIN, t("validation.businessNameRequired"))
+      .max(BUSINESS_NAME_MAX, t("validation.businessNameTooLong")),
     tradeType: z.enum(TRADE_KEYS, { message: t("validation.tradeRequired") }),
     city: z
       .string()
       .trim()
       .min(1, t("validation.cityRequired"))
       .max(CITY_MAX, t("validation.cityTooLong")),
-    whatYouTrack: z
+    description: z
       .string()
       .trim()
-      .min(TRACK_MIN, t("validation.trackRequired"))
-      .max(TRACK_MAX, t("validation.trackTooLong")),
+      .min(DESCRIPTION_MIN, t("validation.descriptionRequired"))
+      .max(DESCRIPTION_MAX, t("validation.descriptionTooLong")),
+    // Optional explicit-items field: empty is allowed; only the max bound
+    // applies. Trimmed so a whitespace-only value is treated as empty.
+    explicitItems: z
+      .string()
+      .trim()
+      .max(EXPLICIT_ITEMS_MAX, t("validation.explicitItemsTooLong"))
+      .optional(),
   });
 
 /** The validated form values (before `submittedLocale` is attached). */
@@ -103,9 +135,11 @@ function resolveStorage(storage?: IntentStorage): IntentStorage | null {
  * resolver needed: on read we only care whether the stored shape is valid).
  */
 const storedIntentSchema = z.object({
+  businessName: z.string().trim().min(BUSINESS_NAME_MIN).max(BUSINESS_NAME_MAX),
   tradeType: z.enum(TRADE_KEYS),
   city: z.string().trim().min(1).max(CITY_MAX),
-  whatYouTrack: z.string().trim().min(TRACK_MIN).max(TRACK_MAX),
+  description: z.string().trim().min(DESCRIPTION_MIN).max(DESCRIPTION_MAX),
+  explicitItems: z.string().trim().max(EXPLICIT_ITEMS_MAX).optional(),
   submittedLocale: z.enum(locales),
 });
 

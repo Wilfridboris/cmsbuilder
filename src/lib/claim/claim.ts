@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import type { PendingClaimRow, SchemaDefinition } from "@/types/db";
-import { ensureUniqueSlug, slugBaseToName } from "@/lib/claim/slug";
+import { ensureUniqueSlug } from "@/lib/claim/slug";
 import { SYSTEM_ACTOR_ID } from "@/lib/data/mutate";
 
 /**
@@ -46,13 +46,24 @@ export type CreatePendingClaimInput = {
   /** The anonymous session org id (resolved from the signed cookie). */
   sessionOrgId: string;
   email: string;
+  /**
+   * The business name the owner typed (Story 15.1). Written to
+   * `organizations.name` on the session org at claim-submit so it carries across
+   * the magic-link round trip with no new column; `finalizeClaim` no longer
+   * derives or overwrites the name. Preserved verbatim (exact casing /
+   * punctuation).
+   */
+  businessName: string;
   /** The visitor's OVERRIDDEN schema (1.7 hide/rename applied). */
   schema: SchemaDefinition;
   /** When the visitor accepted the privacy consent. */
   consentAt: Date;
   /** The privacy/terms version the visitor accepted. */
   policyVersion: string;
-  /** The auto-derived base slug (trade + city); uniqueness resolved at finalize. */
+  /**
+   * The name-derived, reserved-word-guarded base slug (Story 15.1); global
+   * uniqueness is resolved at finalize via `ensureUniqueSlug`.
+   */
   slugBase: string;
 };
 
@@ -113,6 +124,22 @@ export async function createPendingClaim(
     );
   }
 
+  // Set the business name as the org's first-class display name on the SESSION
+  // org now (Story 15.1). Because finalizeClaim promotes this same org
+  // (session_org_id), the name carries across the magic-link round trip with no
+  // new column, and finalize no longer derives/overwrites it. The exact typed
+  // casing/punctuation is preserved (never a slug round-trip).
+  const { error: nameError } = await adminClient
+    .from("organizations")
+    .update({ name: input.businessName, updated_at: new Date().toISOString() })
+    .eq("id", input.sessionOrgId);
+  if (nameError) {
+    throw new ClaimError(
+      "failed",
+      `Failed to set org display name: ${nameError.message}`,
+    );
+  }
+
   const token = randomBytes(32).toString("base64url");
   const now = Date.now();
 
@@ -159,11 +186,12 @@ async function readOrgSlug(
  *   1. Resolve the token → pending claim. Missing → `not-found`.
  *   2. If already consumed, return the org's current slug (no-op re-entry).
  *   3. If expired, raise `expired` (the callback surfaces the re-request path).
- *   4. Insert the `org_members` admin row (human). A duplicate membership (the
- *      unique(org_id,user_id) index) is treated as already-present — idempotent.
- *   5. Resolve + set a unique slug on the org.
- *   6. Soft-delete every synthetic `records` row for the org.
- *   7. Mark the claim consumed so a later callback with the same token no-ops.
+ *   4. Resolve the globally-unique slug from the name-derived base.
+ *   5. Delegate the atomic promotion to the `finalize_claim` Postgres RPC (one
+ *      transaction: membership insert + slug set + trial-once + synthetic-record
+ *      soft-delete + token consume), so a mid-sequence fault can never leave a
+ *      half-provisioned org. The display name is NOT touched here — it was set
+ *      from the typed business name at claim-submit (Story 15.1).
  */
 export async function finalizeClaim(
   input: FinalizeClaimInput,
@@ -213,105 +241,37 @@ export async function finalizeClaim(
     throw new ClaimError("expired", "This claim link has expired.");
   }
 
-  // 4. Admin membership (human). Unique(org_id,user_id) makes this idempotent:
-  // a duplicate is a no-op, not a failure.
-  const { error: memberError } = await adminClient.from("org_members").insert({
-    id: randomUUID(),
-    organization_id: orgId,
-    user_id: userId,
-    principal_type: "human",
-    role: "admin",
-  });
-  if (memberError && !isUniqueViolation(memberError.code)) {
-    throw new ClaimError(
-      "failed",
-      `Failed to create admin membership: ${memberError.message}`,
-    );
-  }
-
-  // 5. Provision a unique, human-readable slug + display name on the org. The
-  // name is title-cased from the same trade+city slug base (the visitor never
-  // typed a business name in this story), replacing the "Scheza Session <id>"
-  // provisioning placeholder so the dashboard heading reads sensibly. An
-  // explicit business-name/rename is deferred follow-up work.
+  // Resolve the globally-unique slug from the name-derived, reserved-guarded base
+  // (Story 15.1). `ensureUniqueSlug` excludes this org's own id so a not-yet-
+  // consumed retry that already set the slug does not treat its own row as a
+  // collision and keeps landing on the same value. The display name is NOT
+  // derived here: it was set from the typed business name at claim-submit and is
+  // authoritative.
   const slug = await ensureUniqueSlug(adminClient, claim.slug_base, orgId);
-  const name = slugBaseToName(claim.slug_base);
-  const { error: slugError } = await adminClient
-    .from("organizations")
-    .update({
-      slug,
-      ...(name ? { name } : {}),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", orgId);
-  if (slugError) {
-    throw new ClaimError("failed", `Failed to set org slug: ${slugError.message}`);
-  }
+  const trialExpiresAt = new Date(Date.now() + TRIAL_DURATION_MS).toISOString();
 
-  // 5b. Start the 14-day no-card trial (Story 7.1, FR29). This is a SEPARATE
-  // guarded update from the always-run slug/name update above so the trial clock
-  // fires exactly once. Two distinct re-run paths keep it idempotent: a
-  // consumed-token re-entry returns early above (before this block is ever
-  // reached), and a not-yet-consumed mid-sequence retry reaches here but the
-  // `.is("trial_expires_at", null)` filter makes it a no-op once the clock is
-  // already set — so re-running finalize never resets an already-started trial.
-  // No payment is collected and no quota is imposed — the trial grants full
-  // unlimited access; `subscription_status` is the cached access source of truth
-  // later stories gate on (enforcement on lapse is Story 7.4, not here).
-  const trialExpiresAt = new Date(
-    Date.now() + TRIAL_DURATION_MS,
-  ).toISOString();
-  const { error: trialError } = await adminClient
-    .from("organizations")
-    .update({
-      subscription_status: "trial",
-      trial_expires_at: trialExpiresAt,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", orgId)
-    .is("trial_expires_at", null);
-  if (trialError) {
+  // Promote the org ATOMICALLY (Story 15.1): one Postgres transaction performs
+  // the membership insert, slug set, trial-once, synthetic-record soft-delete,
+  // and token consume. A mid-sequence fault rolls the whole thing back, so the
+  // org is never left half-provisioned, and every write keeps its prior
+  // idempotency guard (unique-index on membership, trial_expires_at IS NULL,
+  // deleted_at IS NULL, consumed_at IS NULL) inside the function.
+  const { error: rpcError } = await adminClient.rpc("finalize_claim", {
+    p_claim_id: claim.id,
+    p_org: orgId,
+    p_user: userId,
+    p_slug: slug,
+    p_actor: SYSTEM_ACTOR_ID,
+    p_trial_until: trialExpiresAt,
+  });
+  if (rpcError) {
     throw new ClaimError(
       "failed",
-      `Failed to start trial: ${trialError.message}`,
-    );
-  }
-
-  // 6. Clear the synthetic demo records (soft-delete — data retained, excluded
-  // from reads). The live schema stays; only seeded rows drop out.
-  const { error: clearError } = await adminClient
-    .from("records")
-    .update({
-      deleted_at: new Date().toISOString(),
-      actor_id: SYSTEM_ACTOR_ID,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("organization_id", orgId)
-    .is("deleted_at", null);
-  if (clearError) {
-    throw new ClaimError(
-      "failed",
-      `Failed to clear synthetic records: ${clearError.message}`,
-    );
-  }
-
-  // 7. Consume the token so a later callback with the same token no-ops.
-  const { error: consumeError } = await adminClient
-    .from("pending_claims")
-    .update({ consumed_at: new Date().toISOString() })
-    .eq("id", claim.id);
-  if (consumeError) {
-    throw new ClaimError(
-      "failed",
-      `Failed to consume pending claim: ${consumeError.message}`,
+      `Failed to finalize claim: ${rpcError.message}`,
     );
   }
 
   return { slug, consentAcceptedAt: claim.consent_accepted_at };
-}
-
-function isUniqueViolation(code: string | undefined): boolean {
-  return code === "23505";
 }
 
 /**

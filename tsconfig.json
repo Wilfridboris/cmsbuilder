@@ -34,6 +34,7 @@
     "node_modules",
     "scheza-marketing",
     "scheza-marketing-v1",
-    "scheza-brand-kit"
+    "scheza-brand-kit",
+    "scheza-bot"
   ]
 }

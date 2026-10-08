@@ -131,9 +131,10 @@ describe("prompt inflation + response schema shape", () => {
   it("embeds Ontario/trade context and the language-detection instruction", async () => {
     const { buildGenerationPrompt } = await import("@/lib/gemini/prompts");
     const prompt = buildGenerationPrompt({
+      businessName: "Barrie HVAC Co",
       tradeType: "hvac",
       city: "Barrie",
-      whatYouTrack: "jobs, quotes, clients",
+      description: "jobs, quotes, clients",
       submittedLocale: "en",
     });
     expect(prompt).toContain("Barrie");
@@ -152,12 +153,40 @@ describe("prompt inflation + response schema shape", () => {
   it("preserves a French free-text description verbatim so output localizes to French", async () => {
     const { buildGenerationPrompt } = await import("@/lib/gemini/prompts");
     const prompt = buildGenerationPrompt({
+      businessName: "Plomberie Ottawa",
       tradeType: "plumbing",
       city: "Ottawa",
-      whatYouTrack: "les travaux, les devis et les factures impayées",
+      description: "les travaux, les devis et les factures impayées",
       submittedLocale: "en", // UI locale EN, description FR — output must be FR
     });
     expect(prompt).toContain("les travaux, les devis et les factures impayées");
+  });
+
+  it("blends the optional explicit-items hint when present, and omits it when empty", async () => {
+    const { buildGenerationPrompt } = await import("@/lib/gemini/prompts");
+    const withItems = buildGenerationPrompt({
+      businessName: "Barrie HVAC Co",
+      tradeType: "hvac",
+      city: "Barrie",
+      description: "jobs and invoices",
+      explicitItems: "warranty expiry dates, service areas",
+      submittedLocale: "en",
+    });
+    // The description is always present; the explicit items are injected too.
+    expect(withItems).toContain("jobs and invoices");
+    expect(withItems).toContain("warranty expiry dates, service areas");
+
+    const withoutItems = buildGenerationPrompt({
+      businessName: "Barrie HVAC Co",
+      tradeType: "hvac",
+      city: "Barrie",
+      description: "jobs and invoices",
+      explicitItems: "   ", // whitespace-only is treated as absent
+      submittedLocale: "en",
+    });
+    expect(withoutItems).toContain("jobs and invoices");
+    // The explicit-items block (and its marker sentence) is absent entirely.
+    expect(withoutItems).not.toContain("The owner also listed specific things");
   });
 
   it("offers the MVP scalar set plus the gated relation type (Story 1.8)", async () => {
@@ -207,9 +236,10 @@ describe("prompt inflation + response schema shape", () => {
 
     // The prompt guides the model to use select for a fixed set of choices.
     const prompt = buildGenerationPrompt({
+      businessName: "Ottawa GC",
       tradeType: "general_contracting",
       city: "Ottawa",
-      whatYouTrack: "track jobs and whether each is quoted, scheduled, or done",
+      description: "track jobs and whether each is quoted, scheduled, or done",
       submittedLocale: "en",
     });
     expect(prompt.toLowerCase()).toContain("select");

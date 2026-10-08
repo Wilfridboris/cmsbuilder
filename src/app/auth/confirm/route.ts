@@ -10,7 +10,7 @@ import {
   ClaimError,
 } from "@/lib/claim/claim";
 import { resolveUserPrimaryOrgSlug } from "@/lib/auth/org";
-import { CURRENT_POLICY_VERSION } from "@/app/api/claim/route";
+import { CURRENT_POLICY_VERSION } from "@/lib/claim/policy";
 import { reportError } from "@/lib/observability/report";
 
 /**

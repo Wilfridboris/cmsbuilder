@@ -9,7 +9,11 @@ import {
   PENDING_CLAIM_TTL_MS,
   TRIAL_DURATION_MS,
 } from "@/lib/claim/claim";
-import { deriveSlug, ensureUniqueSlug, slugBaseToName } from "@/lib/claim/slug";
+import {
+  deriveSlugFromName,
+  guardReservedSlug,
+  ensureUniqueSlug,
+} from "@/lib/claim/slug";
 import type { SchemaDefinition } from "@/types/db";
 
 /**
@@ -70,6 +74,74 @@ class FakeAdmin {
   claims: ClaimRow[] = [];
   records: RecRow[] = [];
   schemaUpserts: Array<Record<string, unknown>> = [];
+  /**
+   * When set, `finalize_claim` returns this error WITHOUT applying any of its
+   * writes — modeling the atomic RPC's all-or-nothing rollback so the TS caller
+   * surfaces ClaimError('failed') and the org is never half-provisioned.
+   */
+  rpcFault: { message: string } | null = null;
+
+  /**
+   * Fake of the `finalize_claim` Postgres RPC (Story 15.1). Applies the atomic
+   * promotion in one shot: idempotent admin membership (unique org+user), slug
+   * set, trial-once (trial_expires_at null guard), synthetic-record soft-delete,
+   * and token consume. Honors `rpcFault` to simulate a transactional failure
+   * where NOTHING is written.
+   */
+  rpc(
+    name: string,
+    args: {
+      p_claim_id: string;
+      p_org: string;
+      p_user: string;
+      p_slug: string;
+      p_actor: string;
+      p_trial_until: string;
+    },
+  ) {
+    if (name !== "finalize_claim") {
+      throw new Error(`unexpected rpc: ${name}`);
+    }
+    if (this.rpcFault) {
+      return Promise.resolve({ data: null, error: this.rpcFault });
+    }
+    // 1. Membership (idempotent on unique org+user).
+    const dup = this.members.some(
+      (m) => m.organization_id === args.p_org && m.user_id === args.p_user,
+    );
+    if (!dup) {
+      this.members.push({
+        organization_id: args.p_org,
+        user_id: args.p_user,
+        principal_type: "human",
+        role: "admin",
+      });
+    }
+    // 2. Slug set (name untouched).
+    for (const org of this.orgs) {
+      if (org.id === args.p_org) org.slug = args.p_slug;
+    }
+    // 3. Trial once.
+    for (const org of this.orgs) {
+      if (org.id === args.p_org && (org.trial_expires_at ?? null) === null) {
+        org.subscription_status = "trial";
+        org.trial_expires_at = args.p_trial_until;
+      }
+    }
+    // 4. Soft-delete synthetic records.
+    for (const row of this.records) {
+      if (row.organization_id === args.p_org && row.deleted_at === null) {
+        row.deleted_at = args.p_trial_until;
+      }
+    }
+    // 5. Consume the token.
+    for (const claim of this.claims) {
+      if (claim.id === args.p_claim_id && claim.consumed_at === null) {
+        claim.consumed_at = new Date().toISOString();
+      }
+    }
+    return Promise.resolve({ data: null, error: null });
+  }
 
   from(table: string) {
     switch (table) {
@@ -286,34 +358,38 @@ function seedOrg(db: FakeAdmin) {
   db.orgs.push({ id: ORG_ID, name: "Session", slug: `session-${ORG_ID.slice(0, 8)}` });
 }
 
-// --- deriveSlug / ensureUniqueSlug -----------------------------------------
+// --- deriveSlugFromName / guardReservedSlug / ensureUniqueSlug --------------
 
-describe("deriveSlug", () => {
-  it("kebab-cases trade + city", () => {
-    expect(deriveSlug({ tradeType: "plumbing", city: "Laval" })).toBe(
-      "plumbing-laval",
-    );
+describe("deriveSlugFromName", () => {
+  it("kebab-cases the business name", () => {
+    expect(deriveSlugFromName("Joe's Plumbing")).toBe("joes-plumbing");
   });
   it("strips accents and collapses separators", () => {
-    expect(deriveSlug({ tradeType: "electrical", city: "Montréal Est" })).toBe(
-      "electrical-montreal-est",
+    expect(deriveSlugFromName("Plomberie Montréal Est")).toBe(
+      "plomberie-montreal-est",
     );
   });
   it("falls back to a safe base when nothing usable", () => {
-    expect(deriveSlug({ tradeType: "", city: "" })).toBe("app");
+    expect(deriveSlugFromName("")).toBe("app");
+    expect(deriveSlugFromName("!!!")).toBe("app");
   });
 });
 
-describe("slugBaseToName", () => {
-  it("title-cases a kebab base into a display name", () => {
-    expect(slugBaseToName("plumbing-laval")).toBe("Plumbing Laval");
-    expect(slugBaseToName("mikes-plumbing-ottawa")).toBe("Mikes Plumbing Ottawa");
+describe("guardReservedSlug", () => {
+  it("passes a normal business name through untouched", () => {
+    expect(guardReservedSlug("joes-plumbing")).toBe("joes-plumbing");
   });
-  it("handles the single-segment fallback base", () => {
-    expect(slugBaseToName("app")).toBe("App");
+  it("suffixes a reserved top-level route so it cannot shadow a system page", () => {
+    expect(guardReservedSlug("login")).toBe("login-app");
+    expect(guardReservedSlug("api")).toBe("api-app");
+    expect(guardReservedSlug("forms")).toBe("forms-app");
+    // The PWA start_url route — a business literally named "Home" must not
+    // shadow src/app/home/route.ts.
+    expect(guardReservedSlug("home")).toBe("home-app");
   });
-  it("returns empty for an empty base (caller guards)", () => {
-    expect(slugBaseToName("")).toBe("");
+  it("returns the fallback for an empty/degenerate base", () => {
+    expect(guardReservedSlug("")).toBe("app");
+    expect(guardReservedSlug("   ")).toBe("app");
   });
 });
 
@@ -344,17 +420,18 @@ describe("ensureUniqueSlug", () => {
 // --- createPendingClaim -----------------------------------------------------
 
 describe("createPendingClaim", () => {
-  it("persists the overridden schema and inserts a token row", async () => {
+  it("persists the schema, sets the business name on the org, and inserts a token row", async () => {
     const db = new FakeAdmin();
     seedOrg(db);
     const { token } = await createPendingClaim(
       {
         sessionOrgId: ORG_ID,
         email: "owner@example.ca",
+        businessName: "Joe's Plumbing",
         schema: SCHEMA,
         consentAt: new Date("2026-09-24T12:00:00Z"),
         policyVersion: "2026-09-24",
-        slugBase: "plumbing-laval",
+        slugBase: "joes-plumbing",
       },
       asClient(db),
     );
@@ -363,13 +440,16 @@ describe("createPendingClaim", () => {
     // Overridden schema written to org_schemas.
     expect(db.schemaUpserts).toHaveLength(1);
     expect(db.schemaUpserts[0].definition).toEqual(SCHEMA);
+    // Business name is written to the SESSION org as the display name at
+    // claim-submit (Story 15.1), preserving exact casing/punctuation.
+    expect(db.orgs[0].name).toBe("Joe's Plumbing");
     // Token row carries email, consent timestamp, slug base, and an expiry.
     expect(db.claims).toHaveLength(1);
     const row = db.claims[0];
     expect(row.token).toBe(token);
     expect(row.email).toBe("owner@example.ca");
     expect(row.consent_accepted_at).toBe("2026-09-24T12:00:00.000Z");
-    expect(row.slug_base).toBe("plumbing-laval");
+    expect(row.slug_base).toBe("joes-plumbing");
     expect(row.consumed_at).toBeNull();
     expect(new Date(row.expires_at).getTime()).toBeGreaterThan(Date.now());
   });
@@ -420,8 +500,10 @@ describe("finalizeClaim", () => {
     });
     // Slug set on the org.
     expect(db.orgs[0].slug).toBe("plumbing-laval");
-    // Display name promoted off the "Session" placeholder to the title-cased base.
-    expect(db.orgs[0].name).toBe("Plumbing Laval");
+    // Display name is PRESERVED (Story 15.1): the business name was set at
+    // claim-submit, so finalize never derives or overwrites it. The seeded org
+    // name is left exactly as it was.
+    expect(db.orgs[0].name).toBe("Session");
     // All synthetic records soft-deleted.
     expect(db.records.every((r) => r.deleted_at !== null)).toBe(true);
     // Token consumed.
@@ -509,6 +591,41 @@ describe("finalizeClaim", () => {
     ).rejects.toBeInstanceOf(ClaimError);
     // Nothing bootstrapped.
     expect(db.members).toHaveLength(0);
+    expect(db.claims[0].consumed_at).toBeNull();
+  });
+
+  it("preserves the business name set at claim-submit (never derives from the slug)", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    // The business name was already written to the org at claim-submit.
+    db.orgs[0].name = "Joe's Plumbing";
+    const token = seedClaim(db);
+
+    await finalizeClaim({ token, userId: USER_ID, adminClient: asClient(db) });
+
+    // Finalize set the slug but left the typed name intact (no slug round-trip).
+    expect(db.orgs[0].slug).toBe("plumbing-laval");
+    expect(db.orgs[0].name).toBe("Joe's Plumbing");
+  });
+
+  it("leaves the org un-promoted when the atomic RPC faults (no half-provision)", async () => {
+    const db = new FakeAdmin();
+    seedOrg(db);
+    db.records.push({ id: "r1", organization_id: ORG_ID, deleted_at: null });
+    const token = seedClaim(db);
+    // Simulate a mid-sequence transactional failure: the RPC rolls everything back.
+    db.rpcFault = { message: "boom" };
+
+    await expect(
+      finalizeClaim({ token, userId: USER_ID, adminClient: asClient(db) }),
+    ).rejects.toMatchObject({ kind: "failed" });
+
+    // Nothing was promoted: no membership, no slug change, no trial, no record
+    // clear, token not consumed. A retry can complete cleanly.
+    expect(db.members).toHaveLength(0);
+    expect(db.orgs[0].slug).toBe(`session-${ORG_ID.slice(0, 8)}`);
+    expect(db.orgs[0].subscription_status).toBeUndefined();
+    expect(db.records[0].deleted_at).toBeNull();
     expect(db.claims[0].consumed_at).toBeNull();
   });
 });

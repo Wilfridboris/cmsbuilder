@@ -1,5 +1,5 @@
 # generated: 2026-09-23
-# last_updated: 2026-10-06 (8-5 done, manual review passed)
+# last_updated: 2026-10-08 (15-1 review)
 # project: Scheza
 # project_key: NOKEY
 # tracking_system: file-system
@@ -177,6 +177,17 @@ development_status:
   14-6-branded-public-form: done
   14-7-abuse-protection-on-public-intake: done
   epic-14-retrospective: done
+
+  # ── Epic 15: First-Run Polish & Post-Testing Fixes ───────────────────────
+  # Added via sprint-change-proposal-2026-10-08-mvp-polish.md (FR105-110)
+  epic-15: in-progress
+  15-1-first-run-overhaul-business-name-slug-auth-aware-home: review
+  15-2-schezabot-assistant-signature-generative-reveal: backlog
+  15-3-mvp-polish-quick-wins-copy-inputs-icons-promo-codes: backlog
+  15-4-google-sign-in: backlog
+  15-5-launch-hardening: backlog
+  15-6-offboarding-retention-cascade-verification: backlog
+  epic-15-retrospective: optional
 action_items:
   - id: "epic-1-retro-item-1-reconcile-the-gemini-model-in-architectu"
     epic: 1

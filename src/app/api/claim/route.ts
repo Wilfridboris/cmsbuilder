@@ -14,7 +14,9 @@ import {
   decodeSessionValue,
 } from "@/lib/generation/session";
 import { createPendingClaim, ClaimError } from "@/lib/claim/claim";
-import { deriveSlug } from "@/lib/claim/slug";
+import { deriveSlugFromName, guardReservedSlug } from "@/lib/claim/slug";
+import { CURRENT_POLICY_VERSION } from "@/lib/claim/policy";
+import { BUSINESS_NAME_MAX } from "@/lib/generation/intent";
 import { reportError } from "@/lib/observability/report";
 
 /**
@@ -37,9 +39,6 @@ import { reportError } from "@/lib/observability/report";
 
 // Request-time only: reads/sets cookies + hits the auth provider.
 export const dynamic = "force-dynamic";
-
-/** The privacy/terms version the consent checkbox accepts. Bump on policy change. */
-export const CURRENT_POLICY_VERSION = "2026-09-24";
 
 export type ClaimResponse = { sent: true };
 
@@ -68,20 +67,22 @@ const schemaDefinitionSchema = z.object({
 
 /**
  * Body contract. `consent` MUST be the literal `true` (a hard server-side gate,
- * mirroring the disabled-until-checked client control). `intent` (trade + city)
- * drives the auto-derived slug; it is optional so a claim can still proceed with
- * a safe fallback slug if the client could not supply it.
+ * mirroring the disabled-until-checked client control). `intent` carries the
+ * required `businessName` (the authoritative org display name, Story 15.1), the
+ * trade + city (context), and an optional owner-confirmed `slug` from the claim
+ * modal. The server always re-derives + reserved-word-guards the slug base
+ * itself, so a client slug is only an override of the name-derived default.
  */
 const claimBodySchema = z.object({
   email: z.string().trim().email(),
   consent: z.literal(true),
   schema: schemaDefinitionSchema,
-  intent: z
-    .object({
-      tradeType: z.string().min(1),
-      city: z.string().min(1),
-    })
-    .optional(),
+  intent: z.object({
+    businessName: z.string().trim().min(1).max(BUSINESS_NAME_MAX),
+    tradeType: z.string().min(1).optional(),
+    city: z.string().min(1).optional(),
+    slug: z.string().trim().optional(),
+  }),
 });
 
 function json(
@@ -113,8 +114,12 @@ export async function POST(
       const emailIssue = parsed.error.issues.some((i) =>
         i.path.includes("email"),
       );
+      const businessNameIssue = parsed.error.issues.some((i) =>
+        i.path.includes("businessName"),
+      );
       if (consentIssue) throw new AppError(400, "consentRequired");
       if (emailIssue) throw new AppError(400, "invalidEmail");
+      if (businessNameIssue) throw new AppError(400, "businessNameRequired");
       throw new AppError(400, "invalidBody");
     }
     const body = parsed.data;
@@ -130,10 +135,17 @@ export async function POST(
 
     // 3. Persist the overridden schema + pending claim (service-role bootstrap).
     const admin = createAdminClient();
-    const slugBase = deriveSlug({
-      tradeType: body.intent?.tradeType ?? "",
-      city: body.intent?.city ?? "",
-    });
+
+    // Derive the slug base from the business name (Story 15.1), honoring an
+    // owner-confirmed slug from the claim modal when supplied. Either way the
+    // server re-slugifies + reserved-word-guards the base itself (never trusting
+    // the raw client value); global uniqueness is resolved at finalize via
+    // `ensureUniqueSlug`.
+    const businessName = body.intent.businessName.trim();
+    const slugSource = body.intent.slug?.trim()
+      ? body.intent.slug.trim()
+      : deriveSlugFromName(businessName);
+    const slugBase = guardReservedSlug(slugSource);
 
     // The pending claim is persisted (schema override + token row keyed by email);
     // the returned token is NOT embedded in the link — `/auth/confirm` resolves
@@ -143,6 +155,7 @@ export async function POST(
         {
           sessionOrgId: orgId,
           email: body.email,
+          businessName,
           schema: body.schema as SchemaDefinition,
           consentAt: new Date(),
           policyVersion: CURRENT_POLICY_VERSION,

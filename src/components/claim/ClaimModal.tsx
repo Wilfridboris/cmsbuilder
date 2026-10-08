@@ -1,9 +1,9 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import Link from "next/link";
-import { CheckCircle2, Loader2, Mail } from "lucide-react";
+import { AlertCircle, Check, CheckCircle2, Loader2, Mail } from "lucide-react";
 
 import {
   Dialog,
@@ -17,19 +17,22 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { readIntent } from "@/lib/generation/intent";
+import { deriveSlugFromName, guardReservedSlug } from "@/lib/claim/slug-derive";
 import type { ApiResponse } from "@/types/api";
 import type { SchemaDefinition } from "@/types/db";
 
 /**
- * ClaimModal (Story 2.1) — the "Make it Real" claim entry surface.
+ * ClaimModal (Story 2.1, extended 15.1) — the "Make it Real" claim surface.
  *
- * Email input + a mandatory, initially-UNCHECKED privacy-consent checkbox
- * linking `/privacy` & `/terms`. Submit is disabled until consent is checked
- * (the client half of the hard gate; the server re-enforces it). On submit it
- * POSTs the CURRENT overridden `schema` (+ the captured intent, for the
- * auto-derived slug) to `/api/claim`, then shows a "check your email" success
- * state. Server error codes map to translated inline messages — never a raw
- * error. All copy resolves through the `Claim` next-intl namespace.
+ * Reads the captured business name from the stored intent and shows the owner
+ * their dashboard slug (`scheza.com/{slug}`) with an inline, editable segment and
+ * a best-effort availability check (via the service-role `/api/claim/slug-check`
+ * route). On submit it POSTs the email + consent + the confirmed slug +
+ * businessName to `/api/claim`. The availability check is a UX affordance only;
+ * finalize resolves the authoritative slug, and the owner is always shown their
+ * final dashboard URL after login. A network error on the check is treated as
+ * "unconfirmed" and the claim still proceeds. All copy resolves through the
+ * `Claim` next-intl namespace.
  */
 
 type ClaimModalProps = {
@@ -47,7 +50,14 @@ const ERROR_KEYS = new Set([
   "sendFailed",
   "genericError",
   "invalidBody",
+  "businessNameRequired",
 ]);
+
+type SlugCheck = {
+  available: boolean;
+  normalized: string;
+  suggestion?: string;
+};
 
 export function ClaimModal({ open, onOpenChange, schema }: ClaimModalProps) {
   const t = useTranslations("Claim");
@@ -56,9 +66,83 @@ export function ClaimModal({ open, onOpenChange, schema }: ClaimModalProps) {
   const [status, setStatus] = useState<"idle" | "submitting" | "sent">("idle");
   const [error, setError] = useState<string | null>(null);
 
+  const [businessName, setBusinessName] = useState("");
+  const [slug, setSlug] = useState("");
+  const [checkState, setCheckState] = useState<
+    "idle" | "checking" | "available" | "taken"
+  >("idle");
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+
   const emailId = useId();
   const consentId = useId();
   const errorId = useId();
+  const slugId = useId();
+  const slugStatusId = useId();
+
+  // Seed the business name + slug preview from the stored intent whenever the
+  // modal opens. This is a necessary sync-from-external-store: `sessionStorage`
+  // (where the landing prompt wrote the intent) is client-only and unreadable
+  // during render/SSR, so it can only be read after mount/open.
+  useEffect(() => {
+    if (!open) return;
+    const intent = readIntent();
+    const name = intent?.businessName ?? "";
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setBusinessName(name);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSlug(name ? guardReservedSlug(deriveSlugFromName(name)) : "");
+  }, [open]);
+
+  // Debounced best-effort availability check (~400ms) whenever the slug changes.
+  // A fault leaves the status "idle" (unconfirmed) and the claim stays
+  // submittable — finalize is authoritative.
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!open || !slug.trim()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setCheckState("idle");
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSuggestion(null);
+      return;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCheckState("checking");
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    let cancelled = false;
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch("/api/claim/slug-check", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ slug: slug.trim() }),
+        });
+        const body: ApiResponse<SlugCheck> = await res.json();
+        if (cancelled) return;
+        if (!res.ok || !body.data) {
+          // Unconfirmed — allow submit; finalize owns authority.
+          setCheckState("idle");
+          setSuggestion(null);
+          return;
+        }
+        if (body.data.available) {
+          setCheckState("available");
+          setSuggestion(null);
+        } else {
+          setCheckState("taken");
+          setSuggestion(body.data.suggestion ?? null);
+        }
+      } catch {
+        if (!cancelled) {
+          setCheckState("idle");
+          setSuggestion(null);
+        }
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [slug, open]);
 
   const resolveError = (code: string | null): string => {
     if (code && ERROR_KEYS.has(code)) {
@@ -77,6 +161,8 @@ export function ClaimModal({ open, onOpenChange, schema }: ClaimModalProps) {
       setConsent(false);
       setStatus("idle");
       setError(null);
+      setCheckState("idle");
+      setSuggestion(null);
     }
     onOpenChange(next);
   };
@@ -101,9 +187,15 @@ export function ClaimModal({ open, onOpenChange, schema }: ClaimModalProps) {
           email: email.trim(),
           consent: true,
           schema,
-          intent: intent
-            ? { tradeType: intent.tradeType, city: intent.city }
-            : undefined,
+          intent: {
+            // Business name is the authoritative display name; prefer the live
+            // field (seeded from the intent, editable is out of scope here) and
+            // fall back to the stored intent.
+            businessName: businessName.trim() || intent?.businessName || "",
+            tradeType: intent?.tradeType,
+            city: intent?.city,
+            slug: slug.trim() || undefined,
+          },
         }),
       });
       const body: ApiResponse<{ sent: true }> = await res.json();
@@ -160,6 +252,61 @@ export function ClaimModal({ open, onOpenChange, schema }: ClaimModalProps) {
                 }}
                 className="min-h-12"
               />
+            </div>
+
+            {/* Slug preview + inline edit (Story 15.1). */}
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={slugId}>{t("slugLabel")}</Label>
+              <div className="flex items-center gap-1 rounded-md border border-input bg-background px-3 focus-within:ring-2 focus-within:ring-ring">
+                <span className="font-mono text-sm text-muted-foreground">
+                  {t("slugPrefix")}
+                </span>
+                <input
+                  id={slugId}
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value)}
+                  aria-describedby={slugStatusId}
+                  className="min-h-10 flex-1 bg-transparent font-mono text-sm outline-none"
+                />
+                <span aria-hidden="true" className="flex items-center">
+                  {checkState === "checking" ? (
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  ) : checkState === "available" ? (
+                    <Check className="size-4 text-emerald-600" />
+                  ) : checkState === "taken" ? (
+                    <AlertCircle className="size-4 text-amber-600" />
+                  ) : null}
+                </span>
+              </div>
+              <p
+                id={slugStatusId}
+                aria-live="polite"
+                className="min-h-5 text-sm text-muted-foreground"
+              >
+                {checkState === "checking" ? (
+                  <span className="sr-only">{t("slugChecking")}</span>
+                ) : checkState === "available" ? (
+                  <span className="text-emerald-600">{t("slugAvailable")}</span>
+                ) : checkState === "taken" ? (
+                  <span className="text-amber-600">
+                    {t("slugTaken")}
+                    {suggestion ? (
+                      <>
+                        {" "}
+                        <button
+                          type="button"
+                          onClick={() => setSlug(suggestion)}
+                          className="font-medium text-primary underline underline-offset-4"
+                        >
+                          {t("slugUseSuggestion", { suggestion })}
+                        </button>
+                      </>
+                    ) : null}
+                  </span>
+                ) : (
+                  t("slugHint")
+                )}
+              </p>
             </div>
 
             <div className="flex items-start gap-3">

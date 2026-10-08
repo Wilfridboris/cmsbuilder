@@ -53,10 +53,12 @@ export function PromptBuilder() {
     reValidateMode: "onSubmit",
     resolver: zodResolver(createPromptIntentSchema(t)),
     defaultValues: {
+      businessName: "",
       // `undefined` keeps the Select in its placeholder state until chosen.
       tradeType: undefined,
       city: "",
-      whatYouTrack: "",
+      description: "",
+      explicitItems: "",
     },
   });
 
@@ -74,6 +76,25 @@ export function PromptBuilder() {
       >
         <fieldset className="flex flex-col gap-6">
           <legend className="sr-only">{t("legend")}</legend>
+
+          <FormField
+            control={form.control}
+            name="businessName"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t("businessNameLabel")}</FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    autoComplete="organization"
+                    placeholder={t("businessNamePlaceholder")}
+                    className="min-h-12"
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
 
           <FormField
             control={form.control}
@@ -128,16 +149,40 @@ export function PromptBuilder() {
 
           <FormField
             control={form.control}
-            name="whatYouTrack"
+            name="description"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>{t("trackLabel")}</FormLabel>
+                <FormLabel>{t("descriptionLabel")}</FormLabel>
                 <FormControl>
                   <Textarea
                     {...field}
-                    rows={3}
-                    placeholder={t("trackPlaceholder")}
-                    className="min-h-24 resize-y"
+                    rows={4}
+                    placeholder={t("descriptionPlaceholder")}
+                    className="min-h-28 resize-none"
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="explicitItems"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  {t("explicitItemsLabel")}{" "}
+                  <span className="font-normal text-muted-foreground">
+                    {t("explicitItemsOptional")}
+                  </span>
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    autoComplete="off"
+                    placeholder={t("explicitItemsPlaceholder")}
+                    className="min-h-12"
                   />
                 </FormControl>
                 <FormMessage />

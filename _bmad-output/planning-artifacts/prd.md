@@ -857,6 +857,15 @@ Ordered by dependency and payoff. Items 1–4 and 4b are MVP; 5–11 are Growth,
 - **FR103:** Each public form displays the business's branding (operating name and logo, reused from the Epic 12 business profile) plus an optional short, per-form owner-authored intro/info message
 - **FR104:** The public intake endpoint is protected against automated abuse (honeypot plus per-IP / per-slug rate limiting), and protection must never block a legitimate submission's data capture
 
+### First-Run Polish & Post-Testing Fixes *(MVP — added via sprint-change-proposal-2026-10-08-mvp-polish)*
+
+- **FR105:** The landing intake captures the business's name, which becomes the organization's first-class display name (persisted to the Epic 12 `business_profiles` operating name) rather than a value derived from the trade+city slug base
+- **FR106:** The claimed dashboard's slug is derived from the business name (slugified, org-unique, collision-suffixed) and shown to the owner as their dashboard URL before claim, editable before confirmation
+- **FR107:** The landing route is authentication-aware: a signed-in owner is taken to (or offered a direct link to) their dashboard, and a returning, signed-out visitor always has a visible path to log back in
+- **FR108:** The landing intake invites a free-form business description plus optional explicit items to track; generation infers the schema from the description while honoring any explicitly listed items
+- **FR109:** The subscription checkout accepts promotion codes so launch and early-adopter coupons can be redeemed at the Stripe-hosted checkout
+- **FR110:** In addition to the passwordless magic link, an owner can authenticate with Google (Supabase OAuth)
+
 ### Billing & Subscriptions
 
 - **FR29:** User can begin a 14-day free trial without providing payment information

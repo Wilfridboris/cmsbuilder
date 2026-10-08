@@ -107,7 +107,12 @@ describe("POST /api/claim", () => {
     const { POST } = await import("@/app/api/claim/route");
 
     const res = await POST(
-      makeReq({ email: "owner@example.ca", consent: true, schema: SCHEMA }),
+      makeReq({
+        email: "owner@example.ca",
+        consent: true,
+        schema: SCHEMA,
+        intent: { businessName: "Joe's Plumbing" },
+      }),
       // no cookie
     );
 
@@ -129,7 +134,11 @@ describe("POST /api/claim", () => {
           email: "owner@example.ca",
           consent: true,
           schema: SCHEMA,
-          intent: { tradeType: "plumbing", city: "Laval" },
+          intent: {
+            businessName: "Joe's Plumbing",
+            tradeType: "plumbing",
+            city: "Laval",
+          },
         },
         signed,
       ),
@@ -140,13 +149,16 @@ describe("POST /api/claim", () => {
     expect(body.error).toBeNull();
     expect(body.data).toEqual({ sent: true });
 
-    // The overridden schema + session org are handed to the bootstrap.
+    // The overridden schema + session org + business name + name-derived slug
+    // base are handed to the bootstrap (Story 15.1: slug from the name, not
+    // trade+city).
     expect(createPendingClaim).toHaveBeenCalledWith(
       expect.objectContaining({
         sessionOrgId: "org-x",
         email: "owner@example.ca",
+        businessName: "Joe's Plumbing",
         schema: SCHEMA,
-        slugBase: "plumbing-laval",
+        slugBase: "joes-plumbing",
       }),
       expect.anything(),
     );
@@ -165,6 +177,31 @@ describe("POST /api/claim", () => {
     expect(otpArg.options.data?.role).toBeUndefined();
   });
 
+  it("reserved-word-guards the name-derived slug base through the route", async () => {
+    const { POST } = await import("@/app/api/claim/route");
+    const { encodeSessionValue } = await import("@/lib/generation/session");
+
+    // A business literally named "Home" slugifies to `home`, a real top-level
+    // route; the route must guard it so it cannot shadow a system page.
+    const res = await POST(
+      makeReq(
+        {
+          email: "owner@example.ca",
+          consent: true,
+          schema: SCHEMA,
+          intent: { businessName: "Home" },
+        },
+        encodeSessionValue("org-x"),
+      ),
+    );
+
+    expect(res.status).toBe(200);
+    expect(createPendingClaim).toHaveBeenCalledWith(
+      expect.objectContaining({ slugBase: "home-app" }),
+      expect.anything(),
+    );
+  });
+
   it("returns 502 sendFailed when the magic-link dispatch fails", async () => {
     const { POST } = await import("@/app/api/claim/route");
     const { encodeSessionValue } = await import("@/lib/generation/session");
@@ -173,7 +210,12 @@ describe("POST /api/claim", () => {
 
     const res = await POST(
       makeReq(
-        { email: "owner@example.ca", consent: true, schema: SCHEMA },
+        {
+          email: "owner@example.ca",
+          consent: true,
+          schema: SCHEMA,
+          intent: { businessName: "Joe's Plumbing" },
+        },
         encodeSessionValue("org-x"),
       ),
     );
@@ -199,7 +241,12 @@ describe("POST /api/claim", () => {
 
     const res = await POST(
       makeReq(
-        { email: "owner@example.ca", consent: true, schema: SCHEMA },
+        {
+          email: "owner@example.ca",
+          consent: true,
+          schema: SCHEMA,
+          intent: { businessName: "Joe's Plumbing" },
+        },
         encodeSessionValue("org-x"),
       ),
     );

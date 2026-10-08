@@ -11,11 +11,11 @@ import {
 } from "@/lib/generation/intent";
 
 /**
- * Node-env unit coverage for the Story 1.3 capture contract — the I/O-matrix
- * mechanics that need no DOM. The schema factory is called with an identity
- * resolver `(k) => k` so assertions match on the returned translation KEY, not
- * localized text (per the spec's "Translated Zod" note). The intent
- * persistence seam is exercised against an in-memory fake storage.
+ * Node-env unit coverage for the capture contract (Story 1.3, reshaped 15.1) —
+ * the I/O-matrix mechanics that need no DOM. The schema factory is called with
+ * an identity resolver `(k) => k` so assertions match on the returned
+ * translation KEY, not localized text. The persistence seam is exercised against
+ * an in-memory fake storage.
  */
 
 // Identity resolver — the schema returns the raw translation key as the message.
@@ -37,9 +37,11 @@ function fakeStorage(initial: Record<string, string> = {}): IntentStorage & {
 }
 
 const validInput = {
+  businessName: "Joe's Plumbing",
   tradeType: "hvac",
   city: "Ottawa",
-  whatYouTrack: "jobs, quotes, and unpaid invoices",
+  description: "jobs, quotes, and unpaid invoices",
+  explicitItems: "warranties",
 } as const;
 
 describe("createPromptIntentSchema — valid input", () => {
@@ -51,6 +53,13 @@ describe("createPromptIntentSchema — valid input", () => {
     }
   });
 
+  it("accepts a valid input WITHOUT the optional explicit-items field", () => {
+    const { explicitItems: _omit, ...withoutItems } = validInput;
+    void _omit;
+    const result = schema.safeParse(withoutItems);
+    expect(result.success).toBe(true);
+  });
+
   it("accepts every fixed trade key", () => {
     for (const tradeType of TRADE_KEYS) {
       const result = schema.safeParse({ ...validInput, tradeType });
@@ -58,16 +67,18 @@ describe("createPromptIntentSchema — valid input", () => {
     }
   });
 
-  it("trims surrounding whitespace on city and whatYouTrack", () => {
+  it("trims surrounding whitespace on name, city, and description", () => {
     const result = schema.safeParse({
       ...validInput,
+      businessName: "  Joe's Plumbing  ",
       city: "  Ottawa  ",
-      whatYouTrack: "  jobs and invoices  ",
+      description: "  jobs and invoices  ",
     });
     expect(result.success).toBe(true);
     if (result.success) {
+      expect(result.data.businessName).toBe("Joe's Plumbing");
       expect(result.data.city).toBe("Ottawa");
-      expect(result.data.whatYouTrack).toBe("jobs and invoices");
+      expect(result.data.description).toBe("jobs and invoices");
     }
   });
 });
@@ -88,12 +99,30 @@ function expectFieldError(
 }
 
 describe("createPromptIntentSchema — empty required fields", () => {
-  it("flags a missing trade type", () => {
+  it("flags a missing business name", () => {
+    const { businessName: _omit, ...rest } = validInput;
+    void _omit;
+    const result = schema.safeParse(rest);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(
+        result.error.issues.some((i) => i.path[0] === "businessName"),
+      ).toBe(true);
+    }
+  });
+
+  it("flags an empty business name", () => {
     expectFieldError(
-      { city: "Ottawa", whatYouTrack: "jobs and invoices" },
-      "tradeType",
-      "validation.tradeRequired",
+      { ...validInput, businessName: "" },
+      "businessName",
+      "validation.businessNameRequired",
     );
+  });
+
+  it("flags a missing trade type", () => {
+    const { tradeType: _omit, ...rest } = validInput;
+    void _omit;
+    expectFieldError(rest, "tradeType", "validation.tradeRequired");
   });
 
   it("flags an empty city", () => {
@@ -104,16 +133,24 @@ describe("createPromptIntentSchema — empty required fields", () => {
     );
   });
 
-  it("flags an empty whatYouTrack", () => {
+  it("flags an empty description", () => {
     expectFieldError(
-      { ...validInput, whatYouTrack: "" },
-      "whatYouTrack",
-      "validation.trackRequired",
+      { ...validInput, description: "" },
+      "description",
+      "validation.descriptionRequired",
     );
   });
 });
 
 describe("createPromptIntentSchema — whitespace-only fields", () => {
+  it("treats a whitespace-only business name as empty", () => {
+    expectFieldError(
+      { ...validInput, businessName: "   " },
+      "businessName",
+      "validation.businessNameRequired",
+    );
+  });
+
   it("treats a whitespace-only city as empty", () => {
     expectFieldError(
       { ...validInput, city: "   " },
@@ -122,16 +159,24 @@ describe("createPromptIntentSchema — whitespace-only fields", () => {
     );
   });
 
-  it("treats a whitespace-only whatYouTrack as empty", () => {
+  it("treats a whitespace-only description as empty", () => {
     expectFieldError(
-      { ...validInput, whatYouTrack: "   " },
-      "whatYouTrack",
-      "validation.trackRequired",
+      { ...validInput, description: "   " },
+      "description",
+      "validation.descriptionRequired",
     );
   });
 });
 
 describe("createPromptIntentSchema — over-length input", () => {
+  it("rejects a business name over 80 characters", () => {
+    expectFieldError(
+      { ...validInput, businessName: "a".repeat(81) },
+      "businessName",
+      "validation.businessNameTooLong",
+    );
+  });
+
   it("rejects a city over 80 characters", () => {
     expectFieldError(
       { ...validInput, city: "a".repeat(81) },
@@ -140,28 +185,38 @@ describe("createPromptIntentSchema — over-length input", () => {
     );
   });
 
-  it("rejects a whatYouTrack over 280 characters", () => {
+  it("rejects a description over 280 characters", () => {
     expectFieldError(
-      { ...validInput, whatYouTrack: "a".repeat(281) },
-      "whatYouTrack",
-      "validation.trackTooLong",
+      { ...validInput, description: "a".repeat(281) },
+      "description",
+      "validation.descriptionTooLong",
     );
   });
 
-  it("rejects a too-short whatYouTrack", () => {
+  it("rejects a too-short description", () => {
     expectFieldError(
-      { ...validInput, whatYouTrack: "ab" },
-      "whatYouTrack",
-      "validation.trackRequired",
+      { ...validInput, description: "ab" },
+      "description",
+      "validation.descriptionRequired",
+    );
+  });
+
+  it("rejects an explicit-items field over 280 characters", () => {
+    expectFieldError(
+      { ...validInput, explicitItems: "a".repeat(281) },
+      "explicitItems",
+      "validation.explicitItemsTooLong",
     );
   });
 });
 
 describe("saveIntent → readIntent round-trip", () => {
   const intent: GenerationIntent = {
+    businessName: "Sudbury Service Co",
     tradeType: "plumbing",
     city: "Sudbury",
-    whatYouTrack: "service calls and recurring maintenance",
+    description: "service calls and recurring maintenance",
+    explicitItems: "equipment",
     submittedLocale: "fr",
   };
 
@@ -181,12 +236,27 @@ describe("saveIntent → readIntent round-trip", () => {
     expect(readIntent(storage)).toBeNull();
   });
 
+  it("returns null for a stale pre-15.1 stored payload (shape mismatch)", () => {
+    // The old shape used `whatYouTrack` and had no `businessName`; it must fail
+    // the revalidating parser so a stale intent degrades safely.
+    const storage = fakeStorage({
+      [INTENT_STORAGE_KEY]: JSON.stringify({
+        tradeType: "hvac",
+        city: "Ottawa",
+        whatYouTrack: "jobs",
+        submittedLocale: "en",
+      }),
+    });
+    expect(readIntent(storage)).toBeNull();
+  });
+
   it("returns null for a structurally invalid stored payload", () => {
     const storage = fakeStorage({
       [INTENT_STORAGE_KEY]: JSON.stringify({
+        businessName: "X",
         tradeType: "not_a_real_trade",
         city: "Ottawa",
-        whatYouTrack: "jobs",
+        description: "jobs",
         submittedLocale: "en",
       }),
     });
@@ -196,9 +266,10 @@ describe("saveIntent → readIntent round-trip", () => {
   it("returns null for an out-of-range stored payload", () => {
     const storage = fakeStorage({
       [INTENT_STORAGE_KEY]: JSON.stringify({
+        businessName: "X",
         tradeType: "hvac",
         city: "x".repeat(81),
-        whatYouTrack: "jobs and invoices",
+        description: "jobs and invoices",
         submittedLocale: "en",
       }),
     });

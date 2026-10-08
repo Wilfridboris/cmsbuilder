@@ -64,6 +64,7 @@ next-env.d.ts
 /scheza-marketing/
 /scheza-marketing-v1/
 /scheza-brand-kit/
+/scheza-bot/
 
 # Playwright MCP test artifacts (screenshots, snapshots, console logs)
 .playwright-mcp/

@@ -20,7 +20,8 @@ import type { NextRequest } from "next/server";
  * both are mocked here. Their own logic is unit-tested against mock clients in
  * `auth-org.test.ts` / `claim.test.ts` (kept there to avoid the mock shadowing
  * the real resolver — mirrors the 2.2 placement decision). `CURRENT_POLICY_VERSION`
- * is imported by the route from `@/app/api/claim/route`, which is real here.
+ * is imported by the route from `@/lib/claim/policy` (relocated out of the route
+ * module in Story 15.1), which is real here.
  */
 
 const verifyOtp = vi.fn();
@@ -106,7 +107,7 @@ describe("GET /auth/confirm — login / invite / claim re-entry (existing member
 describe("GET /auth/confirm — first claim land (no membership yet)", () => {
   it("finalizes the claim by email, writes consent + policy metadata, and lands /{slug}", async () => {
     const { GET } = await import("@/app/auth/confirm/route");
-    const { CURRENT_POLICY_VERSION } = await import("@/app/api/claim/route");
+    const { CURRENT_POLICY_VERSION } = await import("@/lib/claim/policy");
     resolveUserPrimaryOrgSlug.mockResolvedValue(null);
 
     const res = await GET(
