@@ -99,6 +99,11 @@ import { editorChatSchema } from "./schemas";
 
 export const dynamic = "force-dynamic";
 
+// One Gemini call (no retry) against the 45s per-call wall. The editor's structured
+// output is small and returns in a few seconds, but set an explicit ceiling above the
+// wall so a slow call completes rather than being cut by Vercel's default duration.
+export const maxDuration = 60;
+
 /** The server result contract (model -> route -> client). `assistantText` is always a translated human string. */
 export type EditorChatResult = {
   kind: "applied" | "clarify" | "confirm" | "declined" | "rejected" | "degraded";

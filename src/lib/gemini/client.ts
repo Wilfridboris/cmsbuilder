@@ -13,7 +13,7 @@ import { HARDENED_SYSTEM_PROMPT } from "@/lib/gemini/prompts";
  *   - exactly ONE structured `gemini-2.0-flash` call;
  *   - `systemInstruction: HARDENED_SYSTEM_PROMPT` on 100% of calls (NFR-S5);
  *   - `responseMimeType: 'application/json'` + a caller-supplied `responseSchema`;
- *   - a hard 15s wall via `Promise.race` against a `setTimeout` reject, AND an
+ *   - a hard wall via `Promise.race` against a `setTimeout` reject, AND an
  *     `AbortSignal` passed to the SDK. Belt-and-suspenders: the race guarantees
  *     the caller resolves even if the SDK hangs past the abort; the abort lets
  *     the SDK stop work when it honors the signal. The timer is always cleared.
@@ -85,10 +85,24 @@ export function isModelNotFoundError(err: unknown): boolean {
   return false;
 }
 
+/**
+ * Default per-call wall. The original 15s (from the `gemini-2.0-flash` era) is far
+ * too short for the live model: a full structured generation on `gemini-3.8-flash`
+ * (hardened system prompt + `GENERATION_RESPONSE_SCHEMA` + 5-8 seed rows per table)
+ * measures ~25-31s end to end — so EVERY `/api/generate` attempt aborted at exactly
+ * 15s, both retries failed, and the route served the Story 1.5 fallback template for
+ * 100% of generations (observed in prod: a single `Gemini timeout` error cluster,
+ * never a model-404 or missing-key error). 45s clears the measured worst case with
+ * margin. Disabling model "thinking" does NOT help (it saves <1s); the latency is the
+ * size of the structured output, so a longer wall is the fix. Callers that retry once
+ * must size their route `maxDuration` to cover 2x this (see `/api/generate`).
+ */
+export const DEFAULT_GEMINI_TIMEOUT_MS = 45000;
+
 export async function callGeminiWithTimeout<T>(
   userPrompt: string,
   responseSchema: object,
-  timeoutMs = 15000,
+  timeoutMs = DEFAULT_GEMINI_TIMEOUT_MS,
 ): Promise<T> {
   const ai = getClient();
   const controller = new AbortController();

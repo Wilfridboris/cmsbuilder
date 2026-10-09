@@ -51,6 +51,11 @@ import { analyzeInputSchema } from "../schemas";
 
 export const dynamic = "force-dynamic";
 
+// Shares the generation pipeline's Gemini client (45s per-call wall) and retries the
+// mapping call EXACTLY once, so the worst case is ~2x45s. Set an explicit ceiling so
+// a genuinely slow mapping is never cut mid-retry by Vercel's default duration.
+export const maxDuration = 120;
+
 export async function POST(
   req: NextRequest,
 ): Promise<NextResponse<ApiResponse<ImportProposal>>> {

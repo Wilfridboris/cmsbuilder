@@ -61,6 +61,13 @@ import {
 // Request-time only: needs cookies + the Gemini/Supabase env, never prerendered.
 export const dynamic = "force-dynamic";
 
+// A real structured generation on `gemini-3.8-flash` runs ~25-31s, and this route
+// retries the Gemini call EXACTLY once (see the double-failure path below), so the
+// worst case is ~2x the 45s per-call wall. Without an explicit ceiling Vercel's
+// default function duration can kill the request mid-retry. 120s covers 2x45s plus
+// provisioning + read-back with margin.
+export const maxDuration = 120;
+
 /** The payload the reveal renders: the schema plus each table's seeded rows. */
 export type GenerateResponse = {
   schema: SchemaDefinition;
